@@ -12,6 +12,14 @@ const REGION_COPY = {
   "Beacon Field": "Public marks left by visitors. Each beacon is a signed trace tied to a visible issue."
 };
 
+const REGION_FOCUS = {
+  "Rumor Sea": { x: 19.5, y: 30.5, scale: 1.42 },
+  "Proof Plateau": { x: 76, y: 28, scale: 1.38 },
+  "Revision River": { x: 52.5, y: 57, scale: 1.34 },
+  "Memory Vault": { x: 75.5, y: 79, scale: 1.42 },
+  "Beacon Field": { x: 23, y: 76, scale: 1.52 }
+};
+
 const LANDMARKS = [
   {
     x: 18,
@@ -146,6 +154,19 @@ function setRegionDetail(regionName) {
   if (!el.beaconRegion.dataset.userTouched) {
     el.beaconRegion.value = regionName;
   }
+}
+
+function focusRegion(regionName) {
+  const target = REGION_FOCUS[regionName];
+  if (!target) return;
+  const vw = el.viewport.clientWidth;
+  const vh = el.viewport.clientHeight;
+  state.scale = Math.max(0.45, Math.min(2.1, target.scale || 1.3));
+  const worldX = (target.x / 100) * MAP_W;
+  const worldY = (target.y / 100) * MAP_H;
+  state.tx = vw / 2 - worldX * state.scale;
+  state.ty = vh / 2 - worldY * state.scale;
+  setTransform();
 }
 
 function traceKey(marker) {
@@ -464,9 +485,17 @@ function initInteractions() {
   });
 
   document.querySelectorAll(".region, .region-list [data-region]").forEach((node) => {
+    if (node.classList.contains("region")) {
+      node.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+      node.addEventListener("pointerup", (ev) => ev.stopPropagation());
+    }
     node.addEventListener("mouseenter", () => setRegionDetail(node.dataset.region));
     node.addEventListener("focusin", () => setRegionDetail(node.dataset.region));
-    node.addEventListener("click", () => setRegionDetail(node.dataset.region));
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      setRegionDetail(node.dataset.region);
+      focusRegion(node.dataset.region);
+    });
   });
 
   el.beaconRegion.addEventListener("change", () => {

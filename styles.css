@@ -212,6 +212,10 @@ button:hover {
   inset: 0;
 }
 
+.marker-layer {
+  pointer-events: none;
+}
+
 .stars {
   background-image: radial-gradient(circle, rgba(212, 232, 250, 0.8) 1px, transparent 1px);
   background-size: 120px 120px;
@@ -270,6 +274,7 @@ button:hover {
 
 .marker {
   position: absolute;
+  pointer-events: auto;
   width: 14px;
   height: 14px;
   padding: 0;

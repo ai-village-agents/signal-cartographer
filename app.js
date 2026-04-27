@@ -4,6 +4,11 @@ const ISSUE_LABEL = "beacon";
 const MAP_W = 1600;
 const MAP_H = 1000;
 const SVG_NS = "http://www.w3.org/2000/svg";
+const LEDGER_REGION_DEFAULT = "All regions";
+const LEDGER_POSTURE_DEFAULT = "All postures";
+const LEDGER_QUERY_PARAM_REGION = "ledgerRegion";
+const LEDGER_QUERY_PARAM_POSTURE = "ledgerPosture";
+const LEDGER_QUERY_PARAM_SEARCH = "ledgerSearch";
 
 const REGION_COPY = {
   "Rumor Sea": "Signals arrive noisy here. Claims are easy to launch and hard to verify.",
@@ -218,15 +223,21 @@ function getMarkerHash(marker) {
 }
 
 function getPermalinkStatus(target) {
+  const activeLedgerFilters = getActiveLedgerFilterDescriptions();
+  const ledgerSentence = activeLedgerFilters.length > 0
+    ? ` Includes ledger filters: ${activeLedgerFilters.join(", ")}.`
+    : "";
+
   if (!target) {
-    return "This is the base world link with no exact region or trace selected.";
+    return `This is the base world link with no exact region or trace selected.${ledgerSentence}`;
   }
 
   if (target.type === "region") {
     const regionName = Object.keys(REGION_FOCUS).find((name) => toSlug(name) === target.slug);
-    return regionName
+    const message = regionName
       ? `This exact link points to the ${regionName} region.`
       : "This exact link points to a specific region view.";
+    return `${message}${ledgerSentence}`;
   }
 
   if (target.type === "landmark") {
@@ -235,9 +246,10 @@ function getPermalinkStatus(target) {
       : "";
     const landmark = LANDMARKS.find((item) => toSlug(item.title) === target.slug);
     const title = activeLandmarkTitle || (landmark && landmark.title) || "";
-    return title
+    const message = title
       ? `This exact link points to landmark: ${title}.`
       : "This exact link points to a specific landmark trace.";
+    return `${message}${ledgerSentence}`;
   }
 
   if (target.type === "beacon") {
@@ -247,29 +259,124 @@ function getPermalinkStatus(target) {
       (item) => parseIssueNumber(item && item.issueNumber) === target.issueNumber
     );
     const title = activeTitle || (matchedBeacon && matchedBeacon.title) || "";
-    return title
+    const message = title
       ? `This exact link points to public beacon #${target.issueNumber}: ${title}.`
       : `This exact link points to public beacon #${target.issueNumber}.`;
+    return `${message}${ledgerSentence}`;
   }
 
-  return "This exact link points to the current world state.";
+  return `This exact link points to the current world state.${ledgerSentence}`;
+}
+
+function getSelectOptionValues(selectNode) {
+  if (!selectNode || !Array.isArray(Array.from(selectNode.options || []))) {
+    return new Set();
+  }
+  return new Set(Array.from(selectNode.options).map((option) => option.value));
+}
+
+function getLedgerControlValues() {
+  return {
+    region: (el.ledgerRegionFilter && el.ledgerRegionFilter.value) || LEDGER_REGION_DEFAULT,
+    posture: (el.ledgerPostureFilter && el.ledgerPostureFilter.value) || LEDGER_POSTURE_DEFAULT,
+    search: ((el.ledgerSearchFilter && el.ledgerSearchFilter.value) || "").trim()
+  };
+}
+
+function getActiveLedgerFilterDescriptions() {
+  const values = getLedgerControlValues();
+  const active = [];
+  if (values.region && values.region !== LEDGER_REGION_DEFAULT) {
+    active.push(`region = ${values.region}`);
+  }
+  if (values.posture && values.posture !== LEDGER_POSTURE_DEFAULT) {
+    active.push(`posture = ${values.posture}`);
+  }
+  if (values.search) {
+    active.push(`search = "${values.search}"`);
+  }
+  return active;
+}
+
+function buildShareableUrl(hashValue = window.location.hash) {
+  const url = new URL(window.location.href);
+  const params = url.searchParams;
+  const values = getLedgerControlValues();
+
+  params.delete(LEDGER_QUERY_PARAM_REGION);
+  params.delete(LEDGER_QUERY_PARAM_POSTURE);
+  params.delete(LEDGER_QUERY_PARAM_SEARCH);
+
+  if (values.region && values.region !== LEDGER_REGION_DEFAULT) {
+    params.set(LEDGER_QUERY_PARAM_REGION, values.region);
+  }
+  if (values.posture && values.posture !== LEDGER_POSTURE_DEFAULT) {
+    params.set(LEDGER_QUERY_PARAM_POSTURE, values.posture);
+  }
+  if (values.search) {
+    params.set(LEDGER_QUERY_PARAM_SEARCH, values.search);
+  }
+
+  const nextSearch = params.toString();
+  url.search = nextSearch ? `?${nextSearch}` : "";
+  url.hash = hashValue || "";
+  return url.toString();
+}
+
+function replaceUrlInPlace(nextUrl) {
+  if (window.history && typeof window.history.replaceState === "function") {
+    window.history.replaceState(null, "", nextUrl);
+  }
+}
+
+function syncLedgerUrlState() {
+  const nextUrl = buildShareableUrl();
+  if (nextUrl !== window.location.href) {
+    replaceUrlInPlace(nextUrl);
+  }
+}
+
+function restoreLedgerFiltersFromUrl() {
+  const url = new URL(window.location.href);
+  const urlRegion = url.searchParams.get(LEDGER_QUERY_PARAM_REGION);
+  const urlPosture = url.searchParams.get(LEDGER_QUERY_PARAM_POSTURE);
+  const urlSearch = url.searchParams.get(LEDGER_QUERY_PARAM_SEARCH);
+  const allowedRegions = getSelectOptionValues(el.ledgerRegionFilter);
+  const allowedPostures = getSelectOptionValues(el.ledgerPostureFilter);
+
+  if (el.ledgerRegionFilter && urlRegion && allowedRegions.has(urlRegion)) {
+    el.ledgerRegionFilter.value = urlRegion;
+  }
+  if (el.ledgerPostureFilter && urlPosture && allowedPostures.has(urlPosture)) {
+    el.ledgerPostureFilter.value = urlPosture;
+  }
+  if (el.ledgerSearchFilter && urlSearch !== null) {
+    el.ledgerSearchFilter.value = urlSearch;
+  }
+}
+
+function handleLedgerFilterChange() {
+  syncLedgerUrlState();
+  renderBeaconLedger();
+  renderPermalinkPanel();
 }
 
 function renderPermalinkPanel() {
   if (!el.permalinkField || !el.openPermalinkLink || !el.permalinkStatus) return;
-  const currentUrl = window.location.href;
+  const currentUrl = buildShareableUrl();
   el.permalinkField.value = currentUrl;
   el.openPermalinkLink.href = currentUrl;
   el.permalinkStatus.textContent = getPermalinkStatus(parseHashTarget());
 }
 
 function setHash(hashValue) {
-  if (!hashValue || window.location.hash === hashValue) {
+  const nextUrl = buildShareableUrl(hashValue);
+  if (!hashValue || window.location.href === nextUrl) {
     renderPermalinkPanel();
     return;
   }
   if (window.history && typeof window.history.replaceState === "function") {
-    window.history.replaceState(null, "", hashValue);
+    window.history.replaceState(null, "", nextUrl);
   } else {
     window.location.hash = hashValue;
   }
@@ -631,10 +738,11 @@ function publicBeaconLabel(count) {
 }
 
 function getLedgerFilters() {
+  const controls = getLedgerControlValues();
   return {
-    region: (el.ledgerRegionFilter && el.ledgerRegionFilter.value) || "All regions",
-    posture: (el.ledgerPostureFilter && el.ledgerPostureFilter.value) || "All postures",
-    query: ((el.ledgerSearchFilter && el.ledgerSearchFilter.value) || "").trim().toLowerCase()
+    region: controls.region,
+    posture: controls.posture,
+    query: controls.search.toLowerCase()
   };
 }
 
@@ -1064,31 +1172,34 @@ async function fetchBeaconIssues() {
     page += 1;
   }
 
-  let beacons = normalizeBeaconIssues(all);
-  if (beacons.length > 0 || all.length > 0) {
-    return beacons;
-  }
-
   const repoMeta = await fetchJson(`https://api.github.com/repos/${OWNER}/${REPO}`);
   const openCount = Number(repoMeta && repoMeta.open_issues_count);
-  if (!Number.isFinite(openCount) || openCount <= 0) {
-    return beacons;
+  const shouldProbeDirectIssues =
+    all.length === 0 || (Number.isFinite(openCount) && openCount > all.length);
+
+  if (!shouldProbeDirectIssues) {
+    return normalizeBeaconIssues(all);
   }
 
-  const probeLimit = Math.max(5, Math.min(25, Math.ceil(openCount) + 5));
-  const probedIssues = [];
+  const probeLimit = Math.max(5, Math.min(25, Math.ceil(openCount || 0) + 5));
+  const mergedIssues = new Map();
+  all.forEach((issue) => {
+    if (issue && Number.isFinite(Number(issue.number))) {
+      mergedIssues.set(Number(issue.number), issue);
+    }
+  });
+
   for (let issueNumber = 1; issueNumber <= probeLimit; issueNumber += 1) {
     const issue = await fetchJson(
       `https://api.github.com/repos/${OWNER}/${REPO}/issues/${issueNumber}`,
       { allow404: true }
     );
     if (issue && !issue.pull_request) {
-      probedIssues.push(issue);
+      mergedIssues.set(issue.number, issue);
     }
   }
 
-  beacons = normalizeBeaconIssues(probedIssues);
-  return beacons;
+  return normalizeBeaconIssues(Array.from(mergedIssues.values()));
 }
 
 function setStatus(message, isError = false) {
@@ -1142,6 +1253,8 @@ function initInteractions() {
   let copyBtnResetTimer = null;
 
   recenter();
+  restoreLedgerFiltersFromUrl();
+  syncLedgerUrlState();
 
   window.addEventListener("resize", recenter);
   window.addEventListener("hashchange", () => {
@@ -1224,20 +1337,20 @@ function initInteractions() {
   }
 
   if (el.ledgerRegionFilter) {
-    el.ledgerRegionFilter.addEventListener("change", renderBeaconLedger);
+    el.ledgerRegionFilter.addEventListener("change", handleLedgerFilterChange);
   }
 
   if (el.ledgerPostureFilter) {
-    el.ledgerPostureFilter.addEventListener("change", renderBeaconLedger);
+    el.ledgerPostureFilter.addEventListener("change", handleLedgerFilterChange);
   }
 
   if (el.ledgerSearchFilter) {
-    el.ledgerSearchFilter.addEventListener("input", renderBeaconLedger);
+    el.ledgerSearchFilter.addEventListener("input", handleLedgerFilterChange);
   }
 
   el.recenterBtn.addEventListener("click", recenter);
   el.copyPermalinkBtn.addEventListener("click", async () => {
-    const currentUrl = window.location.href;
+    const currentUrl = buildShareableUrl();
     let copied = false;
 
     if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {

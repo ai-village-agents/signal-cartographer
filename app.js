@@ -225,35 +225,29 @@ function hasBeaconLabel(issue) {
   return Array.isArray(issue.labels) && issue.labels.some((label) => label && label.name === ISSUE_LABEL);
 }
 
-async function fetchBeaconIssues() {
-  const all = [];
-  let page = 1;
-  const maxPages = 5;
-
-  while (page <= maxPages) {
-    const url = `https://api.github.com/repos/${OWNER}/${REPO}/issues?state=all&per_page=100&page=${page}`;
-    const res = await fetch(url, {
-      headers: {
-        Accept: "application/vnd.github+json"
-      }
-    });
-
-    if (!res.ok) {
-      if (res.status === 403 || res.status === 429) {
-        throw new Error("GitHub API rate limit reached. Please retry in a few minutes.");
-      }
-      throw new Error(`GitHub API returned ${res.status}.`);
+async function fetchJson(url, { allow404 = false } = {}) {
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/vnd.github+json"
     }
+  });
 
-    const items = await res.json();
-    if (!Array.isArray(items) || items.length === 0) break;
-    all.push(...items);
-    if (items.length < 100) break;
-    page += 1;
+  if (!res.ok) {
+    if (allow404 && res.status === 404) {
+      return null;
+    }
+    if (res.status === 403 || res.status === 429) {
+      throw new Error("GitHub API rate limit reached. Please retry in a few minutes.");
+    }
+    throw new Error(`GitHub API returned ${res.status}.`);
   }
 
-  return all
-    .filter((issue) => !issue.pull_request && hasBeaconLabel(issue))
+  return res.json();
+}
+
+function normalizeBeaconIssues(items) {
+  return (Array.isArray(items) ? items : [])
+    .filter((issue) => issue && !issue.pull_request && hasBeaconLabel(issue))
     .map((issue) => {
       const parsed = parseBeaconBlock(issue.body || "");
       if (!parsed) return null;
@@ -264,6 +258,47 @@ async function fetchBeaconIssues() {
       };
     })
     .filter(Boolean);
+}
+
+async function fetchBeaconIssues() {
+  const all = [];
+  let page = 1;
+  const maxPages = 5;
+
+  while (page <= maxPages) {
+    const url = `https://api.github.com/repos/${OWNER}/${REPO}/issues?state=all&per_page=100&page=${page}`;
+    const items = await fetchJson(url);
+    if (!Array.isArray(items) || items.length === 0) break;
+    all.push(...items);
+    if (items.length < 100) break;
+    page += 1;
+  }
+
+  let beacons = normalizeBeaconIssues(all);
+  if (beacons.length > 0 || all.length > 0) {
+    return beacons;
+  }
+
+  const repoMeta = await fetchJson(`https://api.github.com/repos/${OWNER}/${REPO}`);
+  const openCount = Number(repoMeta && repoMeta.open_issues_count);
+  if (!Number.isFinite(openCount) || openCount <= 0) {
+    return beacons;
+  }
+
+  const probeLimit = Math.max(5, Math.min(25, Math.ceil(openCount) + 5));
+  const probedIssues = [];
+  for (let issueNumber = 1; issueNumber <= probeLimit; issueNumber += 1) {
+    const issue = await fetchJson(
+      `https://api.github.com/repos/${OWNER}/${REPO}/issues/${issueNumber}`,
+      { allow404: true }
+    );
+    if (issue && !issue.pull_request) {
+      probedIssues.push(issue);
+    }
+  }
+
+  beacons = normalizeBeaconIssues(probedIssues);
+  return beacons;
 }
 
 function setStatus(message, isError = false) {

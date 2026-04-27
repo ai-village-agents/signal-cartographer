@@ -98,6 +98,10 @@ const el = {
   beaconColor: document.getElementById("beaconColor"),
   statusMsg: document.getElementById("statusMsg"),
   tracePanel: document.getElementById("tracePanel"),
+  permalinkStatus: document.getElementById("permalinkStatus"),
+  permalinkField: document.getElementById("permalinkField"),
+  copyPermalinkBtn: document.getElementById("copyPermalinkBtn"),
+  openPermalinkLink: document.getElementById("openPermalinkLink"),
   beaconLedger: document.getElementById("beaconLedger"),
   regionSurvey: document.getElementById("regionSurvey"),
   recenterBtn: document.getElementById("recenterBtn"),
@@ -203,13 +207,63 @@ function getMarkerHash(marker) {
   return "";
 }
 
+function getPermalinkStatus(target) {
+  if (!target) {
+    return "This is the base world link with no exact region or trace selected.";
+  }
+
+  if (target.type === "region") {
+    const regionName = Object.keys(REGION_FOCUS).find((name) => toSlug(name) === target.slug);
+    return regionName
+      ? `This exact link points to the ${regionName} region.`
+      : "This exact link points to a specific region view.";
+  }
+
+  if (target.type === "landmark") {
+    const activeLandmarkTitle = state.activeTrace && state.activeTrace.type === "landmark"
+      ? state.activeTrace.title
+      : "";
+    const landmark = LANDMARKS.find((item) => toSlug(item.title) === target.slug);
+    const title = activeLandmarkTitle || (landmark && landmark.title) || "";
+    return title
+      ? `This exact link points to landmark: ${title}.`
+      : "This exact link points to a specific landmark trace.";
+  }
+
+  if (target.type === "beacon") {
+    const activeIssueNumber = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+    const activeTitle = activeIssueNumber === target.issueNumber ? state.activeTrace.title : "";
+    const matchedBeacon = state.beacons.find(
+      (item) => parseIssueNumber(item && item.issueNumber) === target.issueNumber
+    );
+    const title = activeTitle || (matchedBeacon && matchedBeacon.title) || "";
+    return title
+      ? `This exact link points to public beacon #${target.issueNumber}: ${title}.`
+      : `This exact link points to public beacon #${target.issueNumber}.`;
+  }
+
+  return "This exact link points to the current world state.";
+}
+
+function renderPermalinkPanel() {
+  if (!el.permalinkField || !el.openPermalinkLink || !el.permalinkStatus) return;
+  const currentUrl = window.location.href;
+  el.permalinkField.value = currentUrl;
+  el.openPermalinkLink.href = currentUrl;
+  el.permalinkStatus.textContent = getPermalinkStatus(parseHashTarget());
+}
+
 function setHash(hashValue) {
-  if (!hashValue || window.location.hash === hashValue) return;
-  if (window.history && typeof window.history.replaceState === "function") {
-    window.history.replaceState(null, "", hashValue);
+  if (!hashValue || window.location.hash === hashValue) {
+    renderPermalinkPanel();
     return;
   }
-  window.location.hash = hashValue;
+  if (window.history && typeof window.history.replaceState === "function") {
+    window.history.replaceState(null, "", hashValue);
+  } else {
+    window.location.hash = hashValue;
+  }
+  renderPermalinkPanel();
 }
 
 function updateHashForRegion(regionName) {
@@ -510,6 +564,7 @@ function setActiveTrace(marker) {
   renderBeacons();
   renderTracePanel();
   renderBeaconLedger();
+  renderPermalinkPanel();
 }
 
 function addMarker(layer, marker) {
@@ -721,9 +776,17 @@ function buildIssueUrl(values) {
 }
 
 function initInteractions() {
+  let copyBtnResetTimer = null;
+
   recenter();
 
   window.addEventListener("resize", recenter);
+  window.addEventListener("hashchange", () => {
+    const restored = restoreHashSelection();
+    if (!restored) {
+      renderPermalinkPanel();
+    }
+  });
 
   el.viewport.addEventListener("wheel", (ev) => {
     ev.preventDefault();
@@ -794,6 +857,37 @@ function initInteractions() {
   });
 
   el.recenterBtn.addEventListener("click", recenter);
+  el.copyPermalinkBtn.addEventListener("click", async () => {
+    const currentUrl = window.location.href;
+    let copied = false;
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      try {
+        await navigator.clipboard.writeText(currentUrl);
+        copied = true;
+      } catch (err) {
+        copied = false;
+      }
+    }
+
+    if (!copied && el.permalinkField && typeof document.execCommand === "function") {
+      try {
+        el.permalinkField.focus();
+        el.permalinkField.select();
+        copied = Boolean(document.execCommand("copy"));
+      } catch (err) {
+        copied = false;
+      }
+    }
+
+    if (copyBtnResetTimer) {
+      clearTimeout(copyBtnResetTimer);
+    }
+    el.copyPermalinkBtn.textContent = copied ? "Copied" : "Copy failed";
+    copyBtnResetTimer = window.setTimeout(() => {
+      el.copyPermalinkBtn.textContent = "Copy link";
+    }, 1200);
+  });
 
   el.beaconForm.addEventListener("submit", (ev) => {
     ev.preventDefault();
@@ -821,6 +915,7 @@ function initInteractions() {
 
   setRegionDetail("Beacon Field");
   renderTracePanel();
+  renderPermalinkPanel();
 }
 
 async function initBeacons() {

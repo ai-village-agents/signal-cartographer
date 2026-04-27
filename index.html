@@ -53,6 +53,26 @@
         </section>
 
         <section>
+          <h2>Exact Link</h2>
+          <div class="permalink-panel">
+            <p class="small" id="permalinkStatus">
+              Share this world state with a direct URL.
+            </p>
+            <input
+              type="text"
+              id="permalinkField"
+              class="permalink-input"
+              readonly
+              aria-label="Exact deep link"
+            />
+            <div class="permalink-actions">
+              <button id="copyPermalinkBtn" type="button">Copy link</button>
+              <a id="openPermalinkLink" class="permalink-link" href="#" target="_blank" rel="noopener">Open exact view ↗</a>
+            </div>
+          </div>
+        </section>
+
+        <section>
           <h2>Beacon Ledger</h2>
           <div class="ledger-panel" id="beaconLedger" aria-live="polite">
             <p class="small">Compiling recent public traces…</p>

@@ -1014,6 +1014,27 @@ function renderRegionSurvey() {
       const sorted = [...(beaconsByRegion.get(regionName) || [])].sort(compareBeaconLedger);
       const latest = sorted[0] || null;
       latestByRegion.set(regionName, latest);
+      const postureCounts = sorted.reduce(
+        (acc, beacon) => {
+          const posture = getBeaconPosture(beacon);
+          if (posture.code === "full") acc.full += 1;
+          if (posture.code === "evidence") acc.evidence += 1;
+          if (posture.code === "revision") acc.revision += 1;
+          if (posture.code === "minimal") acc.minimal += 1;
+          return acc;
+        },
+        { full: 0, evidence: 0, revision: 0, minimal: 0 }
+      );
+      const accountabilityLine = `Accountability: ${postureCounts.full} evidence + revision · ${postureCounts.evidence} evidence only · ${postureCounts.revision} revision only · ${postureCounts.minimal} minimal trace.`;
+      const actionsHtml = latest
+        ? `
+          <div class="survey-actions">
+            <button type="button" class="survey-action" data-survey-jump="${escapeHtml(regionName)}">Jump to latest beacon</button>
+            <button type="button" class="survey-action" data-survey-ledger-region="${escapeHtml(regionName)}">Browse region ledger</button>
+            ${postureCounts.full > 0 ? `<button type="button" class="survey-action" data-survey-ledger-full="${escapeHtml(regionName)}">Browse evidence + revision</button>` : ""}
+          </div>
+        `
+        : "";
 
       const latestLine = latest
         ? (() => {
@@ -1037,8 +1058,9 @@ function renderRegionSurvey() {
               <span class="survey-pill">${sorted.length} public beacon${sorted.length === 1 ? "" : "s"}</span>
             </span>
             <span class="survey-latest${latest ? "" : " small"}">${escapeHtml(latestLine)}</span>
+            <span class="survey-accountability">${escapeHtml(accountabilityLine)}</span>
           </button>
-          ${latest ? `<div class="survey-actions"><button type="button" class="survey-action" data-survey-jump="${escapeHtml(regionName)}">Jump to latest beacon</button></div>` : ""}
+          ${actionsHtml}
         </li>
       `;
     })
@@ -1063,6 +1085,35 @@ function renderRegionSurvey() {
       const latest = latestByRegion.get(regionName);
       if (!latest) return;
       activateMarker({ ...latest, type: "beacon" }, { focus: true, updateHash: true });
+    });
+  });
+
+  el.regionSurvey.querySelectorAll("[data-survey-ledger-region]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const regionName = node.dataset.surveyLedgerRegion;
+      if (!regionName) return;
+      if (el.ledgerRegionFilter) {
+        el.ledgerRegionFilter.value = regionName;
+      }
+      handleLedgerFilterChange();
+    });
+  });
+
+  el.regionSurvey.querySelectorAll("[data-survey-ledger-full]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const regionName = node.dataset.surveyLedgerFull;
+      if (!regionName) return;
+      if (el.ledgerRegionFilter) {
+        el.ledgerRegionFilter.value = regionName;
+      }
+      if (el.ledgerPostureFilter) {
+        el.ledgerPostureFilter.value = "Evidence + revision";
+      }
+      handleLedgerFilterChange();
     });
   });
 }

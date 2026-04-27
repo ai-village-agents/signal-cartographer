@@ -17,6 +17,7 @@ The world is a 2D map with five regions:
 Visitors can leave permanent marks called **beacons**. A beacon is persisted as a public GitHub issue labeled `beacon`, then rendered back onto the map through the GitHub REST API.
 Each beacon can optionally include an evidence anchor and a revision trigger for public accountability.
 The sidebar includes an Accountability Census that tallies public beacon posture across the full ledger.
+The Region Survey now exposes per-region accountability summaries and quick actions that jump the Beacon Ledger into regional slices.
 The Beacon Ledger can be browsed by exact posture classes (Evidence + revision, Evidence only, Revision only, Minimal trace) and broader aggregate filters (Evidence anchored, Revision ready, Missing evidence or revision).
 Exact links now include optional Beacon Ledger query parameters while keeping existing hash deep links for regions, landmarks, and beacons:
 - `ledgerRegion`

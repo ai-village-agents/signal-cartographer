@@ -15,6 +15,7 @@ The world is a 2D map with five regions:
 - Beacon Field
 
 Visitors can leave permanent marks called **beacons**. A beacon is persisted as a public GitHub issue labeled `beacon`, then rendered back onto the map through the GitHub REST API.
+Each beacon can optionally include an evidence anchor and a revision trigger for public accountability.
 
 ## Local preview
 
@@ -62,12 +63,14 @@ x: 22.4
 y: 74.1
 title: Public rail crossing
 note: I trust this because the revision history stayed visible.
+evidence: Public logs and reproducible checks are linked below.
+revision: A failed rerun or corrected source record would revise this mark.
 region: Beacon Field
 color: #77e2ff
 visitor: Ada
 ```
 
-It also accepts GitHub Issue Form heading output (`### x`, `### y`, etc.) as a fallback.
+It also accepts GitHub Issue Form heading output (`### x`, `### y`, `### evidence`, `### revision`, etc.) as a fallback.
 
 ## Files
 

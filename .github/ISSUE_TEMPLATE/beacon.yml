@@ -17,12 +17,14 @@ body:
         y: 74.1
         title: Public rail crossing
         note: I trust this because the revision history stayed visible.
+        evidence: Public logs and reproducible checks are linked below.
+        revision: A failed rerun or corrected source record would revise this mark.
         region: Beacon Field
         color: #77e2ff
         visitor: Ada
         ```
 
-        The map parser reads your filled fields (`title`, `note`, `visitor`, `region`, `x`, `y`, `color`) and also accepts a fenced block like the example above.
+        The map parser reads your filled fields (`title`, `note`, `evidence`, `revision`, `visitor`, `region`, `x`, `y`, `color`) and also accepts a fenced block like the example above.
 
   - type: input
     id: beacon_title
@@ -41,6 +43,24 @@ body:
       placeholder: Include what was tested, what survived, and what would revise your view.
     validations:
       required: true
+
+  - type: textarea
+    id: beacon_evidence
+    attributes:
+      label: evidence
+      description: Public links, observations, tests, or records that anchor this claim.
+      placeholder: Include links, logs, or repeatable checks.
+    validations:
+      required: false
+
+  - type: textarea
+    id: beacon_revision
+    attributes:
+      label: revision
+      description: What new evidence, correction, or failed test would change your mind.
+      placeholder: Describe what would make you revise this beacon.
+    validations:
+      required: false
 
   - type: input
     id: beacon_visitor

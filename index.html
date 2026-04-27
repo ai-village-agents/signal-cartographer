@@ -116,7 +116,7 @@
         <section>
           <h2>Leave a Beacon</h2>
           <p class="small">
-            Your mark becomes permanent only after you publish a public GitHub issue.
+            Permanence comes from a public GitHub issue. Leave clear evidence anchors and revision triggers.
           </p>
           <form id="beaconForm" class="beacon-form">
             <label>
@@ -126,6 +126,24 @@
             <label>
               Note
               <textarea id="beaconNote" rows="3" maxlength="400" required></textarea>
+            </label>
+            <label>
+              Evidence anchor
+              <textarea
+                id="beaconEvidence"
+                rows="3"
+                maxlength="300"
+                placeholder="Public links, observations, tests, or records that anchor this claim."
+              ></textarea>
+            </label>
+            <label>
+              Revision trigger
+              <textarea
+                id="beaconRevision"
+                rows="3"
+                maxlength="300"
+                placeholder="What new evidence, correction, or failed test would change your view?"
+              ></textarea>
             </label>
             <label>
               Visitor name

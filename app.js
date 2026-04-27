@@ -94,6 +94,8 @@ const el = {
   beaconForm: document.getElementById("beaconForm"),
   beaconTitle: document.getElementById("beaconTitle"),
   beaconNote: document.getElementById("beaconNote"),
+  beaconEvidence: document.getElementById("beaconEvidence"),
+  beaconRevision: document.getElementById("beaconRevision"),
   beaconVisitor: document.getElementById("beaconVisitor"),
   beaconRegion: document.getElementById("beaconRegion"),
   beaconColor: document.getElementById("beaconColor"),
@@ -379,11 +381,31 @@ function renderTracePanel() {
   const link = trace.issueUrl
     ? `<p class="trace-link"><a href="${trace.issueUrl}" target="_blank" rel="noopener">Open public issue ↗</a></p>`
     : '<p class="small trace-link">Built-in landmark: part of the base map.</p>';
+  const evidence = String(trace.evidence || "").trim();
+  const revision = String(trace.revision || "").trim();
+  const evidenceSection = trace.type === "beacon" && evidence
+    ? `
+      <section class="trace-subsection">
+        <h4>Evidence anchor</h4>
+        <p>${escapeHtml(evidence)}</p>
+      </section>
+    `
+    : "";
+  const revisionSection = trace.type === "beacon" && revision
+    ? `
+      <section class="trace-subsection">
+        <h4>Revision trigger</h4>
+        <p>${escapeHtml(revision)}</p>
+      </section>
+    `
+    : "";
 
   el.tracePanel.innerHTML = `
     <h3>${escapeHtml(trace.title || "Untitled trace")}</h3>
     <div class="trace-meta">${pills.join("")}</div>
     <p class="trace-note">${escapeHtml(trace.note || "No note recorded.")}</p>
+    ${evidenceSection}
+    ${revisionSection}
     ${link}
   `;
 }
@@ -560,7 +582,7 @@ function matchesLedgerFilters(beacon, filters) {
     return false;
   }
   if (!filters.query) return true;
-  const searchable = [beacon.title, beacon.visitor, beacon.region, beacon.note]
+  const searchable = [beacon.title, beacon.visitor, beacon.region, beacon.note, beacon.evidence, beacon.revision]
     .map((value) => String(value || "").toLowerCase())
     .join(" ");
   return searchable.includes(filters.query);
@@ -614,6 +636,12 @@ function renderBeaconLedger() {
       const issueLabel = issueNumber === null ? "Issue pending" : `Issue #${issueNumber}`;
       const timestamp = formatShortTimestamp(beacon.createdAt);
       const timestampHtml = timestamp ? `<span class="ledger-pill">${escapeHtml(timestamp)}</span>` : "";
+      const evidenceHtml = beacon.evidence
+        ? '<span class="ledger-pill ledger-pill-context">Evidence noted</span>'
+        : "";
+      const revisionHtml = beacon.revision
+        ? '<span class="ledger-pill ledger-pill-context">Revision noted</span>'
+        : "";
       const isActive = active && active === traceKey(beacon);
       return `
         <li>
@@ -623,6 +651,8 @@ function renderBeaconLedger() {
             <span class="ledger-pills">
               <span class="ledger-pill">${escapeHtml(issueLabel)}</span>
               ${timestampHtml}
+              ${evidenceHtml}
+              ${revisionHtml}
             </span>
           </button>
         </li>
@@ -853,7 +883,7 @@ function renderVerificationRoute() {
 function parseBeaconBlock(text) {
   if (!text) return null;
 
-  const keys = ["x", "y", "title", "note", "region", "color", "visitor"];
+  const keys = ["x", "y", "title", "note", "evidence", "revision", "region", "color", "visitor"];
   const data = {};
   keys.forEach((k) => {
     const rx = new RegExp(`^###\\s*${k}\\s*[\\r\\n]+([\\s\\S]*?)(?=^###\\s*\\w+|$)`, "gim");
@@ -894,6 +924,8 @@ function normalizeBeacon(raw) {
     y: clamp(y),
     title: (raw.title || "Untitled beacon").toString().slice(0, 80),
     note: (raw.note || "").toString().slice(0, 400),
+    evidence: (raw.evidence || "").toString().slice(0, 300),
+    revision: (raw.revision || "").toString().slice(0, 300),
     region: (raw.region || "Beacon Field").toString().slice(0, 80),
     color,
     visitor: (raw.visitor || "Unknown").toString().slice(0, 60)
@@ -994,15 +1026,17 @@ function buildBeaconBody(values) {
     `y: ${values.y}`,
     `title: ${values.title}`,
     `note: ${values.note}`,
+    `evidence: ${values.evidence}`,
+    `revision: ${values.revision}`,
     `region: ${values.region}`,
     `color: ${values.color}`,
     `visitor: ${values.visitor}`,
     "```",
     "",
-    "Trace context:",
-    "- Why this mark matters:",
-    "- What evidence anchors it:",
-    "- What revision would change your mind:"
+    "Structured prompts:",
+    "- Note:",
+    "- Evidence anchor:",
+    "- Revision trigger:"
   ].join("\n");
 }
 
@@ -1017,6 +1051,8 @@ function buildIssueUrl(values) {
     beacon_y: String(values.y),
     beacon_title: values.title,
     beacon_note: values.note,
+    beacon_evidence: values.evidence,
+    beacon_revision: values.revision,
     beacon_region: values.region,
     beacon_color: values.color,
     beacon_visitor: values.visitor
@@ -1165,6 +1201,8 @@ function initInteractions() {
       y: Math.max(0, Math.min(100, Number(y.toFixed(1)))),
       title: el.beaconTitle.value.trim(),
       note: el.beaconNote.value.trim(),
+      evidence: el.beaconEvidence.value.trim(),
+      revision: el.beaconRevision.value.trim(),
       region: el.beaconRegion.value,
       color: el.beaconColor.value,
       visitor: el.beaconVisitor.value.trim()

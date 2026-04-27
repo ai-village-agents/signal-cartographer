@@ -67,7 +67,8 @@ const state = {
   dragStartX: 0,
   dragStartY: 0,
   selected: null,
-  beacons: []
+  beacons: [],
+  activeTrace: null
 };
 
 const el = {
@@ -86,6 +87,7 @@ const el = {
   beaconRegion: document.getElementById("beaconRegion"),
   beaconColor: document.getElementById("beaconColor"),
   statusMsg: document.getElementById("statusMsg"),
+  tracePanel: document.getElementById("tracePanel"),
   recenterBtn: document.getElementById("recenterBtn"),
   toggleLandmarks: document.getElementById("toggleLandmarks"),
   toggleBeacons: document.getElementById("toggleBeacons"),
@@ -146,10 +148,70 @@ function setRegionDetail(regionName) {
   }
 }
 
+function traceKey(marker) {
+  if (!marker) return "";
+  if (marker.issueNumber) return `beacon:${marker.issueNumber}`;
+  return `${marker.type || "marker"}:${marker.title}:${marker.x}:${marker.y}`;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function renderTracePanel() {
+  if (!el.tracePanel) return;
+  const trace = state.activeTrace;
+  if (!trace) {
+    el.tracePanel.innerHTML = '<p class="small">Click a landmark or visitor beacon to inspect it here.</p>';
+    return;
+  }
+
+  const pills = [
+    `<span class="trace-pill">${trace.type === "beacon" ? "Visitor beacon" : "Landmark"}</span>`,
+    `<span class="trace-pill">${escapeHtml(trace.region || "Unknown region")}</span>`
+  ];
+  if (trace.visitor) {
+    pills.push(`<span class="trace-pill">Visitor: ${escapeHtml(trace.visitor)}</span>`);
+  }
+  if (trace.issueNumber) {
+    pills.push(`<span class="trace-pill">Issue #${trace.issueNumber}</span>`);
+  }
+
+  const link = trace.issueUrl
+    ? `<p class="trace-link"><a href="${trace.issueUrl}" target="_blank" rel="noopener">Open public issue ↗</a></p>`
+    : '<p class="small trace-link">Built-in landmark: part of the base map.</p>';
+
+  el.tracePanel.innerHTML = `
+    <h3>${escapeHtml(trace.title || "Untitled trace")}</h3>
+    <div class="trace-meta">${pills.join("")}</div>
+    <p class="trace-note">${escapeHtml(trace.note || "No note recorded.")}</p>
+    ${link}
+  `;
+}
+
+function setActiveTrace(marker) {
+  state.activeTrace = marker
+    ? {
+        ...marker,
+        type: marker.type || (marker.issueNumber ? "beacon" : "landmark")
+      }
+    : null;
+  renderLandmarks();
+  renderBeacons();
+  renderTracePanel();
+}
+
 function addMarker(layer, marker) {
   const node = document.createElement("button");
   node.type = "button";
   node.className = "marker";
+  if (state.activeTrace && traceKey(state.activeTrace) === traceKey(marker)) {
+    node.classList.add("is-active");
+  }
   node.dataset.type = marker.type;
   node.style.left = `${marker.x}%`;
   node.style.top = `${marker.y}%`;
@@ -158,6 +220,15 @@ function addMarker(layer, marker) {
     "title",
     `${marker.title}\n${marker.region}\n${marker.note}${marker.visitor ? `\nVisitor: ${marker.visitor}` : ""}`
   );
+  node.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+  node.addEventListener("pointerup", (ev) => ev.stopPropagation());
+  node.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    setActiveTrace(marker);
+    if (marker.region) {
+      setRegionDetail(marker.region);
+    }
+  });
   layer.appendChild(node);
 }
 
@@ -437,13 +508,20 @@ function initInteractions() {
   });
 
   setRegionDetail("Beacon Field");
+  renderTracePanel();
 }
 
 async function initBeacons() {
   try {
     const beacons = await fetchBeaconIssues();
     state.beacons = beacons;
-    renderBeacons();
+    if (!state.activeTrace && beacons.length > 0) {
+      const newestBeacon = [...beacons].sort((a, b) => (b.issueNumber || 0) - (a.issueNumber || 0))[0];
+      setActiveTrace(newestBeacon);
+    } else {
+      renderBeacons();
+      renderTracePanel();
+    }
     setStatus(`${beacons.length} visitor beacon${beacons.length === 1 ? "" : "s"} loaded from public issues.`);
   } catch (err) {
     console.error(err);

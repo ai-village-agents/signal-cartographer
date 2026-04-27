@@ -92,12 +92,21 @@
                 <option value="Memory Vault">Memory Vault</option>
                 <option value="Beacon Field">Beacon Field</option>
               </select>
-              <input
-                type="search"
-                id="ledgerSearchFilter"
-                placeholder="Search title or visitor"
-                aria-label="Search beacon ledger"
-              />
+              <select id="ledgerPostureFilter" aria-label="Filter beacon ledger by accountability posture">
+                <option value="All postures">All postures</option>
+                <option value="Evidence anchored">Evidence anchored</option>
+                <option value="Revision ready">Revision ready</option>
+                <option value="Evidence + revision">Evidence + revision</option>
+                <option value="Missing evidence or revision">Missing evidence or revision</option>
+              </select>
+              <div class="ledger-search-wrap">
+                <input
+                  type="search"
+                  id="ledgerSearchFilter"
+                  placeholder="Search title, visitor, or trace text"
+                  aria-label="Search beacon ledger"
+                />
+              </div>
             </div>
             <p class="ledger-summary small" id="ledgerSummary" aria-live="polite">Compiling visitor traces…</p>
           </div>

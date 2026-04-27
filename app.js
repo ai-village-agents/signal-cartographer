@@ -107,6 +107,7 @@ const el = {
   copyPermalinkBtn: document.getElementById("copyPermalinkBtn"),
   openPermalinkLink: document.getElementById("openPermalinkLink"),
   ledgerRegionFilter: document.getElementById("ledgerRegionFilter"),
+  ledgerPostureFilter: document.getElementById("ledgerPostureFilter"),
   ledgerSearchFilter: document.getElementById("ledgerSearchFilter"),
   ledgerSummary: document.getElementById("ledgerSummary"),
   beaconLedger: document.getElementById("beaconLedger"),
@@ -359,6 +360,51 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function getBeaconPosture(beacon) {
+  const evidence = String((beacon && beacon.evidence) || "").trim();
+  const revision = String((beacon && beacon.revision) || "").trim();
+  const hasEvidence = evidence.length > 0;
+  const hasRevision = revision.length > 0;
+
+  if (hasEvidence && hasRevision) {
+    return {
+      hasEvidence,
+      hasRevision,
+      code: "full",
+      label: "Evidence + revision",
+      summary: "This beacon names both an evidence anchor and a revision trigger."
+    };
+  }
+
+  if (hasEvidence) {
+    return {
+      hasEvidence,
+      hasRevision,
+      code: "evidence",
+      label: "Evidence only",
+      summary: "This beacon names evidence, but not yet what would revise it."
+    };
+  }
+
+  if (hasRevision) {
+    return {
+      hasEvidence,
+      hasRevision,
+      code: "revision",
+      label: "Revision only",
+      summary: "This beacon names what would revise it, but not yet the evidence anchoring it."
+    };
+  }
+
+  return {
+    hasEvidence,
+    hasRevision,
+    code: "minimal",
+    label: "Minimal trace",
+    summary: "This beacon is public, but does not yet record evidence or revision fields."
+  };
+}
+
 function renderTracePanel() {
   if (!el.tracePanel) return;
   const trace = state.activeTrace;
@@ -383,6 +429,20 @@ function renderTracePanel() {
     : '<p class="small trace-link">Built-in landmark: part of the base map.</p>';
   const evidence = String(trace.evidence || "").trim();
   const revision = String(trace.revision || "").trim();
+  const posture = trace.type === "beacon" ? getBeaconPosture(trace) : null;
+  const postureSection = posture
+    ? `
+      <section class="trace-subsection trace-subsection-accountability">
+        <h4>Accountability posture</h4>
+        <p>${escapeHtml(posture.summary)}</p>
+        <div class="trace-accountability-pills">
+          <span class="trace-pill">Public issue</span>
+          <span class="trace-pill">${posture.hasEvidence ? "Evidence anchor" : "No evidence anchor"}</span>
+          <span class="trace-pill">${posture.hasRevision ? "Revision trigger" : "No revision trigger"}</span>
+        </div>
+      </section>
+    `
+    : "";
   const evidenceSection = trace.type === "beacon" && evidence
     ? `
       <section class="trace-subsection">
@@ -404,6 +464,7 @@ function renderTracePanel() {
     <h3>${escapeHtml(trace.title || "Untitled trace")}</h3>
     <div class="trace-meta">${pills.join("")}</div>
     <p class="trace-note">${escapeHtml(trace.note || "No note recorded.")}</p>
+    ${postureSection}
     ${evidenceSection}
     ${revisionSection}
     ${link}
@@ -572,6 +633,7 @@ function publicBeaconLabel(count) {
 function getLedgerFilters() {
   return {
     region: (el.ledgerRegionFilter && el.ledgerRegionFilter.value) || "All regions",
+    posture: (el.ledgerPostureFilter && el.ledgerPostureFilter.value) || "All postures",
     query: ((el.ledgerSearchFilter && el.ledgerSearchFilter.value) || "").trim().toLowerCase()
   };
 }
@@ -579,6 +641,19 @@ function getLedgerFilters() {
 function matchesLedgerFilters(beacon, filters) {
   if (!beacon) return false;
   if (filters.region && filters.region !== "All regions" && beacon.region !== filters.region) {
+    return false;
+  }
+  const posture = getBeaconPosture(beacon);
+  if (filters.posture === "Evidence anchored" && !posture.hasEvidence) {
+    return false;
+  }
+  if (filters.posture === "Revision ready" && !posture.hasRevision) {
+    return false;
+  }
+  if (filters.posture === "Evidence + revision" && !(posture.hasEvidence && posture.hasRevision)) {
+    return false;
+  }
+  if (filters.posture === "Missing evidence or revision" && posture.hasEvidence && posture.hasRevision) {
     return false;
   }
   if (!filters.query) return true;
@@ -636,10 +711,12 @@ function renderBeaconLedger() {
       const issueLabel = issueNumber === null ? "Issue pending" : `Issue #${issueNumber}`;
       const timestamp = formatShortTimestamp(beacon.createdAt);
       const timestampHtml = timestamp ? `<span class="ledger-pill">${escapeHtml(timestamp)}</span>` : "";
-      const evidenceHtml = beacon.evidence
+      const posture = getBeaconPosture(beacon);
+      const postureHtml = `<span class="ledger-pill ledger-pill-posture">${escapeHtml(posture.label)}</span>`;
+      const evidenceHtml = posture.hasEvidence
         ? '<span class="ledger-pill ledger-pill-context">Evidence noted</span>'
         : "";
-      const revisionHtml = beacon.revision
+      const revisionHtml = posture.hasRevision
         ? '<span class="ledger-pill ledger-pill-context">Revision noted</span>'
         : "";
       const isActive = active && active === traceKey(beacon);
@@ -651,6 +728,7 @@ function renderBeaconLedger() {
             <span class="ledger-pills">
               <span class="ledger-pill">${escapeHtml(issueLabel)}</span>
               ${timestampHtml}
+              ${postureHtml}
               ${evidenceHtml}
               ${revisionHtml}
             </span>
@@ -1147,6 +1225,10 @@ function initInteractions() {
 
   if (el.ledgerRegionFilter) {
     el.ledgerRegionFilter.addEventListener("change", renderBeaconLedger);
+  }
+
+  if (el.ledgerPostureFilter) {
+    el.ledgerPostureFilter.addEventListener("change", renderBeaconLedger);
   }
 
   if (el.ledgerSearchFilter) {

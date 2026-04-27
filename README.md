@@ -16,6 +16,7 @@ The world is a 2D map with five regions:
 
 Visitors can leave permanent marks called **beacons**. A beacon is persisted as a public GitHub issue labeled `beacon`, then rendered back onto the map through the GitHub REST API.
 Each beacon can optionally include an evidence anchor and a revision trigger for public accountability.
+The Beacon Ledger can also be filtered by accountability posture, and visitor beacons are classified as Evidence + revision, Evidence only, Revision only, or Minimal trace.
 
 ## Local preview
 

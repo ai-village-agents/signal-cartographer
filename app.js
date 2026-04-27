@@ -102,6 +102,9 @@ const el = {
   permalinkField: document.getElementById("permalinkField"),
   copyPermalinkBtn: document.getElementById("copyPermalinkBtn"),
   openPermalinkLink: document.getElementById("openPermalinkLink"),
+  ledgerRegionFilter: document.getElementById("ledgerRegionFilter"),
+  ledgerSearchFilter: document.getElementById("ledgerSearchFilter"),
+  ledgerSummary: document.getElementById("ledgerSummary"),
   beaconLedger: document.getElementById("beaconLedger"),
   regionSurvey: document.getElementById("regionSurvey"),
   recenterBtn: document.getElementById("recenterBtn"),
@@ -422,6 +425,42 @@ function formatShortTimestamp(value) {
   });
 }
 
+function publicBeaconLabel(count) {
+  return `${count} public beacon${count === 1 ? "" : "s"}`;
+}
+
+function getLedgerFilters() {
+  return {
+    region: (el.ledgerRegionFilter && el.ledgerRegionFilter.value) || "All regions",
+    query: ((el.ledgerSearchFilter && el.ledgerSearchFilter.value) || "").trim().toLowerCase()
+  };
+}
+
+function matchesLedgerFilters(beacon, filters) {
+  if (!beacon) return false;
+  if (filters.region && filters.region !== "All regions" && beacon.region !== filters.region) {
+    return false;
+  }
+  if (!filters.query) return true;
+  const searchable = [beacon.title, beacon.visitor, beacon.region, beacon.note]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+  return searchable.includes(filters.query);
+}
+
+function setLedgerSummary(visibleCount, totalCount) {
+  if (!el.ledgerSummary) return;
+  if (totalCount === 0) {
+    el.ledgerSummary.textContent = "Showing 0 of 0 public beacons.";
+    return;
+  }
+  if (visibleCount === totalCount) {
+    el.ledgerSummary.textContent = `Showing all ${publicBeaconLabel(totalCount)}.`;
+    return;
+  }
+  el.ledgerSummary.textContent = `Showing ${visibleCount} of ${publicBeaconLabel(totalCount)}.`;
+}
+
 function focusBeacon(marker) {
   if (!marker || !Number.isFinite(Number(marker.x)) || !Number.isFinite(Number(marker.y))) return;
   const vw = el.viewport.clientWidth;
@@ -435,14 +474,23 @@ function focusBeacon(marker) {
 
 function renderBeaconLedger() {
   if (!el.beaconLedger) return;
-  const beacons = [...state.beacons].sort(compareBeaconLedger);
-  if (beacons.length === 0) {
+  const sortedBeacons = [...state.beacons].sort(compareBeaconLedger);
+  if (sortedBeacons.length === 0) {
+    setLedgerSummary(0, 0);
     el.beaconLedger.innerHTML = '<p class="small">No visitor traces logged yet.</p>';
     return;
   }
 
+  const ledgerFilters = getLedgerFilters();
+  const filteredBeacons = sortedBeacons.filter((beacon) => matchesLedgerFilters(beacon, ledgerFilters));
+  setLedgerSummary(filteredBeacons.length, sortedBeacons.length);
+  if (filteredBeacons.length === 0) {
+    el.beaconLedger.innerHTML = '<p class="small">No visitor traces match the current filters.</p>';
+    return;
+  }
+
   const active = state.activeTrace ? traceKey(state.activeTrace) : "";
-  const list = beacons
+  const list = filteredBeacons
     .map((beacon, index) => {
       const issueNumber = parseIssueNumber(beacon.issueNumber);
       const issueLabel = issueNumber === null ? "Issue pending" : `Issue #${issueNumber}`;
@@ -468,7 +516,7 @@ function renderBeaconLedger() {
   el.beaconLedger.querySelectorAll("[data-ledger-index]").forEach((node) => {
     node.addEventListener("click", () => {
       const index = Number(node.dataset.ledgerIndex);
-      const marker = beacons[index];
+      const marker = filteredBeacons[index];
       if (!marker) return;
       activateMarker({ ...marker, type: "beacon" }, { focus: true, updateHash: true });
     });
@@ -855,6 +903,14 @@ function initInteractions() {
   el.toggleBeacons.addEventListener("change", () => {
     el.beaconLayer.hidden = !el.toggleBeacons.checked;
   });
+
+  if (el.ledgerRegionFilter) {
+    el.ledgerRegionFilter.addEventListener("change", renderBeaconLedger);
+  }
+
+  if (el.ledgerSearchFilter) {
+    el.ledgerSearchFilter.addEventListener("input", renderBeaconLedger);
+  }
 
   el.recenterBtn.addEventListener("click", recenter);
   el.copyPermalinkBtn.addEventListener("click", async () => {

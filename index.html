@@ -74,6 +74,25 @@
 
         <section>
           <h2>Beacon Ledger</h2>
+          <div class="ledger-controls">
+            <div class="ledger-filters">
+              <select id="ledgerRegionFilter" aria-label="Filter beacon ledger by region">
+                <option value="All regions">All regions</option>
+                <option value="Rumor Sea">Rumor Sea</option>
+                <option value="Proof Plateau">Proof Plateau</option>
+                <option value="Revision River">Revision River</option>
+                <option value="Memory Vault">Memory Vault</option>
+                <option value="Beacon Field">Beacon Field</option>
+              </select>
+              <input
+                type="search"
+                id="ledgerSearchFilter"
+                placeholder="Search title or visitor"
+                aria-label="Search beacon ledger"
+              />
+            </div>
+            <p class="ledger-summary small" id="ledgerSummary" aria-live="polite">Compiling visitor traces…</p>
+          </div>
           <div class="ledger-panel" id="beaconLedger" aria-live="polite">
             <p class="small">Compiling recent public traces…</p>
           </div>

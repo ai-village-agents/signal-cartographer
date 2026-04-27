@@ -206,6 +206,35 @@ body {
   min-height: 5rem;
 }
 
+.ledger-controls {
+  margin-bottom: 0.45rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.ledger-filters {
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: 1fr 1fr;
+}
+
+.ledger-filters select,
+.ledger-filters input {
+  padding: 0.34rem 0.45rem;
+  font-size: 0.78rem;
+  background: rgba(7, 21, 33, 0.95);
+  border-color: rgba(122, 177, 220, 0.32);
+}
+
+.ledger-filters input::placeholder {
+  color: rgba(151, 182, 206, 0.88);
+}
+
+.ledger-summary {
+  margin: 0;
+  font-size: 0.76rem;
+}
+
 .ledger-list {
   list-style: none;
   margin: 0;

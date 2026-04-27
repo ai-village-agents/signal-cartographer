@@ -3,6 +3,7 @@ const REPO = "signal-cartographer";
 const ISSUE_LABEL = "beacon";
 const MAP_W = 1600;
 const MAP_H = 1000;
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 const REGION_COPY = {
   "Rumor Sea": "Signals arrive noisy here. Claims are easy to launch and hard to verify.",
@@ -111,8 +112,10 @@ const el = {
   recenterBtn: document.getElementById("recenterBtn"),
   toggleLandmarks: document.getElementById("toggleLandmarks"),
   toggleBeacons: document.getElementById("toggleBeacons"),
+  toggleVerificationRoute: document.getElementById("toggleVerificationRoute"),
   landmarkLayer: document.getElementById("landmarkLayer"),
-  beaconLayer: document.getElementById("beaconLayer")
+  beaconLayer: document.getElementById("beaconLayer"),
+  verificationRouteLayer: document.getElementById("verificationRouteLayer")
 };
 
 function setTransform() {
@@ -725,6 +728,7 @@ function setActiveTrace(marker) {
     : null;
   renderLandmarks();
   renderBeacons();
+  renderVerificationRoute();
   renderTracePanel();
   renderVerificationChain();
   renderBeaconLedger();
@@ -763,6 +767,87 @@ function renderLandmarks() {
 function renderBeacons() {
   el.beaconLayer.innerHTML = "";
   state.beacons.forEach((b) => addMarker(el.beaconLayer, { ...b, type: "beacon" }));
+}
+
+function createSvgNode(tagName, attrs) {
+  const node = document.createElementNS(SVG_NS, tagName);
+  if (attrs) {
+    Object.entries(attrs).forEach(([key, value]) => {
+      node.setAttribute(key, value);
+    });
+  }
+  return node;
+}
+
+function renderVerificationRoute() {
+  if (!el.verificationRouteLayer) return;
+
+  const isVisible = !el.toggleVerificationRoute || el.toggleVerificationRoute.checked;
+  el.verificationRouteLayer.style.display = isVisible ? "block" : "none";
+  if (!isVisible) return;
+
+  const sortedBeacons = [...(Array.isArray(state.beacons) ? state.beacons : [])]
+    .sort(compareBeaconLedger)
+    .map((beacon) => {
+      const xPct = Number(beacon && beacon.x);
+      const yPct = Number(beacon && beacon.y);
+      if (!Number.isFinite(xPct) || !Number.isFinite(yPct)) return null;
+      return {
+        ...beacon,
+        worldX: (xPct / 100) * MAP_W,
+        worldY: (yPct / 100) * MAP_H
+      };
+    })
+    .filter(Boolean);
+
+  if (sortedBeacons.length < 2) {
+    el.verificationRouteLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const points = sortedBeacons.map((beacon) => `${beacon.worldX.toFixed(1)},${beacon.worldY.toFixed(1)}`).join(" ");
+  const newest = sortedBeacons[0];
+  const oldest = sortedBeacons[sortedBeacons.length - 1];
+  const newestLabelX = Math.min(MAP_W - 80, newest.worldX + 16);
+  const newestLabelY = Math.max(24, newest.worldY - 14);
+  const oldestLabelX = Math.min(MAP_W - 80, oldest.worldX + 16);
+  const oldestLabelY = Math.max(24, oldest.worldY - 14);
+
+  const routeGroup = createSvgNode("g", { class: "verification-route" });
+  routeGroup.appendChild(createSvgNode("polyline", { class: "verification-route-glow", points }));
+  routeGroup.appendChild(createSvgNode("polyline", { class: "verification-route-path", points }));
+
+  sortedBeacons.forEach((beacon) => {
+    const issueNumber = parseIssueNumber(beacon.issueNumber);
+    const activeClass = issueNumber !== null && issueNumber === activeIssue ? " is-active" : "";
+    const node = createSvgNode("g", {
+      class: `verification-route-node${activeClass}`,
+      transform: `translate(${beacon.worldX.toFixed(1)} ${beacon.worldY.toFixed(1)})`
+    });
+    node.appendChild(createSvgNode("circle", { class: "verification-route-node-ring", r: "8" }));
+    node.appendChild(createSvgNode("circle", { class: "verification-route-node-dot", r: "3.2" }));
+    node.appendChild(createSvgNode("circle", { class: "verification-route-node-active-ring", r: "12" }));
+    routeGroup.appendChild(node);
+  });
+
+  const newestLabel = createSvgNode("text", {
+    class: "verification-route-label verification-route-label-newest",
+    x: newestLabelX.toFixed(1),
+    y: newestLabelY.toFixed(1)
+  });
+  newestLabel.textContent = "Newest";
+  routeGroup.appendChild(newestLabel);
+
+  const oldestLabel = createSvgNode("text", {
+    class: "verification-route-label verification-route-label-oldest",
+    x: oldestLabelX.toFixed(1),
+    y: oldestLabelY.toFixed(1)
+  });
+  oldestLabel.textContent = "Oldest";
+  routeGroup.appendChild(oldestLabel);
+
+  el.verificationRouteLayer.replaceChildren(routeGroup);
 }
 
 function parseBeaconBlock(text) {
@@ -1020,6 +1105,10 @@ function initInteractions() {
     el.beaconLayer.hidden = !el.toggleBeacons.checked;
   });
 
+  if (el.toggleVerificationRoute) {
+    el.toggleVerificationRoute.addEventListener("change", renderVerificationRoute);
+  }
+
   if (el.ledgerRegionFilter) {
     el.ledgerRegionFilter.addEventListener("change", renderBeaconLedger);
   }
@@ -1088,6 +1177,7 @@ function initInteractions() {
   setRegionDetail("Beacon Field");
   renderTracePanel();
   renderVerificationChain();
+  renderVerificationRoute();
   renderPermalinkPanel();
 }
 
@@ -1108,6 +1198,7 @@ async function initBeacons() {
       renderTracePanel();
       renderBeaconLedger();
     }
+    renderVerificationRoute();
     renderVerificationChain();
     setStatus(`${beacons.length} visitor beacon${beacons.length === 1 ? "" : "s"} loaded from public issues.`);
   } catch (err) {
@@ -1115,6 +1206,7 @@ async function initBeacons() {
     state.beacons = [];
     renderRegionSurvey();
     renderBeaconLedger();
+    renderVerificationRoute();
     renderVerificationChain();
     setStatus(
       "Visitor beacons are temporarily unavailable (GitHub API limit or network issue). Landmarks remain explorable.",

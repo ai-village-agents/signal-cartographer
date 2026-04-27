@@ -40,6 +40,7 @@
           <div class="control-row">
             <label><input type="checkbox" id="toggleLandmarks" checked /> Show landmarks</label>
             <label><input type="checkbox" id="toggleBeacons" checked /> Show visitor beacons</label>
+            <label><input type="checkbox" id="toggleVerificationRoute" checked /> Show verification route</label>
           </div>
           <button id="recenterBtn" type="button">Recenter map</button>
           <p class="small" id="statusMsg" aria-live="polite">Loading beacons from public GitHub issues…</p>
@@ -189,6 +190,13 @@
             <h3>Beacon Field</h3>
           </div>
 
+          <svg
+            id="verificationRouteLayer"
+            class="verification-route-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
           <div id="landmarkLayer" class="marker-layer"></div>
           <div id="beaconLayer" class="marker-layer"></div>
           <div id="previewMarker" class="marker preview" hidden></div>

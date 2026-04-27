@@ -116,6 +116,7 @@ const el = {
   ledgerSearchFilter: document.getElementById("ledgerSearchFilter"),
   ledgerSummary: document.getElementById("ledgerSummary"),
   beaconLedger: document.getElementById("beaconLedger"),
+  accountabilityCensus: document.getElementById("accountabilityCensus"),
   regionSurvey: document.getElementById("regionSurvey"),
   recenterBtn: document.getElementById("recenterBtn"),
   toggleLandmarks: document.getElementById("toggleLandmarks"),
@@ -752,6 +753,15 @@ function matchesLedgerFilters(beacon, filters) {
     return false;
   }
   const posture = getBeaconPosture(beacon);
+  if (filters.posture === "Evidence only" && posture.code !== "evidence") {
+    return false;
+  }
+  if (filters.posture === "Revision only" && posture.code !== "revision") {
+    return false;
+  }
+  if (filters.posture === "Minimal trace" && posture.code !== "minimal") {
+    return false;
+  }
   if (filters.posture === "Evidence anchored" && !posture.hasEvidence) {
     return false;
   }
@@ -795,8 +805,130 @@ function focusBeacon(marker) {
   setTransform();
 }
 
+function renderAccountabilityCensus() {
+  if (!el.accountabilityCensus) return;
+  const beacons = Array.isArray(state.beacons) ? state.beacons : [];
+  if (beacons.length === 0) {
+    el.accountabilityCensus.innerHTML = "<p class=\"small\">No public beacons loaded yet, so accountability posture counts are still pending.</p>";
+    return;
+  }
+
+  const postureCounts = beacons.reduce(
+    (acc, beacon) => {
+      const posture = getBeaconPosture(beacon);
+      if (posture.code === "full") acc.full += 1;
+      if (posture.code === "evidence") acc.evidence += 1;
+      if (posture.code === "revision") acc.revision += 1;
+      if (posture.code === "minimal") acc.minimal += 1;
+      if (posture.hasEvidence) acc.evidenceAnchored += 1;
+      if (posture.hasRevision) acc.revisionReady += 1;
+      if (!(posture.hasEvidence && posture.hasRevision)) acc.missing += 1;
+      return acc;
+    },
+    {
+      full: 0,
+      evidence: 0,
+      revision: 0,
+      minimal: 0,
+      evidenceAnchored: 0,
+      revisionReady: 0,
+      missing: 0
+    }
+  );
+
+  const rows = [
+    {
+      key: "all",
+      label: "All public beacons",
+      filterValue: LEDGER_POSTURE_DEFAULT,
+      count: beacons.length,
+      copy: "View the full public record before narrowing by posture."
+    },
+    {
+      key: "full",
+      label: "Evidence + revision",
+      filterValue: "Evidence + revision",
+      count: postureCounts.full,
+      copy: "These beacons name both an evidence anchor and a revision trigger."
+    },
+    {
+      key: "evidence",
+      label: "Evidence only",
+      filterValue: "Evidence only",
+      count: postureCounts.evidence,
+      copy: "These traces anchor evidence but do not yet declare revision conditions."
+    },
+    {
+      key: "revision",
+      label: "Revision only",
+      filterValue: "Revision only",
+      count: postureCounts.revision,
+      copy: "These traces invite correction but still need explicit evidence anchors."
+    },
+    {
+      key: "minimal",
+      label: "Minimal trace",
+      filterValue: "Minimal trace",
+      count: postureCounts.minimal,
+      copy: "These entries are public marks with neither anchor nor revision trigger yet."
+    },
+    {
+      key: "evidenceAnchored",
+      label: "Evidence anchored",
+      filterValue: "Evidence anchored",
+      count: postureCounts.evidenceAnchored,
+      copy: "Every beacon here names at least one inspectable evidence anchor."
+    },
+    {
+      key: "revisionReady",
+      label: "Revision ready",
+      filterValue: "Revision ready",
+      count: postureCounts.revisionReady,
+      copy: "Every beacon here states what would cause it to be revised."
+    },
+    {
+      key: "missing",
+      label: "Missing evidence or revision",
+      filterValue: "Missing evidence or revision",
+      count: postureCounts.missing,
+      copy: "These beacons are missing at least one accountability field."
+    }
+  ];
+
+  const activePosture = (el.ledgerPostureFilter && el.ledgerPostureFilter.value) || LEDGER_POSTURE_DEFAULT;
+  const listHtml = rows
+    .map((row, index) => {
+      const isActive = activePosture === row.filterValue;
+      return `
+        <li>
+          <button type="button" class="census-item${isActive ? " is-active" : ""}" data-census-index="${index}">
+            <span class="census-header">${escapeHtml(row.label)}</span>
+            <span class="census-copy">${escapeHtml(row.copy)}</span>
+            <span class="census-meta">
+              <span class="census-pill">${row.count} beacon${row.count === 1 ? "" : "s"}</span>
+            </span>
+          </button>
+        </li>
+      `;
+    })
+    .join("");
+
+  el.accountabilityCensus.innerHTML = `<ul class="census-list">${listHtml}</ul>`;
+  el.accountabilityCensus.querySelectorAll("[data-census-index]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const row = rows[Number(node.dataset.censusIndex)];
+      if (!row || !el.ledgerPostureFilter) return;
+      if (el.ledgerPostureFilter.value !== row.filterValue) {
+        el.ledgerPostureFilter.value = row.filterValue;
+      }
+      handleLedgerFilterChange();
+    });
+  });
+}
+
 function renderBeaconLedger() {
   if (!el.beaconLedger) return;
+  renderAccountabilityCensus();
   const sortedBeacons = [...state.beacons].sort(compareBeaconLedger);
   if (sortedBeacons.length === 0) {
     setLedgerSummary(0, 0);

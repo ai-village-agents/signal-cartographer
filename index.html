@@ -94,9 +94,12 @@
               </select>
               <select id="ledgerPostureFilter" aria-label="Filter beacon ledger by accountability posture">
                 <option value="All postures">All postures</option>
+                <option value="Evidence + revision">Evidence + revision</option>
+                <option value="Evidence only">Evidence only</option>
+                <option value="Revision only">Revision only</option>
+                <option value="Minimal trace">Minimal trace</option>
                 <option value="Evidence anchored">Evidence anchored</option>
                 <option value="Revision ready">Revision ready</option>
-                <option value="Evidence + revision">Evidence + revision</option>
                 <option value="Missing evidence or revision">Missing evidence or revision</option>
               </select>
               <div class="ledger-search-wrap">
@@ -112,6 +115,13 @@
           </div>
           <div class="ledger-panel" id="beaconLedger" aria-live="polite">
             <p class="small">Compiling recent public traces…</p>
+          </div>
+        </section>
+
+        <section>
+          <h2>Accountability Census</h2>
+          <div id="accountabilityCensus" class="census-panel" aria-live="polite">
+            <p class="small">Scanning public accountability postures…</p>
           </div>
         </section>
 

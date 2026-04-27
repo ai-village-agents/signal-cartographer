@@ -549,13 +549,14 @@ body {
 }
 
 .survey-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.4rem, 1fr));
   gap: 0.3rem;
   margin-top: 0.35rem;
 }
 
 .survey-action {
+  width: 100%;
   padding: 0.18rem 0.4rem;
   border-radius: 999px;
   border: 1px solid rgba(119, 226, 255, 0.35);
@@ -563,6 +564,7 @@ body {
   color: #cdeeff;
   font-size: 0.72rem;
   line-height: 1.2;
+  text-align: center;
 }
 
 .survey-action:hover {

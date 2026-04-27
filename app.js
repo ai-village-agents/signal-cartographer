@@ -9,6 +9,29 @@ const LEDGER_POSTURE_DEFAULT = "All postures";
 const LEDGER_QUERY_PARAM_REGION = "ledgerRegion";
 const LEDGER_QUERY_PARAM_POSTURE = "ledgerPosture";
 const LEDGER_QUERY_PARAM_SEARCH = "ledgerSearch";
+const SURVEY_POSTURE_ACTION_SEPARATOR = "::";
+const SURVEY_POSTURE_ACTIONS = [
+  {
+    code: "full",
+    filterLabel: "Evidence + revision",
+    actionLabel: "Browse evidence + revision"
+  },
+  {
+    code: "evidence",
+    filterLabel: "Evidence only",
+    actionLabel: "Browse evidence only"
+  },
+  {
+    code: "revision",
+    filterLabel: "Revision only",
+    actionLabel: "Browse revision only"
+  },
+  {
+    code: "minimal",
+    filterLabel: "Minimal trace",
+    actionLabel: "Browse minimal trace"
+  }
+];
 
 const REGION_COPY = {
   "Rumor Sea": "Signals arrive noisy here. Claims are easy to launch and hard to verify.",
@@ -466,6 +489,20 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function encodeSurveyPostureAction(regionName, postureLabel) {
+  return `${encodeURIComponent(regionName)}${SURVEY_POSTURE_ACTION_SEPARATOR}${encodeURIComponent(postureLabel)}`;
+}
+
+function decodeSurveyPostureAction(value) {
+  if (!value || !value.includes(SURVEY_POSTURE_ACTION_SEPARATOR)) return null;
+  const [encodedRegion, encodedPosture] = value.split(SURVEY_POSTURE_ACTION_SEPARATOR);
+  if (!encodedRegion || !encodedPosture) return null;
+  return {
+    regionName: decodeURIComponent(encodedRegion),
+    postureLabel: decodeURIComponent(encodedPosture)
+  };
 }
 
 function getBeaconPosture(beacon) {
@@ -1026,12 +1063,20 @@ function renderRegionSurvey() {
         { full: 0, evidence: 0, revision: 0, minimal: 0 }
       );
       const accountabilityLine = `Accountability: ${postureCounts.full} evidence + revision · ${postureCounts.evidence} evidence only · ${postureCounts.revision} revision only · ${postureCounts.minimal} minimal trace.`;
+      const postureActionButtons = SURVEY_POSTURE_ACTIONS.filter((row) => postureCounts[row.code] > 0)
+        .map(
+          (row) =>
+            `<button type="button" class="survey-action" data-survey-ledger-posture="${escapeHtml(
+              encodeSurveyPostureAction(regionName, row.filterLabel)
+            )}">${row.actionLabel}</button>`
+        )
+        .join("");
       const actionsHtml = latest
         ? `
           <div class="survey-actions">
             <button type="button" class="survey-action" data-survey-jump="${escapeHtml(regionName)}">Jump to latest beacon</button>
             <button type="button" class="survey-action" data-survey-ledger-region="${escapeHtml(regionName)}">Browse region ledger</button>
-            ${postureCounts.full > 0 ? `<button type="button" class="survey-action" data-survey-ledger-full="${escapeHtml(regionName)}">Browse evidence + revision</button>` : ""}
+            ${postureActionButtons}
           </div>
         `
         : "";
@@ -1101,17 +1146,17 @@ function renderRegionSurvey() {
     });
   });
 
-  el.regionSurvey.querySelectorAll("[data-survey-ledger-full]").forEach((node) => {
+  el.regionSurvey.querySelectorAll("[data-survey-ledger-posture]").forEach((node) => {
     node.addEventListener("click", (ev) => {
       ev.stopPropagation();
       ev.preventDefault();
-      const regionName = node.dataset.surveyLedgerFull;
-      if (!regionName) return;
+      const target = decodeSurveyPostureAction(node.dataset.surveyLedgerPosture);
+      if (!target) return;
       if (el.ledgerRegionFilter) {
-        el.ledgerRegionFilter.value = regionName;
+        el.ledgerRegionFilter.value = target.regionName;
       }
       if (el.ledgerPostureFilter) {
-        el.ledgerPostureFilter.value = "Evidence + revision";
+        el.ledgerPostureFilter.value = target.postureLabel;
       }
       handleLedgerFilterChange();
     });

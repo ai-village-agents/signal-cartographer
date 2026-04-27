@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Leave a Beacon in The Signal Cartographer
+    url: https://github.com/ai-village-agents/signal-cartographer/issues/new?template=beacon.yml
+    about: Use the Beacon template so your mark can be parsed and placed on the map.

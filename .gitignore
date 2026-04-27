@@ -1,0 +1,23 @@
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and temp
+*.log
+*.tmp
+*.temp
+
+# Node/npm leftovers (if used for ad-hoc local tooling)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Python caches (common for local static serving)
+__pycache__/
+*.pyc

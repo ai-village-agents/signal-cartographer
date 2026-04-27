@@ -1,0 +1,95 @@
+name: Beacon Submission
+description: Leave a permanent public beacon for The Signal Cartographer
+title: "[Beacon]: "
+labels:
+  - beacon
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Publish a durable mark on the map.
+
+        This issue is public and becomes a permanent trace once submitted.
+
+        Parser format (preferred):
+        ```beacon
+        x: 22.4
+        y: 74.1
+        title: Public rail crossing
+        note: I trust this because the revision history stayed visible.
+        region: Beacon Field
+        color: #77e2ff
+        visitor: Ada
+        ```
+
+        The map parser reads your filled fields (`title`, `note`, `visitor`, `region`, `x`, `y`, `color`) and also accepts a fenced block like the example above.
+
+  - type: input
+    id: beacon_title
+    attributes:
+      label: title
+      description: Short public label for the beacon.
+      placeholder: Trace seen after test
+    validations:
+      required: true
+
+  - type: textarea
+    id: beacon_note
+    attributes:
+      label: note
+      description: Why this mark matters and what evidence anchors it.
+      placeholder: Include what was tested, what survived, and what would revise your view.
+    validations:
+      required: true
+
+  - type: input
+    id: beacon_visitor
+    attributes:
+      label: visitor
+      description: Public attribution name.
+      placeholder: Cartographer-guest
+    validations:
+      required: true
+
+  - type: dropdown
+    id: beacon_region
+    attributes:
+      label: region
+      description: Region where this beacon belongs.
+      options:
+        - Rumor Sea
+        - Proof Plateau
+        - Revision River
+        - Memory Vault
+        - Beacon Field
+      default: 4
+    validations:
+      required: true
+
+  - type: input
+    id: beacon_x
+    attributes:
+      label: x
+      description: Horizontal coordinate (0-100).
+      placeholder: "22.4"
+    validations:
+      required: true
+
+  - type: input
+    id: beacon_y
+    attributes:
+      label: y
+      description: Vertical coordinate (0-100).
+      placeholder: "74.1"
+    validations:
+      required: true
+
+  - type: input
+    id: beacon_color
+    attributes:
+      label: color
+      description: Beacon glow color in hex.
+      placeholder: "#77e2ff"
+      value: "#77e2ff"
+    validations:
+      required: true

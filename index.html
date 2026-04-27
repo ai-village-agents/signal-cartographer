@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Signal Cartographer</title>
+    <meta
+      name="description"
+      content="An interactive public world about evidence, revision, traces, and durable claims."
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="world-shell">
+      <aside class="panel" aria-label="World controls and beacon form">
+        <header class="panel-head">
+          <h1>The Signal Cartographer</h1>
+          <p>
+            A public map for tested claims. Routes glow where evidence survives contact with scrutiny.
+          </p>
+        </header>
+
+        <section>
+          <h2>Regions</h2>
+          <ul class="region-list" id="regionList">
+            <li data-region="Rumor Sea"><button type="button">Rumor Sea</button></li>
+            <li data-region="Proof Plateau"><button type="button">Proof Plateau</button></li>
+            <li data-region="Revision River"><button type="button">Revision River</button></li>
+            <li data-region="Memory Vault"><button type="button">Memory Vault</button></li>
+            <li data-region="Beacon Field"><button type="button">Beacon Field</button></li>
+          </ul>
+          <p class="region-detail" id="regionDetail">
+            Hover or tap a region to read how this world treats uncertainty.
+          </p>
+        </section>
+
+        <section>
+          <h2>Controls</h2>
+          <p class="small">Click map to set beacon coordinates. Drag to pan. Wheel/pinch to zoom.</p>
+          <div class="control-row">
+            <label><input type="checkbox" id="toggleLandmarks" checked /> Show landmarks</label>
+            <label><input type="checkbox" id="toggleBeacons" checked /> Show visitor beacons</label>
+          </div>
+          <button id="recenterBtn" type="button">Recenter map</button>
+          <p class="small" id="statusMsg" aria-live="polite">Loading beacons from public GitHub issues…</p>
+        </section>
+
+        <section>
+          <h2>Leave a Beacon</h2>
+          <p class="small">
+            Your mark becomes permanent only after you publish a public GitHub issue.
+          </p>
+          <form id="beaconForm" class="beacon-form">
+            <label>
+              Beacon title
+              <input type="text" id="beaconTitle" maxlength="80" required />
+            </label>
+            <label>
+              Note
+              <textarea id="beaconNote" rows="3" maxlength="400" required></textarea>
+            </label>
+            <label>
+              Visitor name
+              <input type="text" id="beaconVisitor" maxlength="40" required />
+            </label>
+            <label>
+              Region
+              <select id="beaconRegion" required>
+                <option>Rumor Sea</option>
+                <option>Proof Plateau</option>
+                <option>Revision River</option>
+                <option>Memory Vault</option>
+                <option selected>Beacon Field</option>
+              </select>
+            </label>
+            <label>
+              Signal color
+              <input type="color" id="beaconColor" value="#77e2ff" />
+            </label>
+            <div class="coords">
+              <label>
+                x
+                <input type="number" id="beaconX" min="0" max="100" step="0.1" required />
+              </label>
+              <label>
+                y
+                <input type="number" id="beaconY" min="0" max="100" step="0.1" required />
+              </label>
+            </div>
+            <p class="small">Live coordinate preview: <span id="coordPreview">none selected</span></p>
+            <button type="submit">Open prefilled GitHub issue</button>
+          </form>
+        </section>
+      </aside>
+
+      <main class="map-viewport" id="mapViewport" aria-label="Interactive world map">
+        <div class="map" id="map">
+          <div class="stars"></div>
+          <div class="grid"></div>
+
+          <svg class="routes" viewBox="0 0 1600 1000" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M210 290 C 480 160, 860 220, 1120 270" />
+            <path d="M1120 270 C 1240 420, 1290 520, 1160 700" />
+            <path d="M1160 700 C 900 860, 540 840, 370 670" />
+            <path d="M370 670 C 280 560, 220 420, 210 290" />
+            <path d="M730 430 C 860 430, 940 510, 980 590" />
+          </svg>
+
+          <div class="region rumor" data-region="Rumor Sea" style="left: 6%; top: 18%; width: 27%; height: 25%;">
+            <h3>Rumor Sea</h3>
+          </div>
+          <div class="region proof" data-region="Proof Plateau" style="left: 61%; top: 16%; width: 30%; height: 24%;">
+            <h3>Proof Plateau</h3>
+          </div>
+          <div class="region revision" data-region="Revision River" style="left: 34%; top: 47%; width: 37%; height: 20%;">
+            <h3>Revision River</h3>
+          </div>
+          <div class="region memory" data-region="Memory Vault" style="left: 58%; top: 67%; width: 35%; height: 24%;">
+            <h3>Memory Vault</h3>
+          </div>
+          <div class="region beacon-field" data-region="Beacon Field" style="left: 8%; top: 64%; width: 30%; height: 24%;">
+            <h3>Beacon Field</h3>
+          </div>
+
+          <div id="landmarkLayer" class="marker-layer"></div>
+          <div id="beaconLayer" class="marker-layer"></div>
+          <div id="previewMarker" class="marker preview" hidden></div>
+        </div>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

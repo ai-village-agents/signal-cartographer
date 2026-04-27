@@ -96,6 +96,7 @@ const el = {
   beaconColor: document.getElementById("beaconColor"),
   statusMsg: document.getElementById("statusMsg"),
   tracePanel: document.getElementById("tracePanel"),
+  beaconLedger: document.getElementById("beaconLedger"),
   recenterBtn: document.getElementById("recenterBtn"),
   toggleLandmarks: document.getElementById("toggleLandmarks"),
   toggleBeacons: document.getElementById("toggleBeacons"),
@@ -214,6 +215,104 @@ function renderTracePanel() {
   `;
 }
 
+function parseIssueNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseCreatedAt(value) {
+  const timestamp = Date.parse(value || "");
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function compareBeaconLedger(a, b) {
+  const aIssue = parseIssueNumber(a && a.issueNumber);
+  const bIssue = parseIssueNumber(b && b.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return bIssue - aIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+
+  const aCreatedAt = parseCreatedAt(a && a.createdAt);
+  const bCreatedAt = parseCreatedAt(b && b.createdAt);
+  if (aCreatedAt !== null || bCreatedAt !== null) {
+    if (aCreatedAt !== null && bCreatedAt !== null && aCreatedAt !== bCreatedAt) return bCreatedAt - aCreatedAt;
+    if (aCreatedAt !== null) return -1;
+    if (bCreatedAt !== null) return 1;
+  }
+
+  return String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+}
+
+function formatShortTimestamp(value) {
+  const timestamp = parseCreatedAt(value);
+  if (timestamp === null) return "";
+  return new Date(timestamp).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function focusBeacon(marker) {
+  if (!marker || !Number.isFinite(Number(marker.x)) || !Number.isFinite(Number(marker.y))) return;
+  const vw = el.viewport.clientWidth;
+  const vh = el.viewport.clientHeight;
+  const worldX = (Number(marker.x) / 100) * MAP_W;
+  const worldY = (Number(marker.y) / 100) * MAP_H;
+  state.tx = vw / 2 - worldX * state.scale;
+  state.ty = vh / 2 - worldY * state.scale;
+  setTransform();
+}
+
+function renderBeaconLedger() {
+  if (!el.beaconLedger) return;
+  const beacons = [...state.beacons].sort(compareBeaconLedger);
+  if (beacons.length === 0) {
+    el.beaconLedger.innerHTML = '<p class="small">No visitor traces logged yet.</p>';
+    return;
+  }
+
+  const active = state.activeTrace ? traceKey(state.activeTrace) : "";
+  const list = beacons
+    .map((beacon, index) => {
+      const issueNumber = parseIssueNumber(beacon.issueNumber);
+      const issueLabel = issueNumber === null ? "Issue pending" : `Issue #${issueNumber}`;
+      const timestamp = formatShortTimestamp(beacon.createdAt);
+      const timestampHtml = timestamp ? `<span class="ledger-pill">${escapeHtml(timestamp)}</span>` : "";
+      const isActive = active && active === traceKey(beacon);
+      return `
+        <li>
+          <button type="button" class="ledger-item${isActive ? " is-active" : ""}" data-ledger-index="${index}">
+            <strong>${escapeHtml(beacon.title || "Untitled beacon")}</strong>
+            <span class="ledger-meta">${escapeHtml(beacon.visitor || "Unknown")} · ${escapeHtml(beacon.region || "Unknown region")}</span>
+            <span class="ledger-pills">
+              <span class="ledger-pill">${escapeHtml(issueLabel)}</span>
+              ${timestampHtml}
+            </span>
+          </button>
+        </li>
+      `;
+    })
+    .join("");
+
+  el.beaconLedger.innerHTML = `<ul class="ledger-list">${list}</ul>`;
+  el.beaconLedger.querySelectorAll("[data-ledger-index]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const index = Number(node.dataset.ledgerIndex);
+      const marker = beacons[index];
+      if (!marker) return;
+      setActiveTrace({ ...marker, type: "beacon" });
+      if (marker.region) {
+        setRegionDetail(marker.region);
+      }
+      focusBeacon(marker);
+    });
+  });
+}
+
 function setActiveTrace(marker) {
   state.activeTrace = marker
     ? {
@@ -224,6 +323,7 @@ function setActiveTrace(marker) {
   renderLandmarks();
   renderBeacons();
   renderTracePanel();
+  renderBeaconLedger();
 }
 
 function addMarker(layer, marker) {
@@ -346,7 +446,8 @@ function normalizeBeaconIssues(items) {
       return {
         ...parsed,
         issueUrl: issue.html_url,
-        issueNumber: issue.number
+        issueNumber: issue.number,
+        createdAt: issue.created_at
       };
     })
     .filter(Boolean);
@@ -545,15 +646,17 @@ async function initBeacons() {
     const beacons = await fetchBeaconIssues();
     state.beacons = beacons;
     if (!state.activeTrace && beacons.length > 0) {
-      const newestBeacon = [...beacons].sort((a, b) => (b.issueNumber || 0) - (a.issueNumber || 0))[0];
+      const newestBeacon = [...beacons].sort(compareBeaconLedger)[0];
       setActiveTrace(newestBeacon);
     } else {
       renderBeacons();
       renderTracePanel();
+      renderBeaconLedger();
     }
     setStatus(`${beacons.length} visitor beacon${beacons.length === 1 ? "" : "s"} loaded from public issues.`);
   } catch (err) {
     console.error(err);
+    renderBeaconLedger();
     setStatus(
       "Visitor beacons are temporarily unavailable (GitHub API limit or network issue). Landmarks remain explorable.",
       true

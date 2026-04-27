@@ -76,7 +76,8 @@ const state = {
   dragStartY: 0,
   selected: null,
   beacons: [],
-  activeTrace: null
+  activeTrace: null,
+  restoredHashSelection: false
 };
 
 const el = {
@@ -174,6 +175,113 @@ function traceKey(marker) {
   if (!marker) return "";
   if (marker.issueNumber) return `beacon:${marker.issueNumber}`;
   return `${marker.type || "marker"}:${marker.title}:${marker.x}:${marker.y}`;
+}
+
+function toSlug(value) {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function getMarkerHash(marker) {
+  if (!marker) return "";
+  if (marker.type === "beacon") {
+    const issueNumber = parseIssueNumber(marker.issueNumber);
+    return issueNumber === null ? "" : `#beacon-${issueNumber}`;
+  }
+  if (marker.type === "landmark") {
+    const slug = toSlug(marker.title);
+    return slug ? `#landmark-${slug}` : "";
+  }
+  return "";
+}
+
+function setHash(hashValue) {
+  if (!hashValue || window.location.hash === hashValue) return;
+  if (window.history && typeof window.history.replaceState === "function") {
+    window.history.replaceState(null, "", hashValue);
+    return;
+  }
+  window.location.hash = hashValue;
+}
+
+function updateHashForRegion(regionName) {
+  const slug = toSlug(regionName);
+  if (!slug) return;
+  setHash(`#region-${slug}`);
+}
+
+function updateHashForMarker(marker) {
+  const hashValue = getMarkerHash(marker);
+  if (!hashValue) return;
+  setHash(hashValue);
+}
+
+function activateRegion(regionName, { updateHash = true } = {}) {
+  setRegionDetail(regionName);
+  focusRegion(regionName);
+  if (updateHash) updateHashForRegion(regionName);
+}
+
+function activateMarker(marker, { focus = false, updateHash = true } = {}) {
+  if (!marker) return;
+  setActiveTrace(marker);
+  if (marker.region) {
+    setRegionDetail(marker.region);
+  }
+  if (focus) {
+    focusBeacon(marker);
+  }
+  if (updateHash) {
+    updateHashForMarker(marker);
+  }
+}
+
+function parseHashTarget(hashValue = window.location.hash) {
+  const raw = String(hashValue || "").replace(/^#/, "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("region-")) {
+    return { type: "region", slug: raw.slice("region-".length) };
+  }
+  if (raw.startsWith("landmark-")) {
+    return { type: "landmark", slug: raw.slice("landmark-".length) };
+  }
+  const beaconMatch = /^beacon-(\d+)$/.exec(raw);
+  if (beaconMatch) {
+    return { type: "beacon", issueNumber: Number(beaconMatch[1]) };
+  }
+  return null;
+}
+
+function restoreHashSelection() {
+  const target = parseHashTarget();
+  if (!target) return false;
+
+  if (target.type === "region") {
+    const regionName = Object.keys(REGION_FOCUS).find((name) => toSlug(name) === target.slug);
+    if (!regionName) return false;
+    activateRegion(regionName, { updateHash: false });
+    return true;
+  }
+
+  if (target.type === "landmark") {
+    const landmark = LANDMARKS.find((item) => toSlug(item.title) === target.slug);
+    if (!landmark) return false;
+    activateMarker({ ...landmark, type: "landmark" }, { focus: true, updateHash: false });
+    return true;
+  }
+
+  if (target.type === "beacon") {
+    const beacon = state.beacons.find((item) => parseIssueNumber(item.issueNumber) === target.issueNumber);
+    if (!beacon) return false;
+    activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: false });
+    return true;
+  }
+
+  return false;
 }
 
 function escapeHtml(value) {
@@ -304,11 +412,7 @@ function renderBeaconLedger() {
       const index = Number(node.dataset.ledgerIndex);
       const marker = beacons[index];
       if (!marker) return;
-      setActiveTrace({ ...marker, type: "beacon" });
-      if (marker.region) {
-        setRegionDetail(marker.region);
-      }
-      focusBeacon(marker);
+      activateMarker({ ...marker, type: "beacon" }, { focus: true, updateHash: true });
     });
   });
 }
@@ -345,10 +449,7 @@ function addMarker(layer, marker) {
   node.addEventListener("pointerup", (ev) => ev.stopPropagation());
   node.addEventListener("click", (ev) => {
     ev.stopPropagation();
-    setActiveTrace(marker);
-    if (marker.region) {
-      setRegionDetail(marker.region);
-    }
+    activateMarker(marker, { updateHash: true });
   });
   layer.appendChild(node);
 }
@@ -594,8 +695,7 @@ function initInteractions() {
     node.addEventListener("focusin", () => setRegionDetail(node.dataset.region));
     node.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      setRegionDetail(node.dataset.region);
-      focusRegion(node.dataset.region);
+      activateRegion(node.dataset.region, { updateHash: true });
     });
   });
 
@@ -645,7 +745,11 @@ async function initBeacons() {
   try {
     const beacons = await fetchBeaconIssues();
     state.beacons = beacons;
-    if (!state.activeTrace && beacons.length > 0) {
+    const restoredFromHash = restoreHashSelection();
+    if (restoredFromHash) {
+      state.restoredHashSelection = true;
+    }
+    if (!state.activeTrace && !state.restoredHashSelection && beacons.length > 0) {
       const newestBeacon = [...beacons].sort(compareBeaconLedger)[0];
       setActiveTrace(newestBeacon);
     } else {
@@ -667,6 +771,7 @@ async function initBeacons() {
 function init() {
   renderLandmarks();
   initInteractions();
+  state.restoredHashSelection = restoreHashSelection();
   initBeacons();
 }
 

@@ -77,6 +77,7 @@ const state = {
   selected: null,
   beacons: [],
   activeTrace: null,
+  activeRegion: "Beacon Field",
   restoredHashSelection: false
 };
 
@@ -98,6 +99,7 @@ const el = {
   statusMsg: document.getElementById("statusMsg"),
   tracePanel: document.getElementById("tracePanel"),
   beaconLedger: document.getElementById("beaconLedger"),
+  regionSurvey: document.getElementById("regionSurvey"),
   recenterBtn: document.getElementById("recenterBtn"),
   toggleLandmarks: document.getElementById("toggleLandmarks"),
   toggleBeacons: document.getElementById("toggleBeacons"),
@@ -156,6 +158,8 @@ function setRegionDetail(regionName) {
   if (!el.beaconRegion.dataset.userTouched) {
     el.beaconRegion.value = regionName;
   }
+  state.activeRegion = regionName;
+  renderRegionSurvey();
 }
 
 function focusRegion(regionName) {
@@ -413,6 +417,84 @@ function renderBeaconLedger() {
       const marker = beacons[index];
       if (!marker) return;
       activateMarker({ ...marker, type: "beacon" }, { focus: true, updateHash: true });
+    });
+  });
+}
+
+function renderRegionSurvey() {
+  if (!el.regionSurvey) return;
+
+  const regionNames = Object.keys(REGION_COPY);
+  const landmarkCounts = new Map(regionNames.map((regionName) => [regionName, 0]));
+  LANDMARKS.forEach((landmark) => {
+    const total = landmarkCounts.get(landmark.region) || 0;
+    landmarkCounts.set(landmark.region, total + 1);
+  });
+
+  const beaconsByRegion = new Map(regionNames.map((regionName) => [regionName, []]));
+  (Array.isArray(state.beacons) ? state.beacons : []).forEach((beacon) => {
+    const regionName = String((beacon && beacon.region) || "");
+    if (!beaconsByRegion.has(regionName)) {
+      beaconsByRegion.set(regionName, []);
+    }
+    beaconsByRegion.get(regionName).push(beacon);
+  });
+
+  const latestByRegion = new Map();
+  const listHtml = regionNames
+    .map((regionName) => {
+      const sorted = [...(beaconsByRegion.get(regionName) || [])].sort(compareBeaconLedger);
+      const latest = sorted[0] || null;
+      latestByRegion.set(regionName, latest);
+
+      const latestLine = latest
+        ? (() => {
+            const details = [
+              latest.title || "Untitled beacon",
+              latest.visitor || "Unknown"
+            ];
+            const timestamp = formatShortTimestamp(latest.createdAt);
+            if (timestamp) details.push(timestamp);
+            return `Latest public trace: ${details.join(" · ")}`;
+          })()
+        : "No public beacons are logged there yet.";
+
+      return `
+        <li>
+          <button type="button" class="survey-item${state.activeRegion === regionName ? " is-active" : ""}" data-survey-region="${escapeHtml(regionName)}">
+            <span class="survey-header">${escapeHtml(regionName)}</span>
+            <span class="survey-copy">${escapeHtml(REGION_COPY[regionName] || "")}</span>
+            <span class="survey-meta">
+              <span class="survey-pill">${landmarkCounts.get(regionName) || 0} landmark${(landmarkCounts.get(regionName) || 0) === 1 ? "" : "s"}</span>
+              <span class="survey-pill">${sorted.length} public beacon${sorted.length === 1 ? "" : "s"}</span>
+            </span>
+            <span class="survey-latest${latest ? "" : " small"}">${escapeHtml(latestLine)}</span>
+          </button>
+          ${latest ? `<div class="survey-actions"><button type="button" class="survey-action" data-survey-jump="${escapeHtml(regionName)}">Jump to latest beacon</button></div>` : ""}
+        </li>
+      `;
+    })
+    .join("");
+
+  el.regionSurvey.innerHTML = `<ul class="survey-list">${listHtml}</ul>`;
+
+  el.regionSurvey.querySelectorAll("[data-survey-region]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const regionName = node.dataset.surveyRegion;
+      if (!regionName) return;
+      activateRegion(regionName, { updateHash: true });
+    });
+  });
+
+  el.regionSurvey.querySelectorAll("[data-survey-jump]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const regionName = node.dataset.surveyJump;
+      if (!regionName) return;
+      const latest = latestByRegion.get(regionName);
+      if (!latest) return;
+      activateMarker({ ...latest, type: "beacon" }, { focus: true, updateHash: true });
     });
   });
 }
@@ -745,6 +827,7 @@ async function initBeacons() {
   try {
     const beacons = await fetchBeaconIssues();
     state.beacons = beacons;
+    renderRegionSurvey();
     const restoredFromHash = restoreHashSelection();
     if (restoredFromHash) {
       state.restoredHashSelection = true;
@@ -760,6 +843,8 @@ async function initBeacons() {
     setStatus(`${beacons.length} visitor beacon${beacons.length === 1 ? "" : "s"} loaded from public issues.`);
   } catch (err) {
     console.error(err);
+    state.beacons = [];
+    renderRegionSurvey();
     renderBeaconLedger();
     setStatus(
       "Visitor beacons are temporarily unavailable (GitHub API limit or network issue). Landmarks remain explorable.",

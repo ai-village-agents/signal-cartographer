@@ -98,6 +98,7 @@ const el = {
   beaconColor: document.getElementById("beaconColor"),
   statusMsg: document.getElementById("statusMsg"),
   tracePanel: document.getElementById("tracePanel"),
+  verificationChain: document.getElementById("verificationChain"),
   permalinkStatus: document.getElementById("permalinkStatus"),
   permalinkField: document.getElementById("permalinkField"),
   copyPermalinkBtn: document.getElementById("copyPermalinkBtn"),
@@ -384,6 +385,120 @@ function renderTracePanel() {
   `;
 }
 
+function markerDistance(a, b) {
+  const ax = Number(a && a.x);
+  const ay = Number(a && a.y);
+  const bx = Number(b && b.x);
+  const by = Number(b && b.y);
+  if (![ax, ay, bx, by].every(Number.isFinite)) return null;
+  return Math.hypot(ax - bx, ay - by);
+}
+
+function findNearestLandmark(marker) {
+  if (!marker || LANDMARKS.length === 0) return null;
+  const ranked = LANDMARKS
+    .map((landmark) => ({ landmark, distance: markerDistance(marker, landmark) }))
+    .filter((entry) => entry.distance !== null)
+    .sort((a, b) => a.distance - b.distance || String(a.landmark.title || "").localeCompare(String(b.landmark.title || "")));
+  return ranked[0] || null;
+}
+
+function findNearestRegionalBeacon(landmark) {
+  if (!landmark) return null;
+  const regionalBeacons = (Array.isArray(state.beacons) ? state.beacons : []).filter(
+    (beacon) => beacon && beacon.region === landmark.region
+  );
+  const ranked = regionalBeacons
+    .map((beacon) => ({ beacon, distance: markerDistance(landmark, beacon) }))
+    .filter((entry) => entry.distance !== null)
+    .sort((a, b) => a.distance - b.distance || compareBeaconLedger(a.beacon, b.beacon));
+  return ranked[0] || null;
+}
+
+function renderVerificationChain() {
+  if (!el.verificationChain) return;
+  const trace = state.activeTrace;
+  if (!trace) {
+    el.verificationChain.innerHTML = '<p class="chain-summary muted">Click a landmark or beacon to inspect its chain context.</p>';
+    return;
+  }
+
+  const x = Number(trace.x);
+  const y = Number(trace.y);
+  const coordPills = Number.isFinite(x) && Number.isFinite(y)
+    ? `
+      <div class="chain-meta">
+        <span class="chain-pill">x: ${x.toFixed(1)}</span>
+        <span class="chain-pill">y: ${y.toFixed(1)}</span>
+      </div>
+    `
+    : "";
+
+  const actionTargets = {};
+  let html = "";
+
+  if (trace.type === "beacon") {
+    const sortedBeacons = [...state.beacons].sort(compareBeaconLedger);
+    const activeIssue = parseIssueNumber(trace.issueNumber);
+    const traceIndex = sortedBeacons.findIndex((beacon) => parseIssueNumber(beacon.issueNumber) === activeIssue);
+    const chainSentence = traceIndex >= 0
+      ? `This beacon is ${traceIndex + 1} of ${sortedBeacons.length} in the public chain (newest first).`
+      : "This beacon is not currently in the loaded public chain.";
+    const nearestLandmark = findNearestLandmark(trace);
+    const nearestSentence = nearestLandmark
+      ? `Nearest built-in landmark: ${nearestLandmark.landmark.title} (~${nearestLandmark.distance.toFixed(1)} map-% units).`
+      : "Nearest built-in landmark is unavailable.";
+
+    const newerTrace = traceIndex > 0 ? sortedBeacons[traceIndex - 1] : null;
+    const olderTrace = traceIndex >= 0 && traceIndex < sortedBeacons.length - 1 ? sortedBeacons[traceIndex + 1] : null;
+    if (newerTrace) actionTargets.newer = newerTrace;
+    if (olderTrace) actionTargets.older = olderTrace;
+
+    const actionHtml = newerTrace || olderTrace
+      ? `
+        <div class="chain-actions">
+          ${newerTrace ? '<button type="button" class="chain-action" data-chain-target="newer">Newer trace</button>' : ""}
+          ${olderTrace ? '<button type="button" class="chain-action" data-chain-target="older">Older trace</button>' : ""}
+        </div>
+      `
+      : "";
+
+    html = `
+      <p class="chain-summary">${escapeHtml(chainSentence)}</p>
+      ${coordPills}
+      <p class="chain-context">${escapeHtml(nearestSentence)}</p>
+      ${actionHtml}
+    `;
+  } else {
+    const nearestRegionalBeacon = findNearestRegionalBeacon(trace);
+    const contextHtml = nearestRegionalBeacon
+      ? `Nearest public beacon in ${escapeHtml(trace.region || "this region")}: ${escapeHtml(
+          nearestRegionalBeacon.beacon.title || "Untitled beacon"
+        )} by ${escapeHtml(nearestRegionalBeacon.beacon.visitor || "Unknown")}.`
+      : `No public beacons are logged in ${escapeHtml(trace.region || "this region")} yet.`;
+
+    if (nearestRegionalBeacon) {
+      actionTargets.nearest = nearestRegionalBeacon.beacon;
+    }
+
+    html = `
+      <p class="chain-summary">This is a built-in anchor in ${escapeHtml(trace.region || "its region")}.</p>
+      ${coordPills}
+      <p class="chain-context">${contextHtml}</p>
+      ${nearestRegionalBeacon ? '<div class="chain-actions"><button type="button" class="chain-action" data-chain-target="nearest">Jump to nearest public beacon</button></div>' : ""}
+    `;
+  }
+
+  el.verificationChain.innerHTML = html;
+  el.verificationChain.querySelectorAll("[data-chain-target]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const target = actionTargets[node.dataset.chainTarget];
+      if (!target) return;
+      activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
+    });
+  });
+}
+
 function parseIssueNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -611,6 +726,7 @@ function setActiveTrace(marker) {
   renderLandmarks();
   renderBeacons();
   renderTracePanel();
+  renderVerificationChain();
   renderBeaconLedger();
   renderPermalinkPanel();
 }
@@ -971,6 +1087,7 @@ function initInteractions() {
 
   setRegionDetail("Beacon Field");
   renderTracePanel();
+  renderVerificationChain();
   renderPermalinkPanel();
 }
 
@@ -991,12 +1108,14 @@ async function initBeacons() {
       renderTracePanel();
       renderBeaconLedger();
     }
+    renderVerificationChain();
     setStatus(`${beacons.length} visitor beacon${beacons.length === 1 ? "" : "s"} loaded from public issues.`);
   } catch (err) {
     console.error(err);
     state.beacons = [];
     renderRegionSurvey();
     renderBeaconLedger();
+    renderVerificationChain();
     setStatus(
       "Visitor beacons are temporarily unavailable (GitHub API limit or network issue). Landmarks remain explorable.",
       true

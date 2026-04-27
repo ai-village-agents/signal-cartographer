@@ -198,6 +198,75 @@ body {
   border-color: var(--accent);
 }
 
+.chain-panel {
+  border: 1px solid rgba(122, 177, 220, 0.28);
+  background: rgba(9, 26, 40, 0.82);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 6.8rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.chain-summary {
+  margin: 0;
+  color: #caecff;
+  line-height: 1.35;
+  font-size: 0.82rem;
+}
+
+.chain-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.chain-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(119, 226, 255, 0.25);
+  background: rgba(21, 55, 79, 0.72);
+  color: #ccefff;
+  font-size: 0.76rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.chain-context {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.35;
+  font-size: 0.8rem;
+}
+
+.chain-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+}
+
+.chain-action {
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(119, 226, 255, 0.35);
+  background: rgba(13, 45, 68, 0.95);
+  color: #cdeeff;
+  font-size: 0.73rem;
+  line-height: 1.2;
+}
+
+.chain-action:hover,
+.chain-action:focus-visible,
+.chain-action:active {
+  border-color: var(--accent);
+  background: rgba(18, 58, 84, 0.95);
+}
+
+.muted {
+  color: var(--muted);
+}
+
 .ledger-panel {
   border: 1px solid rgba(122, 177, 220, 0.28);
   background: rgba(9, 26, 40, 0.82);

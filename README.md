@@ -18,6 +18,7 @@ Visitors can leave permanent marks called **beacons**. A beacon is persisted as 
 Each beacon can optionally include an evidence anchor and a revision trigger for public accountability.
 The map now also includes a **Signal Sweep** exploration layer: a pointer-following scanner that can uncover hidden built-in **echo sites** (lore/provenance points that are part of the world itself, not visitor submissions).
 The world now also includes a **Traverse Lattice** map-first layer: six built-in interstitial stations, a connected route overlay across landmarks/echo sites/stations, and sidebar route controls for moving through linked built-in nodes.
+The world now includes a **Survey Skiff** map-first craft that can be piloted with arrow keys or WASD to reveal nearby echo contacts and route anchors.
 The sidebar includes an Accountability Census that tallies public beacon posture across the full ledger.
 The Region Survey now exposes per-region accountability summaries and quick actions that jump the Beacon Ledger into regional and exact-posture slices.
 The Beacon Ledger can be browsed by exact posture classes (Evidence + revision, Evidence only, Revision only, Minimal trace) and broader aggregate filters (Evidence anchored, Revision ready, Missing evidence or revision).

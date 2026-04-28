@@ -271,6 +271,9 @@ const LATTICE_LINKS = [
 const SIGNAL_SWEEP_RADIUS_PCT = 6.5;
 const SIGNAL_SWEEP_NEARBY_MAX = 3;
 const SIGNAL_SWEEP_HIGHLIGHT_MAX = 5;
+const SURVEY_SKIFF_STEP_PCT = 1.1;
+const SURVEY_SKIFF_SHIFT_STEP_PCT = 2.2;
+const SURVEY_SKIFF_NEARBY_ANCHOR_MAX = 3;
 
 function withLandmarkIds(landmarks) {
   return (Array.isArray(landmarks) ? landmarks : []).map((landmark) => ({
@@ -302,6 +305,8 @@ const state = {
   restoredHashSelection: false,
   sweepEnabled: true,
   traverseLatticeEnabled: true,
+  surveySkiffEnabled: true,
+  surveySkiffCoord: { x: 18.4, y: 78.6 },
   sweepPointerActive: false,
   sweepCoord: null,
   discoveredEchoIds: new Set(),
@@ -345,15 +350,18 @@ const el = {
   toggleVerificationRoute: document.getElementById("toggleVerificationRoute"),
   toggleSignalSweep: document.getElementById("toggleSignalSweep"),
   toggleTraverseLattice: document.getElementById("toggleTraverseLattice"),
+  toggleSurveySkiff: document.getElementById("toggleSurveySkiff"),
   landmarkLayer: document.getElementById("landmarkLayer"),
   beaconLayer: document.getElementById("beaconLayer"),
   echoLayer: document.getElementById("echoLayer"),
   latticeLayer: document.getElementById("latticeLayer"),
+  surveySkiffLayer: document.getElementById("surveySkiffLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   verificationRouteLayer: document.getElementById("verificationRouteLayer"),
   signalSweepLayer: document.getElementById("signalSweepLayer"),
   signalSweep: document.getElementById("signalSweep"),
-  traverseLattice: document.getElementById("traverseLattice")
+  traverseLattice: document.getElementById("traverseLattice"),
+  surveySkiff: document.getElementById("surveySkiff")
 };
 
 function setTransform() {
@@ -385,6 +393,25 @@ function worldToPercent({ x, y }) {
 
 function formatPercentCoord(value) {
   return `${Number(value).toFixed(1)}%`;
+}
+
+function clampPercent(value) {
+  return Math.max(0, Math.min(100, Number(value)));
+}
+
+function centerViewportOnPercentCoord(coord, { scale = state.scale } = {}) {
+  const x = Number(coord && coord.x);
+  const y = Number(coord && coord.y);
+  const nextScale = Number(scale);
+  if (![x, y, nextScale].every(Number.isFinite)) return;
+  const vw = el.viewport.clientWidth;
+  const vh = el.viewport.clientHeight;
+  state.scale = Math.max(0.45, Math.min(2.1, nextScale));
+  const worldX = (x / 100) * MAP_W;
+  const worldY = (y / 100) * MAP_H;
+  state.tx = vw / 2 - worldX * state.scale;
+  state.ty = vh / 2 - worldY * state.scale;
+  setTransform();
 }
 
 function classifyRegionAtPercent(point) {
@@ -460,14 +487,7 @@ function setRegionDetail(regionName) {
 function focusRegion(regionName) {
   const target = REGION_FOCUS[regionName];
   if (!target) return;
-  const vw = el.viewport.clientWidth;
-  const vh = el.viewport.clientHeight;
-  state.scale = Math.max(0.45, Math.min(2.1, target.scale || 1.3));
-  const worldX = (target.x / 100) * MAP_W;
-  const worldY = (target.y / 100) * MAP_H;
-  state.tx = vw / 2 - worldX * state.scale;
-  state.ty = vh / 2 - worldY * state.scale;
-  setTransform();
+  centerViewportOnPercentCoord(target, { scale: target.scale || 1.3 });
 }
 
 function traceKey(marker) {
@@ -1227,13 +1247,7 @@ function setLedgerSummary(visibleCount, totalCount) {
 
 function focusBeacon(marker) {
   if (!marker || !Number.isFinite(Number(marker.x)) || !Number.isFinite(Number(marker.y))) return;
-  const vw = el.viewport.clientWidth;
-  const vh = el.viewport.clientHeight;
-  const worldX = (Number(marker.x) / 100) * MAP_W;
-  const worldY = (Number(marker.y) / 100) * MAP_H;
-  state.tx = vw / 2 - worldX * state.scale;
-  state.ty = vh / 2 - worldY * state.scale;
-  setTransform();
+  centerViewportOnPercentCoord(marker, { scale: state.scale });
 }
 
 function renderAccountabilityCensus() {
@@ -1575,6 +1589,8 @@ function setActiveTrace(marker) {
   renderEchoMarkers();
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
+  renderSurveySkiff();
+  renderSurveySkiffPanel();
   renderPermalinkPanel();
 }
 
@@ -1658,6 +1674,159 @@ function renderLatticeMarkers() {
       }
     );
   });
+}
+
+function rankNearbySkiffAnchors(limit = SURVEY_SKIFF_NEARBY_ANCHOR_MAX) {
+  if (!state.surveySkiffCoord) return [];
+  const sx = Number(state.surveySkiffCoord.x);
+  const sy = Number(state.surveySkiffCoord.y);
+  if (!Number.isFinite(sx) || !Number.isFinite(sy)) return [];
+  return getTraverseNetworkNodes()
+    .map((node) => ({
+      ...node,
+      distance: Math.hypot(sx - Number(node.x), sy - Number(node.y))
+    }))
+    .filter((node) => Number.isFinite(node.distance))
+    .sort((a, b) => a.distance - b.distance || String(a.title || "").localeCompare(String(b.title || "")))
+    .slice(0, limit);
+}
+
+function discoverEchoesNearSurveySkiff() {
+  if (!state.surveySkiffCoord) return false;
+  const nearby = findNearbyEchoSites(state.surveySkiffCoord, SIGNAL_SWEEP_RADIUS_PCT);
+  let changed = false;
+  nearby.forEach((echo) => {
+    if (!state.discoveredEchoIds.has(echo.id)) {
+      state.discoveredEchoIds.add(echo.id);
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+function moveSurveySkiffBy(deltaX, deltaY) {
+  if (!state.surveySkiffEnabled || !state.surveySkiffCoord) return;
+  const nextX = clampPercent(Number(state.surveySkiffCoord.x) + Number(deltaX));
+  const nextY = clampPercent(Number(state.surveySkiffCoord.y) + Number(deltaY));
+  if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
+  if (nextX === state.surveySkiffCoord.x && nextY === state.surveySkiffCoord.y) return;
+  state.surveySkiffCoord = { x: nextX, y: nextY };
+  const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
+  renderSurveySkiff();
+  renderSurveySkiffPanel();
+  if (discoveredNewEchoes) {
+    renderEchoMarkers();
+    renderSignalSweepPanel();
+  }
+}
+
+function isEditableFocusTarget(target) {
+  if (!target || !(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName;
+  if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT") return true;
+  if (target.isContentEditable) return true;
+  return typeof target.closest === "function" && Boolean(target.closest("[contenteditable='true']"));
+}
+
+function getSkiffMovementVector(keyValue) {
+  const key = String(keyValue || "").toLowerCase();
+  if (key === "arrowup" || key === "w") return { dx: 0, dy: -1 };
+  if (key === "arrowdown" || key === "s") return { dx: 0, dy: 1 };
+  if (key === "arrowleft" || key === "a") return { dx: -1, dy: 0 };
+  if (key === "arrowright" || key === "d") return { dx: 1, dy: 0 };
+  return null;
+}
+
+function activateSkiffAnchorByRef(reference, { dock = false } = {}) {
+  const target = getTraverseNetworkNodes().find((node) => node.ref === reference);
+  if (!target) return;
+  if (dock) {
+    state.surveySkiffCoord = { x: Number(target.x), y: Number(target.y) };
+    const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
+    renderSurveySkiff();
+    renderSurveySkiffPanel();
+    if (discoveredNewEchoes) {
+      renderEchoMarkers();
+      renderSignalSweepPanel();
+    }
+  }
+  activateMarker(target, { focus: true, updateHash: false });
+}
+
+function renderSurveySkiff() {
+  if (!el.surveySkiffLayer) return;
+  el.surveySkiffLayer.innerHTML = "";
+  el.surveySkiffLayer.hidden = !state.surveySkiffEnabled;
+  if (!state.surveySkiffEnabled || !state.surveySkiffCoord) return;
+
+  const region = classifyRegionAtPercent(state.surveySkiffCoord) || "Unknown region";
+  const node = document.createElement("button");
+  node.type = "button";
+  node.className = "marker marker-skiff";
+  node.style.left = `${clampPercent(state.surveySkiffCoord.x)}%`;
+  node.style.top = `${clampPercent(state.surveySkiffCoord.y)}%`;
+  node.setAttribute(
+    "title",
+    `Survey Skiff\n${region}\nx ${formatPercentCoord(state.surveySkiffCoord.x)} · y ${formatPercentCoord(state.surveySkiffCoord.y)}`
+  );
+  node.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+  node.addEventListener("pointerup", (ev) => ev.stopPropagation());
+  node.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    centerViewportOnPercentCoord(state.surveySkiffCoord);
+  });
+  el.surveySkiffLayer.appendChild(node);
+}
+
+function renderSurveySkiffPanel() {
+  if (!el.surveySkiff) return;
+
+  if (!state.surveySkiffEnabled) {
+    el.surveySkiff.innerHTML = `
+      <p>Survey Skiff is offline. Re-enable it in Controls to relaunch the movable survey craft.</p>
+      <p>Use arrow keys or WASD when the skiff is online.</p>
+    `;
+    return;
+  }
+
+  const coord = state.surveySkiffCoord || { x: 0, y: 0 };
+  const region = classifyRegionAtPercent(coord) || "Unknown region";
+  const nearby = rankNearbySkiffAnchors(SURVEY_SKIFF_NEARBY_ANCHOR_MAX);
+  const nearest = nearby[0] || null;
+
+  const nearestLine = nearest
+    ? `Nearest route anchor: ${escapeHtml(nearest.title || "Untitled anchor")} (${formatPercentCoord(nearest.distance)} away)`
+    : "Nearest route anchor: No route anchors are currently available.";
+  const nearbyHtml = nearby.length > 0
+    ? `
+      <div class="skiff-anchor-list">
+        ${nearby.map((node) => `
+          <button type="button" class="skiff-anchor-item" data-skiff-action="anchor" data-skiff-anchor-ref="${escapeHtml(node.ref)}">
+            <strong>${escapeHtml(node.title || "Untitled anchor")}</strong>
+            <span>${escapeHtml(node.region || "Unknown region")} · ${escapeHtml(node.type === "lattice" ? "Traverse station" : node.type === "echo" ? "Echo site" : "Landmark")}</span>
+            <span>${formatPercentCoord(node.distance)} away</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : '<p class="small">No nearby anchors are available from the traverse network right now.</p>';
+
+  el.surveySkiff.innerHTML = `
+    <p class="skiff-line">Survey Skiff online.</p>
+    <p class="skiff-line">Pilot the skiff with arrow keys or WASD. Hold Shift for longer steps.</p>
+    <div class="skiff-meta">
+      <span class="skiff-pill">Region: ${escapeHtml(region)}</span>
+      <span class="skiff-pill">x: ${formatPercentCoord(coord.x)}</span>
+      <span class="skiff-pill">y: ${formatPercentCoord(coord.y)}</span>
+    </div>
+    <p class="skiff-nearest">${nearestLine}</p>
+    <div class="skiff-actions">
+      <button type="button" class="skiff-action" data-skiff-action="center">Center on skiff</button>
+      <button type="button" class="skiff-action" data-skiff-action="dock-nearest" ${nearest ? "" : "disabled"}>Dock to nearest anchor</button>
+    </div>
+    <p class="small skiff-subtitle">Nearby anchors</p>
+    ${nearbyHtml}
+  `;
 }
 
 function toWorldCoords(marker) {
@@ -2208,8 +2377,11 @@ function initInteractions() {
   syncLedgerUrlState();
   state.sweepEnabled = !el.toggleSignalSweep || el.toggleSignalSweep.checked;
   state.traverseLatticeEnabled = !el.toggleTraverseLattice || el.toggleTraverseLattice.checked;
+  state.surveySkiffEnabled = !el.toggleSurveySkiff || el.toggleSurveySkiff.checked;
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
+  renderSurveySkiff();
+  renderSurveySkiffPanel();
 
   window.addEventListener("resize", recenter);
   window.addEventListener("hashchange", () => {
@@ -2343,6 +2515,50 @@ function initInteractions() {
       renderLatticeMarkers();
       renderTraverseLattice();
       renderTraverseLatticePanel();
+      renderSurveySkiffPanel();
+    });
+  }
+
+  if (el.toggleSurveySkiff) {
+    el.toggleSurveySkiff.addEventListener("change", () => {
+      state.surveySkiffEnabled = el.toggleSurveySkiff.checked;
+      renderSurveySkiff();
+      renderSurveySkiffPanel();
+    });
+  }
+
+  document.addEventListener("keydown", (ev) => {
+    if (!state.surveySkiffEnabled) return;
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (isEditableFocusTarget(document.activeElement)) return;
+    const vector = getSkiffMovementVector(ev.key);
+    if (!vector) return;
+    ev.preventDefault();
+    const step = ev.shiftKey ? SURVEY_SKIFF_SHIFT_STEP_PCT : SURVEY_SKIFF_STEP_PCT;
+    moveSurveySkiffBy(vector.dx * step, vector.dy * step);
+  });
+
+  if (el.surveySkiff) {
+    el.surveySkiff.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element ? ev.target.closest("[data-skiff-action]") : null;
+      if (!actionNode) return;
+      const action = actionNode.getAttribute("data-skiff-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnPercentCoord(state.surveySkiffCoord);
+        return;
+      }
+      if (action === "dock-nearest") {
+        const nearest = rankNearbySkiffAnchors(1)[0];
+        if (!nearest) return;
+        activateSkiffAnchorByRef(nearest.ref, { dock: true });
+        return;
+      }
+      if (action === "anchor") {
+        const reference = actionNode.getAttribute("data-skiff-anchor-ref");
+        if (!reference) return;
+        activateSkiffAnchorByRef(reference, { dock: false });
+      }
     });
   }
 
@@ -2427,6 +2643,8 @@ function initInteractions() {
   renderSignalSweepOverlay();
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
+  renderSurveySkiff();
+  renderSurveySkiffPanel();
   renderPermalinkPanel();
 }
 
@@ -2468,6 +2686,7 @@ function init() {
   renderLandmarks();
   renderLatticeMarkers();
   renderTraverseLattice();
+  renderSurveySkiff();
   initInteractions();
   state.restoredHashSelection = restoreHashSelection();
   initBeacons();

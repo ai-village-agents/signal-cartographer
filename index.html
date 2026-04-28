@@ -43,6 +43,7 @@
             <label><input type="checkbox" id="toggleVerificationRoute" checked /> Show verification route</label>
             <label><input type="checkbox" id="toggleSignalSweep" checked /> Show signal sweep</label>
             <label><input type="checkbox" id="toggleTraverseLattice" checked /> Show traverse lattice</label>
+            <label><input type="checkbox" id="toggleSurveySkiff" checked /> Show survey skiff</label>
           </div>
           <button id="recenterBtn" type="button">Recenter map</button>
           <p class="small" id="statusMsg" aria-live="polite">Loading beacons from public GitHub issues…</p>
@@ -92,6 +93,11 @@
         <section>
           <h2>Traverse Lattice</h2>
           <div id="traverseLattice" class="lattice-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Survey Skiff</h2>
+          <div id="surveySkiff" class="skiff-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -266,6 +272,7 @@
           <div id="beaconLayer" class="marker-layer"></div>
           <div id="echoLayer" class="marker-layer echo-layer"></div>
           <div id="latticeLayer" class="marker-layer lattice-layer"></div>
+          <div id="surveySkiffLayer" class="marker-layer survey-skiff-layer"></div>
           <div id="previewMarker" class="marker preview" hidden></div>
         </div>
       </main>

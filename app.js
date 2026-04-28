@@ -391,6 +391,49 @@ const DRIFT_CURRENTS = [
   }
 ];
 
+const TRANSIT_LOCKS = [
+  {
+    id: "rumor-sluice-lock",
+    title: "Rumor Sluice",
+    x: 19.8,
+    y: 40.6,
+    region: "Rumor Sea",
+    channel: "Testimony exchange",
+    note: "A braced sluice where loose reports are compressed into cross-checkable flow.",
+    linkedLockId: "revision-lift-lock"
+  },
+  {
+    id: "revision-lift-lock",
+    title: "Revision Lift",
+    x: 59.8,
+    y: 47.4,
+    region: "Revision River",
+    channel: "Testimony exchange",
+    note: "A counterweighted lift that raises disputed claims into visible correction lanes.",
+    linkedLockId: "rumor-sluice-lock"
+  },
+  {
+    id: "vault-spiral-lock",
+    title: "Vault Spiral",
+    x: 79.8,
+    y: 83.4,
+    region: "Memory Vault",
+    channel: "Archive release",
+    note: "A spiral gate that releases preserved records back into navigable circulation.",
+    linkedLockId: "beacon-harbor-lock"
+  },
+  {
+    id: "beacon-harbor-lock",
+    title: "Beacon Harbor Lock",
+    x: 24.8,
+    y: 76.2,
+    region: "Beacon Field",
+    channel: "Archive release",
+    note: "A receiving lock where public launches meet records returned from storage.",
+    linkedLockId: "vault-spiral-lock"
+  }
+];
+
 const SIGNAL_RELAY_LINKS = [
   ["ember-shelf-relay", "northfall-relay"],
   ["northfall-relay", "plateau-rim-relay"],
@@ -440,6 +483,8 @@ const SIGNAL_RELAY_CONTACT_RADIUS_PCT = 4.2;
 const SIGNAL_RELAY_LOG_MAX = 6;
 const DRIFT_CURRENT_ENTRY_RADIUS_PCT = 4.8;
 const DRIFT_CURRENT_LOG_MAX = 6;
+const TRANSIT_LOCK_CHART_RADIUS_PCT = 4.6;
+const TRANSIT_JUMP_LOG_MAX = 6;
 
 function withLandmarkIds(landmarks) {
   return (Array.isArray(landmarks) ? landmarks : []).map((landmark) => ({
@@ -456,6 +501,7 @@ const BUILTIN_ECHO_SITES = ECHO_SITES.map((echo) => ({ ...echo, type: "echo" }))
 const BUILTIN_LATTICE_STATIONS = LATTICE_STATIONS.map((station) => ({ ...station, type: "lattice" }));
 const BUILTIN_SIGNAL_RELAYS = SIGNAL_RELAYS.map((relay) => ({ ...relay, type: "relay" }));
 const BUILTIN_DRIFT_CURRENTS = DRIFT_CURRENTS.map((current) => ({ ...current, type: "current" }));
+const BUILTIN_TRANSIT_LOCKS = TRANSIT_LOCKS.map((lock) => ({ ...lock, type: "transit-lock" }));
 
 const state = {
   tx: -MAP_W / 2,
@@ -480,10 +526,13 @@ const state = {
   surveyWakeMilestones: [],
   signalRelaysEnabled: true,
   driftCurrentsEnabled: true,
+  transitLocksEnabled: true,
   contactedRelayIds: new Set(),
   relayContactLog: [],
   enteredCurrentIds: new Set(),
   currentEntryLog: [],
+  chartedTransitLockIds: new Set(),
+  transitJumpLog: [],
   sweepPointerActive: false,
   sweepCoord: null,
   discoveredEchoIds: new Set(),
@@ -531,10 +580,12 @@ const el = {
   toggleSurveyWake: document.getElementById("toggleSurveyWake"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
+  toggleTransitLocks: document.getElementById("toggleTransitLocks"),
   landmarkLayer: document.getElementById("landmarkLayer"),
   beaconLayer: document.getElementById("beaconLayer"),
   relayLayer: document.getElementById("relayLayer"),
   currentLayer: document.getElementById("currentLayer"),
+  transitLockMarkerLayer: document.getElementById("transitLockMarkerLayer"),
   echoLayer: document.getElementById("echoLayer"),
   latticeLayer: document.getElementById("latticeLayer"),
   surveySkiffLayer: document.getElementById("surveySkiffLayer"),
@@ -542,6 +593,7 @@ const el = {
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
+  transitLockLayer: document.getElementById("transitLockLayer"),
   verificationRouteLayer: document.getElementById("verificationRouteLayer"),
   signalSweepLayer: document.getElementById("signalSweepLayer"),
   signalSweep: document.getElementById("signalSweep"),
@@ -549,7 +601,8 @@ const el = {
   surveySkiff: document.getElementById("surveySkiff"),
   surveyWake: document.getElementById("surveyWake"),
   signalRelays: document.getElementById("signalRelays"),
-  driftCurrents: document.getElementById("driftCurrents")
+  driftCurrents: document.getElementById("driftCurrents"),
+  transitLocks: document.getElementById("transitLocks")
 };
 
 function setTransform() {
@@ -733,6 +786,62 @@ function findNearestCurrentToCoord(coord) {
   return ranked[0] || null;
 }
 
+function findTransitLockById(lockId) {
+  return BUILTIN_TRANSIT_LOCKS.find((lock) => lock.id === lockId) || null;
+}
+
+function resolveLinkedTransitLock(lock) {
+  return lock && lock.linkedLockId ? findTransitLockById(lock.linkedLockId) : null;
+}
+
+function listTransitLocksInChartRadiusFromCoord(coord) {
+  if (!coord) return [];
+  const x = Number(coord.x);
+  const y = Number(coord.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
+  return BUILTIN_TRANSIT_LOCKS
+    .map((lock) => ({
+      ...lock,
+      distance: Math.hypot(x - Number(lock.x), y - Number(lock.y))
+    }))
+    .filter((entry) => entry.distance <= TRANSIT_LOCK_CHART_RADIUS_PCT)
+    .sort((a, b) => a.distance - b.distance || String(a.title || "").localeCompare(String(b.title || "")));
+}
+
+function findNearestTransitLockToCoord(coord, { chartedOnly = false } = {}) {
+  if (!coord) return null;
+  const x = Number(coord.x);
+  const y = Number(coord.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const ranked = BUILTIN_TRANSIT_LOCKS
+    .filter((lock) => !chartedOnly || state.chartedTransitLockIds.has(lock.id))
+    .map((lock) => ({
+      lock,
+      distance: Math.hypot(x - Number(lock.x), y - Number(lock.y))
+    }))
+    .filter((entry) => Number.isFinite(entry.distance))
+    .sort((a, b) => a.distance - b.distance || String(a.lock.title || "").localeCompare(String(b.lock.title || "")));
+  return ranked[0] || null;
+}
+
+function detectTransitLockCharting() {
+  if (!state.surveySkiffCoord) return false;
+  const nearbyLocks = listTransitLocksInChartRadiusFromCoord(state.surveySkiffCoord);
+  let changed = false;
+  nearbyLocks.forEach((lock) => {
+    if (state.chartedTransitLockIds.has(lock.id)) return;
+    state.chartedTransitLockIds.add(lock.id);
+    changed = true;
+  });
+  if (changed) {
+    renderTransitLockMarkers();
+    renderTransitLockOverlay();
+    renderTransitLocksPanel();
+    renderVerificationChain();
+  }
+  return changed;
+}
+
 function detectDriftCurrentEntries({ forceBeaconRunEntry = false } = {}) {
   if (!state.surveySkiffCoord) return false;
   const nearbyCurrents = listCurrentEntriesFromCoord(state.surveySkiffCoord);
@@ -851,6 +960,7 @@ function traceKey(marker) {
   if (marker.type === "echo" && marker.id) return `echo:${marker.id}`;
   if (marker.type === "relay" && marker.id) return `relay:${marker.id}`;
   if (marker.type === "current" && marker.id) return `current:${marker.id}`;
+  if (marker.type === "transit-lock" && marker.id) return `transit-lock:${marker.id}`;
   return `${marker.type || "marker"}:${marker.title}:${marker.x}:${marker.y}`;
 }
 
@@ -885,6 +995,9 @@ function markerRef(marker) {
   if (marker.type === "current" && marker.id) {
     return `current:${marker.id}`;
   }
+  if (marker.type === "transit-lock" && marker.id) {
+    return `transit-lock:${marker.id}`;
+  }
   return "";
 }
 
@@ -894,7 +1007,8 @@ function getBuiltinReferenceCollections() {
     echo: BUILTIN_ECHO_SITES,
     lattice: BUILTIN_LATTICE_STATIONS,
     relay: BUILTIN_SIGNAL_RELAYS,
-    current: BUILTIN_DRIFT_CURRENTS
+    current: BUILTIN_DRIFT_CURRENTS,
+    "transit-lock": BUILTIN_TRANSIT_LOCKS
   };
 }
 
@@ -1312,6 +1426,8 @@ function renderTracePanel() {
           ? "Relay station"
           : trace.type === "current"
             ? "Drift current"
+            : trace.type === "transit-lock"
+              ? "Transit lock"
             : "Landmark";
   const pills = [
     `<span class="trace-pill">${traceTypeLabel}</span>`,
@@ -1329,6 +1445,9 @@ function renderTracePanel() {
   if (trace.type === "current" && trace.flow) {
     pills.push(`<span class="trace-pill">Flow: ${escapeHtml(trace.flow)}</span>`);
   }
+  if (trace.type === "transit-lock" && trace.channel) {
+    pills.push(`<span class="trace-pill">Channel: ${escapeHtml(trace.channel)}</span>`);
+  }
 
   const link = trace.issueUrl
     ? `<p class="trace-link"><a href="${trace.issueUrl}" target="_blank" rel="noopener">Open public issue ↗</a></p>`
@@ -1340,6 +1459,8 @@ function renderTracePanel() {
           ? '<p class="small trace-link">Built-in relay station: part of the outer signal ring.</p>'
           : trace.type === "current"
             ? '<p class="small trace-link">Built-in drift current: a navigable interior flow line.</p>'
+            : trace.type === "transit-lock"
+              ? '<p class="small trace-link">Built-in transit lock: a paired jump gate for the Survey Skiff.</p>'
       : '<p class="small trace-link">Built-in landmark: part of the base map.</p>';
   const evidence = String(trace.evidence || "").trim();
   const revision = String(trace.revision || "").trim();
@@ -1405,6 +1526,14 @@ function renderTracePanel() {
       </section>
     `
     : "";
+  const transitLockSection = trace.type === "transit-lock"
+    ? `
+      <section class="trace-subsection">
+        <h4>Transit Lock record</h4>
+        <p>This lock links two distant map regions so the Survey Skiff can traverse long intervals without following the full surface route.</p>
+      </section>
+    `
+    : "";
 
   el.tracePanel.innerHTML = `
     <h3>${escapeHtml(trace.title || "Untitled trace")}</h3>
@@ -1417,6 +1546,7 @@ function renderTracePanel() {
     ${latticeSection}
     ${relaySection}
     ${currentSection}
+    ${transitLockSection}
     ${link}
   `;
 }
@@ -1540,6 +1670,24 @@ function renderVerificationChain() {
       <p class="chain-context">${escapeHtml(nearestSentence)}</p>
       ${enteredSentence}
       <div class="chain-actions"><button type="button" class="chain-action" data-chain-target="centerCurrent">Center on current</button></div>
+    `;
+  } else if (trace.type === "transit-lock") {
+    const nearestLandmark = findNearestLandmark(trace);
+    const nearestSentence = nearestLandmark
+      ? `Nearest built-in landmark: ${nearestLandmark.landmark.title} (~${nearestLandmark.distance.toFixed(1)} map-% units).`
+      : "Nearest built-in landmark is unavailable.";
+    const chartedSentence = state.chartedTransitLockIds.has(trace.id)
+      ? "<p class=\"small\">This transit lock has already been charted by the Survey Skiff.</p>"
+      : "";
+    html = `
+      <p class="chain-summary">This is a built-in transit lock in ${escapeHtml(trace.region || "its region")}.</p>
+      ${coordPills}
+      <p class="chain-context">${escapeHtml(nearestSentence)}</p>
+      ${chartedSentence}
+      <div class="chain-actions">
+        <button type="button" class="chain-action" data-chain-transit-action="center" data-chain-transit-lock-id="${escapeHtml(trace.id)}">Center on lock</button>
+        <button type="button" class="chain-action" data-chain-transit-action="transit" data-chain-transit-lock-id="${escapeHtml(trace.id)}">Transit to linked lock</button>
+      </div>
     `;
   } else {
     const nearestRegionalBeacon = findNearestRegionalBeacon(trace);
@@ -2022,10 +2170,12 @@ function setActiveTrace(marker) {
   renderBeacons();
   renderRelayMarkers();
   renderCurrentMarkers();
+  renderTransitLockMarkers();
   renderLatticeMarkers();
   renderTraverseLattice();
   renderDriftCurrentOverlay();
   renderSignalRelayOverlay();
+  renderTransitLockOverlay();
   renderVerificationRoute();
   renderTracePanel();
   renderVerificationChain();
@@ -2038,6 +2188,7 @@ function setActiveTrace(marker) {
   renderPermalinkPanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
+  renderTransitLocksPanel();
 }
 
 function addMarker(layer, marker, options = {}) {
@@ -2305,6 +2456,196 @@ function renderDriftCurrentsPanel() {
   `;
 }
 
+function getTransitLockPairEntries() {
+  const seen = new Set();
+  const pairs = [];
+  BUILTIN_TRANSIT_LOCKS.forEach((lock) => {
+    const linked = resolveLinkedTransitLock(lock);
+    if (!linked) return;
+    const key = [lock.id, linked.id].sort().join("::");
+    if (seen.has(key)) return;
+    seen.add(key);
+    pairs.push({ from: lock, to: linked });
+  });
+  return pairs;
+}
+
+function renderTransitLockMarkers() {
+  if (!el.transitLockMarkerLayer) return;
+  el.transitLockMarkerLayer.innerHTML = "";
+  el.transitLockMarkerLayer.hidden = !state.transitLocksEnabled;
+  if (!state.transitLocksEnabled) return;
+
+  BUILTIN_TRANSIT_LOCKS.forEach((lock) => {
+    const isCharted = state.chartedTransitLockIds.has(lock.id);
+    const isActiveLock = Boolean(state.activeTrace && state.activeTrace.type === "transit-lock" && state.activeTrace.id === lock.id);
+    const className = [
+      "marker",
+      "marker-transit-lock",
+      isCharted ? "marker-transit-lock-charted" : "",
+      isActiveLock ? "marker-transit-lock-active" : ""
+    ].filter(Boolean).join(" ");
+    addMarker(
+      el.transitLockMarkerLayer,
+      { ...lock, color: isCharted ? "#ffd8ff" : "#d6b5ff" },
+      {
+        className,
+        updateHash: false,
+        focus: true
+      }
+    );
+  });
+}
+
+function renderTransitLockOverlay() {
+  if (!el.transitLockLayer) return;
+  const isVisible = state.transitLocksEnabled;
+  el.transitLockLayer.style.display = isVisible ? "block" : "none";
+  if (!isVisible) {
+    el.transitLockLayer.replaceChildren();
+    return;
+  }
+
+  const group = createSvgNode("g", { class: "transit-lock-network" });
+  getTransitLockPairEntries().forEach((pair) => {
+    const from = toWorldCoords(pair.from);
+    const to = toWorldCoords(pair.to);
+    group.appendChild(createSvgNode("line", {
+      class: "transit-lock-link",
+      x1: from.x.toFixed(1),
+      y1: from.y.toFixed(1),
+      x2: to.x.toFixed(1),
+      y2: to.y.toFixed(1)
+    }));
+    if (state.chartedTransitLockIds.has(pair.from.id) && state.chartedTransitLockIds.has(pair.to.id)) {
+      group.appendChild(createSvgNode("line", {
+        class: "transit-lock-link-charted",
+        x1: from.x.toFixed(1),
+        y1: from.y.toFixed(1),
+        x2: to.x.toFixed(1),
+        y2: to.y.toFixed(1)
+      }));
+    }
+  });
+  el.transitLockLayer.replaceChildren(group);
+}
+
+function getTransitActionSourceLock() {
+  if (state.activeTrace && state.activeTrace.type === "transit-lock") {
+    return findTransitLockById(state.activeTrace.id);
+  }
+  // Deterministic fallback: use the nearest charted lock to current skiff position.
+  const nearestCharted = findNearestTransitLockToCoord(state.surveySkiffCoord, { chartedOnly: true });
+  return nearestCharted ? nearestCharted.lock : null;
+}
+
+function transitThroughLock(lock) {
+  if (!lock || !state.surveySkiffCoord) return false;
+  const sourceLock = findTransitLockById(lock.id);
+  const destinationLock = resolveLinkedTransitLock(sourceLock);
+  if (!sourceLock || !destinationLock) return false;
+
+  state.chartedTransitLockIds.add(sourceLock.id);
+  state.chartedTransitLockIds.add(destinationLock.id);
+  state.surveySkiffCoord = { x: Number(destinationLock.x), y: Number(destinationLock.y) };
+  appendSurveyWakePoint(state.surveySkiffCoord, { force: true });
+  centerViewportOnPercentCoord(destinationLock, { scale: state.scale });
+  state.transitJumpLog.unshift({
+    fromLockId: sourceLock.id,
+    toLockId: destinationLock.id,
+    fromTitle: sourceLock.title,
+    toTitle: destinationLock.title,
+    channel: sourceLock.channel
+  });
+  if (state.transitJumpLog.length > TRANSIT_JUMP_LOG_MAX) {
+    state.transitJumpLog.splice(TRANSIT_JUMP_LOG_MAX);
+  }
+
+  const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
+  detectDriftCurrentEntries();
+  detectSignalRelayContacts();
+  detectTransitLockCharting();
+  renderSurveySkiff();
+  renderSurveySkiffPanel();
+  renderSurveyWake();
+  renderSurveyWakePanel();
+  renderTransitLockMarkers();
+  renderTransitLockOverlay();
+  renderTransitLocksPanel();
+  activateMarker(destinationLock, { focus: false, updateHash: false });
+  if (discoveredNewEchoes) {
+    renderEchoMarkers();
+    renderSignalSweepPanel();
+  }
+  return true;
+}
+
+function renderTransitLocksPanel() {
+  if (!el.transitLocks) return;
+  if (!state.transitLocksEnabled) {
+    el.transitLocks.innerHTML = `
+      <p>Transit Locks are hidden. Re-enable them in Controls to reveal paired jump gates.</p>
+      <p>Pilot the Survey Skiff with transit locks enabled to chart and use long-range lock routes.</p>
+    `;
+    return;
+  }
+
+  const chartedLocks = BUILTIN_TRANSIT_LOCKS.filter((lock) => state.chartedTransitLockIds.has(lock.id));
+  const chartedCount = chartedLocks.length;
+  const chartedRegions = new Set(chartedLocks.map((lock) => lock.region)).size;
+  const nearest = findNearestTransitLockToCoord(state.surveySkiffCoord);
+  const nearestLine = nearest
+    ? `Nearest lock: ${escapeHtml(nearest.lock.title)} (${nearest.distance.toFixed(1)}% away)`
+    : "Nearest lock: unavailable";
+
+  const chartedCards = chartedCount > 0
+    ? `
+      <div class="transit-lock-chart-list">
+        ${chartedLocks.map((lock) => {
+          const linked = resolveLinkedTransitLock(lock);
+          const linkedTitle = linked ? linked.title : "Unknown lock";
+          return `
+            <button type="button" class="transit-lock-chart-item" data-transit-lock-id="${escapeHtml(lock.id)}">
+              <strong>${escapeHtml(lock.title)}</strong>
+              <span>${escapeHtml(lock.region)} · ${escapeHtml(lock.channel)} · links to ${escapeHtml(linkedTitle)}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No transit locks charted yet. Pilot the skiff near one to bring it onto the map.</p>";
+
+  const jumpsHtml = state.transitJumpLog.length > 0
+    ? `
+      <div class="transit-lock-jump-list">
+        ${state.transitJumpLog.map((entry) => `
+          <p class="transit-lock-jump-item">${escapeHtml(entry.fromTitle)} -> ${escapeHtml(entry.toTitle)} · ${escapeHtml(entry.channel)}</p>
+        `).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No lock transits logged yet.</p>";
+
+  el.transitLocks.innerHTML = `
+    <p class="transit-lock-line">Transit Locks connect distant regions through paired jump gates.</p>
+    <p class="transit-lock-line">Pilot the Survey Skiff near a lock to chart it, then transit through it.</p>
+    <p class="transit-lock-line">Transit chart: ${chartedCount} of 4 locks charted across ${chartedRegions} region(s).</p>
+    <p class="transit-lock-line">${nearestLine}</p>
+    <div class="transit-lock-meta">
+      <span class="transit-lock-pill">Locks charted: ${chartedCount}</span>
+      <span class="transit-lock-pill">Regions charted: ${chartedRegions}</span>
+      <span class="transit-lock-pill">Chart radius: ${TRANSIT_LOCK_CHART_RADIUS_PCT.toFixed(1)}%</span>
+    </div>
+    <div class="transit-lock-actions">
+      <button type="button" class="transit-lock-action" data-transit-lock-action="center-nearest" ${nearest ? "" : "disabled"}>Center on nearest lock</button>
+      <button type="button" class="transit-lock-action" data-transit-lock-action="center-charted" ${chartedCount > 0 ? "" : "disabled"}>Center on charted locks</button>
+      <button type="button" class="transit-lock-action" data-transit-lock-action="transit" ${getTransitActionSourceLock() ? "" : "disabled"}>Transit through lock</button>
+    </div>
+    ${chartedCards}
+    <p class="small">Recent lock transits</p>
+    ${jumpsHtml}
+  `;
+}
+
 function renderEchoMarkers() {
   if (!el.echoLayer) return;
   el.echoLayer.innerHTML = "";
@@ -2555,12 +2896,14 @@ function moveSurveySkiffBy(deltaX, deltaY) {
   const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
   detectDriftCurrentEntries({ forceBeaconRunEntry: true });
   detectSignalRelayContacts();
+  detectTransitLockCharting();
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
+  renderTransitLocksPanel();
   if (discoveredNewEchoes) {
     renderEchoMarkers();
     renderSignalSweepPanel();
@@ -2593,12 +2936,14 @@ function activateSkiffAnchorByRef(reference, { dock = false } = {}) {
     const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
     detectDriftCurrentEntries();
     detectSignalRelayContacts();
+    detectTransitLockCharting();
     renderSurveySkiff();
     renderSurveySkiffPanel();
     renderSurveyWake();
     renderSurveyWakePanel();
     renderSignalRelaysPanel();
     renderDriftCurrentsPanel();
+    renderTransitLocksPanel();
     if (discoveredNewEchoes) {
       renderEchoMarkers();
       renderSignalSweepPanel();
@@ -3235,10 +3580,12 @@ function initInteractions() {
   state.surveyWakeEnabled = !el.toggleSurveyWake || el.toggleSurveyWake.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
+  state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
   state.surveyWakePoints = [{ x: clampPercent(state.surveySkiffCoord.x), y: clampPercent(state.surveySkiffCoord.y) }];
   state.surveyWakeMilestones = [];
   detectDriftCurrentEntries({ forceBeaconRunEntry: true });
   detectSignalRelayContacts();
+  detectTransitLockCharting();
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
   renderSurveySkiff();
@@ -3247,10 +3594,13 @@ function initInteractions() {
   renderSurveyWakePanel();
   renderRelayMarkers();
   renderCurrentMarkers();
+  renderTransitLockMarkers();
   renderDriftCurrentOverlay();
   renderSignalRelayOverlay();
+  renderTransitLockOverlay();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
+  renderTransitLocksPanel();
 
   window.addEventListener("resize", recenter);
   window.addEventListener("hashchange", () => {
@@ -3422,6 +3772,15 @@ function initInteractions() {
     });
   }
 
+  if (el.toggleTransitLocks) {
+    el.toggleTransitLocks.addEventListener("change", () => {
+      state.transitLocksEnabled = el.toggleTransitLocks.checked;
+      renderTransitLockMarkers();
+      renderTransitLockOverlay();
+      renderTransitLocksPanel();
+    });
+  }
+
   document.addEventListener("keydown", (ev) => {
     if (!state.surveySkiffEnabled) return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -3570,6 +3929,67 @@ function initInteractions() {
     });
   }
 
+  if (el.transitLocks) {
+    el.transitLocks.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element ? ev.target.closest("[data-transit-lock-action], [data-transit-lock-id]") : null;
+      if (!actionNode) return;
+
+      const lockId = actionNode.getAttribute("data-transit-lock-id");
+      if (lockId) {
+        const lock = findTransitLockById(lockId);
+        if (!lock) return;
+        activateMarker(lock, { focus: true, updateHash: false });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-transit-lock-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-nearest") {
+        const nearest = findNearestTransitLockToCoord(state.surveySkiffCoord);
+        if (!nearest) return;
+        centerViewportOnPercentCoord(nearest.lock, { scale: state.scale });
+        return;
+      }
+      if (action === "center-charted") {
+        const charted = BUILTIN_TRANSIT_LOCKS.filter((lock) => state.chartedTransitLockIds.has(lock.id));
+        if (charted.length === 0) return;
+        const center = charted.reduce(
+          (acc, lock) => ({ x: acc.x + Number(lock.x), y: acc.y + Number(lock.y) }),
+          { x: 0, y: 0 }
+        );
+        centerViewportOnPercentCoord({
+          x: center.x / charted.length,
+          y: center.y / charted.length
+        }, { scale: state.scale });
+        return;
+      }
+      if (action === "transit") {
+        const sourceLock = getTransitActionSourceLock();
+        if (!sourceLock) return;
+        transitThroughLock(sourceLock);
+      }
+    });
+  }
+
+  if (el.verificationChain) {
+    el.verificationChain.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element ? ev.target.closest("[data-chain-transit-action]") : null;
+      if (!actionNode) return;
+      const action = actionNode.getAttribute("data-chain-transit-action");
+      const lockId = actionNode.getAttribute("data-chain-transit-lock-id");
+      const lock = lockId ? findTransitLockById(lockId) : null;
+      if (!lock) return;
+      if (action === "center") {
+        centerViewportOnPercentCoord(lock, { scale: state.scale });
+        activateMarker(lock, { focus: false, updateHash: false });
+        return;
+      }
+      if (action === "transit") {
+        transitThroughLock(lock);
+      }
+    });
+  }
+
   if (el.ledgerRegionFilter) {
     el.ledgerRegionFilter.addEventListener("change", handleLedgerFilterChange);
   }
@@ -3661,6 +4081,9 @@ function initInteractions() {
   renderCurrentMarkers();
   renderDriftCurrentOverlay();
   renderDriftCurrentsPanel();
+  renderTransitLockMarkers();
+  renderTransitLockOverlay();
+  renderTransitLocksPanel();
   renderPermalinkPanel();
 }
 
@@ -3702,14 +4125,17 @@ function init() {
   renderLandmarks();
   renderRelayMarkers();
   renderCurrentMarkers();
+  renderTransitLockMarkers();
   renderLatticeMarkers();
   renderTraverseLattice();
   renderDriftCurrentOverlay();
   renderSignalRelayOverlay();
+  renderTransitLockOverlay();
   renderSurveySkiff();
   renderSurveyWake();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
+  renderTransitLocksPanel();
   initInteractions();
   state.restoredHashSelection = restoreHashSelection();
   initBeacons();

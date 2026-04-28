@@ -242,6 +242,82 @@ const LATTICE_STATIONS = [
   }
 ];
 
+const SIGNAL_RELAYS = [
+  {
+    id: "ember-shelf-relay",
+    x: 8.6,
+    y: 45.2,
+    title: "Ember Shelf Relay",
+    region: "Rumor Sea",
+    band: "Western shelf",
+    note: "Relay mast tuned to separate loud rumor from signal that survives retesting."
+  },
+  {
+    id: "northfall-relay",
+    x: 33.8,
+    y: 11.4,
+    title: "Northfall Relay",
+    region: "Rumor Sea",
+    band: "Northern watch",
+    note: "A cold relay facing the map edge, where weak claims shear off first."
+  },
+  {
+    id: "plateau-rim-relay",
+    x: 86.2,
+    y: 18.4,
+    title: "Plateau Rim Relay",
+    region: "Proof Plateau",
+    band: "Proof horizon",
+    note: "This relay keeps a long line of sight over repeatable ground."
+  },
+  {
+    id: "delta-relay",
+    x: 83.6,
+    y: 50.1,
+    title: "Delta Relay",
+    region: "Revision River",
+    band: "River mouth",
+    note: "Corrections fan outward here before rejoining the main current."
+  },
+  {
+    id: "vault-verge-relay",
+    x: 87.4,
+    y: 82.8,
+    title: "Vault Verge Relay",
+    region: "Memory Vault",
+    band: "Archive perimeter",
+    note: "A perimeter relay watching what remains reachable at the edge of storage."
+  },
+  {
+    id: "causeway-relay",
+    x: 43.6,
+    y: 92.2,
+    title: "Causeway Relay",
+    region: "Beacon Field",
+    band: "Southern causeway",
+    note: "Signals bunch here before crossing back toward the public rails."
+  },
+  {
+    id: "beacon-spindle-relay",
+    x: 21.4,
+    y: 81.2,
+    title: "Beacon Spindle Relay",
+    region: "Beacon Field",
+    band: "Inner field",
+    note: "A low relay close to the skiff's usual launch water, useful for first-contact checks."
+  }
+];
+
+const SIGNAL_RELAY_LINKS = [
+  ["ember-shelf-relay", "northfall-relay"],
+  ["northfall-relay", "plateau-rim-relay"],
+  ["plateau-rim-relay", "delta-relay"],
+  ["delta-relay", "vault-verge-relay"],
+  ["vault-verge-relay", "causeway-relay"],
+  ["causeway-relay", "beacon-spindle-relay"],
+  ["beacon-spindle-relay", "ember-shelf-relay"]
+];
+
 const LATTICE_LINKS = [
   ["landmark:whisper-breakwater", "echo:brine-index"],
   ["landmark:whisper-breakwater", "echo:hearsay-foghorn"],
@@ -277,6 +353,8 @@ const SURVEY_SKIFF_NEARBY_ANCHOR_MAX = 3;
 const SURVEY_WAKE_POINT_MIN_STEP_PCT = 0.6;
 const SURVEY_WAKE_MAX_POINTS = 72;
 const SURVEY_WAKE_MILESTONE_MAX = 6;
+const SIGNAL_RELAY_CONTACT_RADIUS_PCT = 4.2;
+const SIGNAL_RELAY_LOG_MAX = 6;
 
 function withLandmarkIds(landmarks) {
   return (Array.isArray(landmarks) ? landmarks : []).map((landmark) => ({
@@ -291,6 +369,7 @@ const BUILTIN_LANDMARKS = withLandmarkIds(LANDMARKS).map((landmark) => ({
 }));
 const BUILTIN_ECHO_SITES = ECHO_SITES.map((echo) => ({ ...echo, type: "echo" }));
 const BUILTIN_LATTICE_STATIONS = LATTICE_STATIONS.map((station) => ({ ...station, type: "lattice" }));
+const BUILTIN_SIGNAL_RELAYS = SIGNAL_RELAYS.map((relay) => ({ ...relay, type: "relay" }));
 
 const state = {
   tx: -MAP_W / 2,
@@ -313,6 +392,9 @@ const state = {
   surveyWakeEnabled: true,
   surveyWakePoints: [{ x: 18.4, y: 78.6 }],
   surveyWakeMilestones: [],
+  signalRelaysEnabled: true,
+  contactedRelayIds: new Set(),
+  relayContactLog: [],
   sweepPointerActive: false,
   sweepCoord: null,
   discoveredEchoIds: new Set(),
@@ -358,19 +440,23 @@ const el = {
   toggleTraverseLattice: document.getElementById("toggleTraverseLattice"),
   toggleSurveySkiff: document.getElementById("toggleSurveySkiff"),
   toggleSurveyWake: document.getElementById("toggleSurveyWake"),
+  toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   landmarkLayer: document.getElementById("landmarkLayer"),
   beaconLayer: document.getElementById("beaconLayer"),
+  relayLayer: document.getElementById("relayLayer"),
   echoLayer: document.getElementById("echoLayer"),
   latticeLayer: document.getElementById("latticeLayer"),
   surveySkiffLayer: document.getElementById("surveySkiffLayer"),
   surveyWakeLayer: document.getElementById("surveyWakeLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
+  signalRelayLayer: document.getElementById("signalRelayLayer"),
   verificationRouteLayer: document.getElementById("verificationRouteLayer"),
   signalSweepLayer: document.getElementById("signalSweepLayer"),
   signalSweep: document.getElementById("signalSweep"),
   traverseLattice: document.getElementById("traverseLattice"),
   surveySkiff: document.getElementById("surveySkiff"),
-  surveyWake: document.getElementById("surveyWake")
+  surveyWake: document.getElementById("surveyWake"),
+  signalRelays: document.getElementById("signalRelays")
 };
 
 function setTransform() {
@@ -465,6 +551,65 @@ function findNearbyEchoSites(coord, radius = SIGNAL_SWEEP_RADIUS_PCT) {
     .sort((a, b) => a.distance - b.distance || String(a.title || "").localeCompare(String(b.title || "")));
 }
 
+function listRelayContactsFromCoord(coord) {
+  if (!coord) return [];
+  const x = Number(coord.x);
+  const y = Number(coord.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
+  return BUILTIN_SIGNAL_RELAYS
+    .map((relay) => ({
+      ...relay,
+      distance: Math.hypot(x - Number(relay.x), y - Number(relay.y))
+    }))
+    .filter((relay) => relay.distance <= SIGNAL_RELAY_CONTACT_RADIUS_PCT)
+    .sort((a, b) => a.distance - b.distance || String(a.title || "").localeCompare(String(b.title || "")));
+}
+
+function findNearestRelayToCoord(coord) {
+  if (!coord) return null;
+  const x = Number(coord.x);
+  const y = Number(coord.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const ranked = BUILTIN_SIGNAL_RELAYS
+    .map((relay) => ({
+      relay,
+      distance: Math.hypot(x - Number(relay.x), y - Number(relay.y))
+    }))
+    .filter((entry) => Number.isFinite(entry.distance))
+    .sort((a, b) => a.distance - b.distance || String(a.relay.title || "").localeCompare(String(b.relay.title || "")));
+  return ranked[0] || null;
+}
+
+function detectSignalRelayContacts() {
+  if (!state.surveySkiffCoord) return false;
+  const nearbyRelays = listRelayContactsFromCoord(state.surveySkiffCoord);
+  let changed = false;
+  nearbyRelays.forEach((relay) => {
+    if (state.contactedRelayIds.has(relay.id)) return;
+    state.contactedRelayIds.add(relay.id);
+    state.relayContactLog.unshift({
+      relayId: relay.id,
+      title: relay.title,
+      region: relay.region,
+      x: Number(relay.x),
+      y: Number(relay.y),
+      band: relay.band
+    });
+    if (state.relayContactLog.length > SIGNAL_RELAY_LOG_MAX) {
+      state.relayContactLog.splice(SIGNAL_RELAY_LOG_MAX);
+    }
+    changed = true;
+  });
+
+  if (changed) {
+    renderRelayMarkers();
+    renderSignalRelayOverlay();
+    renderSignalRelaysPanel();
+    renderVerificationChain();
+  }
+  return changed;
+}
+
 function placePreview(percentX, percentY) {
   el.previewMarker.hidden = false;
   el.previewMarker.style.left = `${percentX}%`;
@@ -504,6 +649,7 @@ function traceKey(marker) {
   if (marker.issueNumber) return `beacon:${marker.issueNumber}`;
   if (marker.type === "lattice" && marker.id) return `lattice:${marker.id}`;
   if (marker.type === "echo" && marker.id) return `echo:${marker.id}`;
+  if (marker.type === "relay" && marker.id) return `relay:${marker.id}`;
   return `${marker.type || "marker"}:${marker.title}:${marker.x}:${marker.y}`;
 }
 
@@ -532,6 +678,9 @@ function markerRef(marker) {
   if (marker.type === "lattice" && marker.id) {
     return `lattice:${marker.id}`;
   }
+  if (marker.type === "relay" && marker.id) {
+    return `relay:${marker.id}`;
+  }
   return "";
 }
 
@@ -539,7 +688,8 @@ function getBuiltinReferenceCollections() {
   return {
     landmark: BUILTIN_LANDMARKS,
     echo: BUILTIN_ECHO_SITES,
-    lattice: BUILTIN_LATTICE_STATIONS
+    lattice: BUILTIN_LATTICE_STATIONS,
+    relay: BUILTIN_SIGNAL_RELAYS
   };
 }
 
@@ -953,7 +1103,9 @@ function renderTracePanel() {
       ? "Echo site"
       : trace.type === "lattice"
         ? "Traverse station"
-      : "Landmark";
+        : trace.type === "relay"
+          ? "Relay station"
+          : "Landmark";
   const pills = [
     `<span class="trace-pill">${traceTypeLabel}</span>`,
     `<span class="trace-pill">${escapeHtml(trace.region || "Unknown region")}</span>`
@@ -964,6 +1116,9 @@ function renderTracePanel() {
   if (trace.issueNumber) {
     pills.push(`<span class="trace-pill">Issue #${trace.issueNumber}</span>`);
   }
+  if (trace.type === "relay" && trace.band) {
+    pills.push(`<span class="trace-pill">Band: ${escapeHtml(trace.band)}</span>`);
+  }
 
   const link = trace.issueUrl
     ? `<p class="trace-link"><a href="${trace.issueUrl}" target="_blank" rel="noopener">Open public issue ↗</a></p>`
@@ -971,6 +1126,8 @@ function renderTracePanel() {
       ? '<p class="small trace-link">Built-in echo site: discoverable through Signal Sweep.</p>'
       : trace.type === "lattice"
         ? '<p class="small trace-link">Built-in traverse station: part of the inter-region lattice.</p>'
+        : trace.type === "relay"
+          ? '<p class="small trace-link">Built-in relay station: part of the outer signal ring.</p>'
       : '<p class="small trace-link">Built-in landmark: part of the base map.</p>';
   const evidence = String(trace.evidence || "").trim();
   const revision = String(trace.revision || "").trim();
@@ -1020,6 +1177,14 @@ function renderTracePanel() {
       </section>
     `
     : "";
+  const relaySection = trace.type === "relay"
+    ? `
+      <section class="trace-subsection">
+        <h4>Signal Relay record</h4>
+        <p>This relay helps stitch the perimeter of the map into a continuous outer circuit for long-range bearings.</p>
+      </section>
+    `
+    : "";
 
   el.tracePanel.innerHTML = `
     <h3>${escapeHtml(trace.title || "Untitled trace")}</h3>
@@ -1030,6 +1195,7 @@ function renderTracePanel() {
     ${revisionSection}
     ${echoSection}
     ${latticeSection}
+    ${relaySection}
     ${link}
   `;
 }
@@ -1122,6 +1288,22 @@ function renderVerificationChain() {
       <p class="chain-context">${escapeHtml(nearestSentence)}</p>
       ${actionHtml}
     `;
+  } else if (trace.type === "relay") {
+    const nearestLandmark = findNearestLandmark(trace);
+    const nearestSentence = nearestLandmark
+      ? `Nearest built-in landmark: ${nearestLandmark.landmark.title} (~${nearestLandmark.distance.toFixed(1)} map-% units).`
+      : "Nearest built-in landmark is unavailable.";
+    const contactedSentence = state.contactedRelayIds.has(trace.id)
+      ? '<p class="small">This relay has already been contacted by the Survey Skiff.</p>'
+      : "";
+    actionTargets.centerRelay = trace;
+    html = `
+      <p class="chain-summary">This is a built-in relay station in ${escapeHtml(trace.region || "its region")}.</p>
+      ${coordPills}
+      <p class="chain-context">${escapeHtml(nearestSentence)}</p>
+      ${contactedSentence}
+      <div class="chain-actions"><button type="button" class="chain-action" data-chain-target="centerRelay">Center on relay</button></div>
+    `;
   } else {
     const nearestRegionalBeacon = findNearestRegionalBeacon(trace);
     const contextHtml = nearestRegionalBeacon
@@ -1152,6 +1334,10 @@ function renderVerificationChain() {
     node.addEventListener("click", () => {
       const target = actionTargets[node.dataset.chainTarget];
       if (!target) return;
+      if (node.dataset.chainTarget === "centerRelay") {
+        centerViewportOnPercentCoord(target, { scale: state.scale });
+        return;
+      }
       activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
     });
   });
@@ -1593,8 +1779,10 @@ function setActiveTrace(marker) {
     : null;
   renderLandmarks();
   renderBeacons();
+  renderRelayMarkers();
   renderLatticeMarkers();
   renderTraverseLattice();
+  renderSignalRelayOverlay();
   renderVerificationRoute();
   renderTracePanel();
   renderVerificationChain();
@@ -1605,13 +1793,15 @@ function setActiveTrace(marker) {
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderPermalinkPanel();
+  renderSignalRelaysPanel();
 }
 
 function addMarker(layer, marker, options = {}) {
   const {
     className = "marker",
     highlight = false,
-    updateHash = true
+    updateHash = true,
+    focus = false
   } = options;
   const node = document.createElement("button");
   node.type = "button";
@@ -1634,7 +1824,7 @@ function addMarker(layer, marker, options = {}) {
   node.addEventListener("pointerup", (ev) => ev.stopPropagation());
   node.addEventListener("click", (ev) => {
     ev.stopPropagation();
-    activateMarker(marker, { updateHash });
+    activateMarker(marker, { focus, updateHash });
   });
   layer.appendChild(node);
 }
@@ -1647,6 +1837,123 @@ function renderLandmarks() {
 function renderBeacons() {
   el.beaconLayer.innerHTML = "";
   state.beacons.forEach((b) => addMarker(el.beaconLayer, { ...b, type: "beacon" }));
+}
+
+function renderRelayMarkers() {
+  if (!el.relayLayer) return;
+  el.relayLayer.innerHTML = "";
+  el.relayLayer.hidden = !state.signalRelaysEnabled;
+  if (!state.signalRelaysEnabled) return;
+
+  BUILTIN_SIGNAL_RELAYS.forEach((relay) => {
+    const isContacted = state.contactedRelayIds.has(relay.id);
+    const isActiveRelay = Boolean(state.activeTrace && state.activeTrace.type === "relay" && state.activeTrace.id === relay.id);
+    const className = [
+      "marker",
+      "marker-relay",
+      isContacted ? "marker-relay-contacted" : "",
+      isActiveRelay ? "marker-relay-active" : ""
+    ].filter(Boolean).join(" ");
+    addMarker(
+      el.relayLayer,
+      { ...relay, color: isContacted ? "#d7f7ff" : "#a9eaff" },
+      {
+        className,
+        updateHash: false,
+        focus: true
+      }
+    );
+  });
+}
+
+function renderSignalRelayOverlay() {
+  if (!el.signalRelayLayer) return;
+  const isVisible = state.signalRelaysEnabled;
+  el.signalRelayLayer.style.display = isVisible ? "block" : "none";
+  if (!isVisible) {
+    el.signalRelayLayer.replaceChildren();
+    return;
+  }
+
+  const relayById = new Map(BUILTIN_SIGNAL_RELAYS.map((relay) => [relay.id, relay]));
+  const group = createSvgNode("g", { class: "signal-relay-network" });
+
+  SIGNAL_RELAY_LINKS.forEach(([fromId, toId]) => {
+    const fromRelay = relayById.get(fromId);
+    const toRelay = relayById.get(toId);
+    if (!fromRelay || !toRelay) return;
+    const from = toWorldCoords(fromRelay);
+    const to = toWorldCoords(toRelay);
+    group.appendChild(createSvgNode("line", {
+      class: "signal-relay-link",
+      x1: from.x.toFixed(1),
+      y1: from.y.toFixed(1),
+      x2: to.x.toFixed(1),
+      y2: to.y.toFixed(1)
+    }));
+    if (state.contactedRelayIds.has(fromId) && state.contactedRelayIds.has(toId)) {
+      group.appendChild(createSvgNode("line", {
+        class: "signal-relay-link-active",
+        x1: from.x.toFixed(1),
+        y1: from.y.toFixed(1),
+        x2: to.x.toFixed(1),
+        y2: to.y.toFixed(1)
+      }));
+    }
+  });
+
+  el.signalRelayLayer.replaceChildren(group);
+}
+
+function renderSignalRelaysPanel() {
+  if (!el.signalRelays) return;
+  if (!state.signalRelaysEnabled) {
+    el.signalRelays.innerHTML = `
+      <p>Signal Relays are hidden. Re-enable them in Controls to reveal the outer signal ring.</p>
+      <p>Pilot the Survey Skiff near the map edge to bring relays into contact.</p>
+    `;
+    return;
+  }
+
+  const contactedIds = state.contactedRelayIds;
+  const contactedCount = contactedIds.size;
+  const contactedRelays = BUILTIN_SIGNAL_RELAYS.filter((relay) => contactedIds.has(relay.id));
+  const reachedRegions = new Set(contactedRelays.map((relay) => relay.region)).size;
+  const nearest = findNearestRelayToCoord(state.surveySkiffCoord);
+  const nearestLine = nearest
+    ? `Nearest relay: ${escapeHtml(nearest.relay.title)} (${nearest.distance.toFixed(1)}% away)`
+    : "Nearest relay: unavailable";
+  const fallback = "<p class=\"small\">No relays contacted yet. Pilot the skiff toward the perimeter to raise one.</p>";
+  const contactsHtml = state.relayContactLog.length > 0
+    ? `
+      <div class="relay-contact-list">
+        ${state.relayContactLog.map((entry) => `
+          <button type="button" class="relay-contact-item" data-relay-id="${escapeHtml(entry.relayId)}">
+            <strong>${escapeHtml(entry.title)}</strong>
+            <span class="small">${escapeHtml(entry.region)} · ${escapeHtml(entry.band)} · x ${formatPercentCoord(entry.x)} · y ${formatPercentCoord(entry.y)}</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : fallback;
+
+  el.signalRelays.innerHTML = `
+    <p class="relay-line">Signal Relays mark the outer ring of the map.</p>
+    <p class="relay-line">Pilot the Survey Skiff near a relay to bring it into contact.</p>
+    <p class="relay-line">Relay contact: ${contactedCount} of 7 relays contacted across ${reachedRegions} region(s).</p>
+    <p class="relay-line">${nearestLine}</p>
+    <div class="relay-meta">
+      <span class="relay-pill">Relays contacted: ${contactedCount}</span>
+      <span class="relay-pill">Regions reached: ${reachedRegions}</span>
+      <span class="relay-pill">Contact radius: ${SIGNAL_RELAY_CONTACT_RADIUS_PCT.toFixed(1)}%</span>
+    </div>
+    <div class="relay-actions">
+      <button type="button" class="relay-action" data-relay-action="center-nearest" ${nearest ? "" : "disabled"}>Center on nearest relay</button>
+      <button type="button" class="relay-action" data-relay-action="center-contacted" ${contactedCount > 0 ? "" : "disabled"}>Center on contacted ring</button>
+    </div>
+    <p class="small">Recent relay contacts</p>
+    ${contactsHtml}
+  `;
 }
 
 function renderEchoMarkers() {
@@ -1897,10 +2204,12 @@ function moveSurveySkiffBy(deltaX, deltaY) {
   state.surveySkiffCoord = { x: nextX, y: nextY };
   appendSurveyWakePoint(state.surveySkiffCoord);
   const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
+  detectSignalRelayContacts();
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
+  renderSignalRelaysPanel();
   if (discoveredNewEchoes) {
     renderEchoMarkers();
     renderSignalSweepPanel();
@@ -1931,10 +2240,12 @@ function activateSkiffAnchorByRef(reference, { dock = false } = {}) {
     state.surveySkiffCoord = { x: Number(target.x), y: Number(target.y) };
     appendSurveyWakePoint(state.surveySkiffCoord, { force: true, dockLabel: target.title || "Untitled anchor" });
     const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
+    detectSignalRelayContacts();
     renderSurveySkiff();
     renderSurveySkiffPanel();
     renderSurveyWake();
     renderSurveyWakePanel();
+    renderSignalRelaysPanel();
     if (discoveredNewEchoes) {
       renderEchoMarkers();
       renderSignalSweepPanel();
@@ -2569,14 +2880,19 @@ function initInteractions() {
   state.traverseLatticeEnabled = !el.toggleTraverseLattice || el.toggleTraverseLattice.checked;
   state.surveySkiffEnabled = !el.toggleSurveySkiff || el.toggleSurveySkiff.checked;
   state.surveyWakeEnabled = !el.toggleSurveyWake || el.toggleSurveyWake.checked;
+  state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.surveyWakePoints = [{ x: clampPercent(state.surveySkiffCoord.x), y: clampPercent(state.surveySkiffCoord.y) }];
   state.surveyWakeMilestones = [];
+  detectSignalRelayContacts();
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
+  renderRelayMarkers();
+  renderSignalRelayOverlay();
+  renderSignalRelaysPanel();
 
   window.addEventListener("resize", recenter);
   window.addEventListener("hashchange", () => {
@@ -2730,6 +3046,15 @@ function initInteractions() {
     });
   }
 
+  if (el.toggleSignalRelays) {
+    el.toggleSignalRelays.addEventListener("change", () => {
+      state.signalRelaysEnabled = el.toggleSignalRelays.checked;
+      renderRelayMarkers();
+      renderSignalRelayOverlay();
+      renderSignalRelaysPanel();
+    });
+  }
+
   document.addEventListener("keydown", (ev) => {
     if (!state.surveySkiffEnabled) return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -2802,6 +3127,42 @@ function initInteractions() {
         state.surveyWakeMilestones = [];
         renderSurveyWake();
         renderSurveyWakePanel();
+      }
+    });
+  }
+
+  if (el.signalRelays) {
+    el.signalRelays.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
+      if (!actionNode) return;
+
+      const relayId = actionNode.getAttribute("data-relay-id");
+      if (relayId) {
+        const relay = BUILTIN_SIGNAL_RELAYS.find((item) => item.id === relayId);
+        if (!relay) return;
+        activateMarker(relay, { focus: true, updateHash: false });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-relay-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-nearest") {
+        const nearest = findNearestRelayToCoord(state.surveySkiffCoord);
+        if (!nearest) return;
+        centerViewportOnPercentCoord(nearest.relay, { scale: state.scale });
+        return;
+      }
+      if (action === "center-contacted") {
+        const contacted = BUILTIN_SIGNAL_RELAYS.filter((relay) => state.contactedRelayIds.has(relay.id));
+        if (contacted.length === 0) return;
+        const center = contacted.reduce(
+          (acc, relay) => ({ x: acc.x + Number(relay.x), y: acc.y + Number(relay.y) }),
+          { x: 0, y: 0 }
+        );
+        centerViewportOnPercentCoord({
+          x: center.x / contacted.length,
+          y: center.y / contacted.length
+        }, { scale: state.scale });
       }
     });
   }
@@ -2884,6 +3245,7 @@ function initInteractions() {
   renderEchoMarkers();
   renderLatticeMarkers();
   renderTraverseLattice();
+  renderSignalRelayOverlay();
   renderSignalSweepOverlay();
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
@@ -2891,6 +3253,8 @@ function initInteractions() {
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
+  renderRelayMarkers();
+  renderSignalRelaysPanel();
   renderPermalinkPanel();
 }
 
@@ -2930,10 +3294,13 @@ async function initBeacons() {
 
 function init() {
   renderLandmarks();
+  renderRelayMarkers();
   renderLatticeMarkers();
   renderTraverseLattice();
+  renderSignalRelayOverlay();
   renderSurveySkiff();
   renderSurveyWake();
+  renderSignalRelaysPanel();
   initInteractions();
   state.restoredHashSelection = restoreHashSelection();
   initBeacons();

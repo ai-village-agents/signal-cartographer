@@ -476,6 +476,9 @@ const SIGNAL_SWEEP_HIGHLIGHT_MAX = 5;
 const SURVEY_SKIFF_STEP_PCT = 1.1;
 const SURVEY_SKIFF_SHIFT_STEP_PCT = 2.2;
 const SURVEY_SKIFF_NEARBY_ANCHOR_MAX = 3;
+const SURVEY_GRID_COLUMNS = 5;
+const SURVEY_GRID_ROWS = 5;
+const SURVEY_GRID_LOG_MAX = 8;
 const SURVEY_WAKE_POINT_MIN_STEP_PCT = 0.6;
 const SURVEY_WAKE_MAX_POINTS = 72;
 const SURVEY_WAKE_MILESTONE_MAX = 6;
@@ -521,6 +524,9 @@ const state = {
   traverseLatticeEnabled: true,
   surveySkiffEnabled: true,
   surveySkiffCoord: { x: 18.4, y: 78.6 },
+  surveyGridEnabled: true,
+  chartedSurveySectorIds: new Set(),
+  surveySectorLog: [],
   surveyWakeEnabled: true,
   surveyWakePoints: [{ x: 18.4, y: 78.6 }],
   surveyWakeMilestones: [],
@@ -578,6 +584,7 @@ const el = {
   toggleTraverseLattice: document.getElementById("toggleTraverseLattice"),
   toggleSurveySkiff: document.getElementById("toggleSurveySkiff"),
   toggleSurveyWake: document.getElementById("toggleSurveyWake"),
+  toggleSurveyGrid: document.getElementById("toggleSurveyGrid"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -590,6 +597,7 @@ const el = {
   latticeLayer: document.getElementById("latticeLayer"),
   surveySkiffLayer: document.getElementById("surveySkiffLayer"),
   surveyWakeLayer: document.getElementById("surveyWakeLayer"),
+  surveyGridLayer: document.getElementById("surveyGridLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -600,6 +608,7 @@ const el = {
   traverseLattice: document.getElementById("traverseLattice"),
   surveySkiff: document.getElementById("surveySkiff"),
   surveyWake: document.getElementById("surveyWake"),
+  surveyGrid: document.getElementById("surveyGrid"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -680,6 +689,120 @@ function classifyRegionAtPercent(point) {
     })
     .sort((a, b) => a.distance - b.distance)[0];
   return closest ? closest.region : null;
+}
+
+function getSurveySectorLabel(col, row) {
+  return `${String.fromCharCode(65 + col)}${row + 1}`;
+}
+
+function buildSurveyGridSectors(coordForFallback = state.surveySkiffCoord) {
+  const sectors = [];
+  const sectorWidth = 100 / SURVEY_GRID_COLUMNS;
+  const sectorHeight = 100 / SURVEY_GRID_ROWS;
+  const fallbackRegion = classifyRegionAtPercent(coordForFallback) || "Open map";
+  for (let row = 0; row < SURVEY_GRID_ROWS; row += 1) {
+    for (let col = 0; col < SURVEY_GRID_COLUMNS; col += 1) {
+      const xMin = col * sectorWidth;
+      const xMax = xMin + sectorWidth;
+      const yMin = row * sectorHeight;
+      const yMax = yMin + sectorHeight;
+      const centerX = xMin + sectorWidth / 2;
+      const centerY = yMin + sectorHeight / 2;
+      const label = getSurveySectorLabel(col, row);
+      sectors.push({
+        id: `survey-sector-${label.toLowerCase()}`,
+        label,
+        col,
+        row,
+        xMin,
+        xMax,
+        yMin,
+        yMax,
+        centerX,
+        centerY,
+        region: classifyRegionAtPercent({ x: centerX, y: centerY }) || fallbackRegion || "Open map"
+      });
+    }
+  }
+  return sectors;
+}
+
+function findSurveySectorForCoord(coord) {
+  if (!coord) return null;
+  const x = clampPercent(Number(coord.x));
+  const y = clampPercent(Number(coord.y));
+  if (![x, y].every(Number.isFinite)) return null;
+  const sectors = buildSurveyGridSectors(coord);
+  return sectors.find((sector) => (
+    x >= sector.xMin &&
+    x <= sector.xMax &&
+    y >= sector.yMin &&
+    y <= sector.yMax
+  )) || null;
+}
+
+function listChartedSurveySectorsInLogOrder() {
+  const sectors = buildSurveyGridSectors(state.surveySkiffCoord);
+  const byId = new Map(sectors.map((sector) => [sector.id, sector]));
+  const ordered = [];
+  const used = new Set();
+
+  (state.surveySectorLog || []).forEach((entry) => {
+    const sector = byId.get(entry && entry.sectorId);
+    if (!sector || !state.chartedSurveySectorIds.has(sector.id) || used.has(sector.id)) return;
+    ordered.push(sector);
+    used.add(sector.id);
+  });
+
+  sectors.forEach((sector) => {
+    if (!state.chartedSurveySectorIds.has(sector.id) || used.has(sector.id)) return;
+    ordered.push(sector);
+  });
+  return ordered;
+}
+
+function detectSurveySectorChartingFromCurrentSkiffCoord() {
+  const sector = findSurveySectorForCoord(state.surveySkiffCoord);
+  if (!sector) return false;
+  if (state.chartedSurveySectorIds.has(sector.id)) return false;
+  state.chartedSurveySectorIds.add(sector.id);
+  state.surveySectorLog.unshift({
+    sectorId: sector.id,
+    label: sector.label,
+    region: sector.region,
+    xMin: sector.xMin,
+    xMax: sector.xMax,
+    yMin: sector.yMin,
+    yMax: sector.yMax
+  });
+  if (state.surveySectorLog.length > SURVEY_GRID_LOG_MAX) {
+    state.surveySectorLog.splice(SURVEY_GRID_LOG_MAX);
+  }
+  return true;
+}
+
+function centerViewportOnCurrentSurveySector() {
+  const sector = findSurveySectorForCoord(state.surveySkiffCoord);
+  if (!sector) return;
+  centerViewportOnPercentCoord({ x: sector.centerX, y: sector.centerY }, { scale: state.scale });
+}
+
+function centerViewportOnChartedSurveySectors() {
+  const sectors = listChartedSurveySectorsInLogOrder();
+  if (sectors.length === 0) return;
+  const center = sectors.reduce(
+    (acc, sector) => ({ x: acc.x + Number(sector.centerX), y: acc.y + Number(sector.centerY) }),
+    { x: 0, y: 0 }
+  );
+  centerViewportOnPercentCoord({
+    x: center.x / sectors.length,
+    y: center.y / sectors.length
+  }, { scale: state.scale });
+}
+
+function refreshSurveyGridViews() {
+  renderSurveyGridOverlay();
+  renderSurveyGridPanel();
 }
 
 function findNearbyEchoSites(coord, radius = SIGNAL_SWEEP_RADIUS_PCT) {
@@ -2307,6 +2430,7 @@ function renderSignalRelaysPanel() {
       <p>Signal Relays are hidden. Re-enable them in Controls to reveal the outer signal ring.</p>
       <p>Pilot the Survey Skiff near the map edge to bring relays into contact.</p>
     `;
+    refreshSurveyGridViews();
     return;
   }
 
@@ -2349,6 +2473,7 @@ function renderSignalRelaysPanel() {
     <p class="small">Recent relay contacts</p>
     ${contactsHtml}
   `;
+  refreshSurveyGridViews();
 }
 
 function renderCurrentMarkers() {
@@ -2414,6 +2539,7 @@ function renderDriftCurrentsPanel() {
       <p>Drift Currents are hidden. Re-enable them in Controls to reveal the interior flow lines.</p>
       <p>Pilot the Survey Skiff across the map interior to enter a current.</p>
     `;
+    refreshSurveyGridViews();
     return;
   }
 
@@ -2454,6 +2580,7 @@ function renderDriftCurrentsPanel() {
     <p class="small">Recent current entries</p>
     ${entriesHtml}
   `;
+  refreshSurveyGridViews();
 }
 
 function getTransitLockPairEntries() {
@@ -2549,6 +2676,7 @@ function transitThroughLock(lock) {
   state.chartedTransitLockIds.add(destinationLock.id);
   state.surveySkiffCoord = { x: Number(destinationLock.x), y: Number(destinationLock.y) };
   appendSurveyWakePoint(state.surveySkiffCoord, { force: true });
+  detectSurveySectorChartingFromCurrentSkiffCoord();
   centerViewportOnPercentCoord(destinationLock, { scale: state.scale });
   state.transitJumpLog.unshift({
     fromLockId: sourceLock.id,
@@ -2587,6 +2715,7 @@ function renderTransitLocksPanel() {
       <p>Transit Locks are hidden. Re-enable them in Controls to reveal paired jump gates.</p>
       <p>Pilot the Survey Skiff with transit locks enabled to chart and use long-range lock routes.</p>
     `;
+    refreshSurveyGridViews();
     return;
   }
 
@@ -2644,6 +2773,7 @@ function renderTransitLocksPanel() {
     <p class="small">Recent lock transits</p>
     ${jumpsHtml}
   `;
+  refreshSurveyGridViews();
 }
 
 function renderEchoMarkers() {
@@ -2857,6 +2987,122 @@ function renderSurveyWakePanel() {
   `;
 }
 
+function renderSurveyGridOverlay() {
+  if (!el.surveyGridLayer) return;
+  const isVisible = state.surveyGridEnabled;
+  el.surveyGridLayer.style.display = isVisible ? "block" : "none";
+  if (!isVisible) {
+    el.surveyGridLayer.replaceChildren();
+    return;
+  }
+
+  const sectors = buildSurveyGridSectors(state.surveySkiffCoord);
+  const currentSector = findSurveySectorForCoord(state.surveySkiffCoord);
+  const sectorWidthWorld = MAP_W / SURVEY_GRID_COLUMNS;
+  const sectorHeightWorld = MAP_H / SURVEY_GRID_ROWS;
+  const group = createSvgNode("g", { class: "survey-grid-overlay" });
+
+  sectors.forEach((sector) => {
+    const x = (Number(sector.xMin) / 100) * MAP_W;
+    const y = (Number(sector.yMin) / 100) * MAP_H;
+    const classes = [
+      "survey-grid-sector",
+      state.chartedSurveySectorIds.has(sector.id) ? "is-charted" : "",
+      currentSector && currentSector.id === sector.id ? "is-current" : ""
+    ].filter(Boolean).join(" ");
+    group.appendChild(createSvgNode("rect", {
+      class: classes,
+      x: x.toFixed(1),
+      y: y.toFixed(1),
+      width: sectorWidthWorld.toFixed(1),
+      height: sectorHeightWorld.toFixed(1)
+    }));
+  });
+
+  if (currentSector) {
+    const label = createSvgNode("text", {
+      class: "survey-grid-current-label",
+      x: ((Number(currentSector.centerX) / 100) * MAP_W).toFixed(1),
+      y: (((Number(currentSector.centerY) / 100) * MAP_H) - 8).toFixed(1)
+    });
+    label.textContent = `Current sector: ${currentSector.label}`;
+    group.appendChild(label);
+  }
+
+  el.surveyGridLayer.replaceChildren(group);
+}
+
+function renderSurveyGridPanel() {
+  if (!el.surveyGrid) return;
+
+  if (!state.surveyGridEnabled) {
+    el.surveyGrid.innerHTML = `
+      <p>Survey Grid is hidden. Re-enable it in Controls to reveal the skiff's charted sectors.</p>
+      <p>Pilot the Survey Skiff with the grid enabled to record explored territory.</p>
+    `;
+    return;
+  }
+
+  const sectors = buildSurveyGridSectors(state.surveySkiffCoord);
+  const byId = new Map(sectors.map((sector) => [sector.id, sector]));
+  const chartedSectors = listChartedSurveySectorsInLogOrder();
+  const currentSector = findSurveySectorForCoord(state.surveySkiffCoord);
+  const chartedRegionCount = new Set(chartedSectors.map((sector) => sector.region || "Open map")).size;
+  const currentLabel = currentSector ? currentSector.label : "Unknown";
+  const currentRegion = currentSector ? currentSector.region : (classifyRegionAtPercent(state.surveySkiffCoord) || "Open map");
+  const formatRange = (value) => Number(value).toFixed(1);
+
+  const chartedCards = chartedSectors.length > 0
+    ? `
+      <div class="survey-grid-sector-list">
+        ${chartedSectors.map((sector) => `
+          <button type="button" class="survey-grid-sector-item" data-survey-sector-id="${escapeHtml(sector.id)}">
+            <strong>${escapeHtml(sector.label)}</strong>
+            <span>${escapeHtml(sector.region || "Open map")} · x ${formatRange(sector.xMin)}-${formatRange(sector.xMax)}% · y ${formatRange(sector.yMin)}-${formatRange(sector.yMax)}%</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No sectors charted yet. Pilot the Survey Skiff to begin recording the map.</p>";
+
+  const recentLog = (state.surveySectorLog || [])
+    .map((entry) => byId.get(entry && entry.sectorId))
+    .filter(Boolean);
+  const recentCards = chartedSectors.length === 0
+    ? ""
+    : recentLog.length > 0
+    ? `
+      <div class="survey-grid-log-list">
+        ${recentLog.map((sector) => `
+          <button type="button" class="survey-grid-log-item" data-survey-sector-id="${escapeHtml(sector.id)}">
+            <strong>${escapeHtml(sector.label)}</strong>
+            <span>${escapeHtml(sector.region || "Open map")} · x ${formatRange(sector.xMin)}-${formatRange(sector.xMax)}% · y ${formatRange(sector.yMin)}-${formatRange(sector.yMax)}%</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No sectors charted yet. Pilot the Survey Skiff to begin recording the map.</p>";
+
+  el.surveyGrid.innerHTML = `
+    <p class="survey-grid-line">Survey Grid records which map sectors the Survey Skiff has charted.</p>
+    <p class="survey-grid-line">Pilot the Survey Skiff to extend the chart across the world.</p>
+    <p class="survey-grid-line">Grid coverage: ${chartedSectors.length} of ${SURVEY_GRID_COLUMNS * SURVEY_GRID_ROWS} sectors charted across ${chartedRegionCount} region(s).</p>
+    <p class="survey-grid-line">Current sector: ${escapeHtml(currentLabel)} (${escapeHtml(currentRegion || "Open map")})</p>
+    <div class="survey-grid-actions">
+      <button type="button" class="survey-grid-action" data-survey-grid-action="center-current" ${currentSector ? "" : "disabled"}>Center on current sector</button>
+      <button type="button" class="survey-grid-action" data-survey-grid-action="center-charted" ${chartedSectors.length > 0 ? "" : "disabled"}>Center on charted sectors</button>
+    </div>
+    <div class="survey-grid-meta">
+      <span class="survey-grid-pill">Sectors charted: ${chartedSectors.length}</span>
+      <span class="survey-grid-pill">Regions charted: ${chartedRegionCount}</span>
+      <span class="survey-grid-pill">Sector size: ${(100 / SURVEY_GRID_COLUMNS).toFixed(1)}% × ${(100 / SURVEY_GRID_ROWS).toFixed(1)}%</span>
+    </div>
+    ${chartedCards}
+    <p class="small survey-grid-subtitle">Recent sector charting</p>
+    ${recentCards}
+  `;
+}
+
 function rankNearbySkiffAnchors(limit = SURVEY_SKIFF_NEARBY_ANCHOR_MAX) {
   if (!state.surveySkiffCoord) return [];
   const sx = Number(state.surveySkiffCoord.x);
@@ -2893,6 +3139,7 @@ function moveSurveySkiffBy(deltaX, deltaY) {
   if (nextX === state.surveySkiffCoord.x && nextY === state.surveySkiffCoord.y) return;
   state.surveySkiffCoord = { x: nextX, y: nextY };
   appendSurveyWakePoint(state.surveySkiffCoord);
+  detectSurveySectorChartingFromCurrentSkiffCoord();
   const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
   detectDriftCurrentEntries({ forceBeaconRunEntry: true });
   detectSignalRelayContacts();
@@ -2933,6 +3180,7 @@ function activateSkiffAnchorByRef(reference, { dock = false } = {}) {
   if (dock) {
     state.surveySkiffCoord = { x: Number(target.x), y: Number(target.y) };
     appendSurveyWakePoint(state.surveySkiffCoord, { force: true, dockLabel: target.title || "Untitled anchor" });
+    detectSurveySectorChartingFromCurrentSkiffCoord();
     const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
     detectDriftCurrentEntries();
     detectSignalRelayContacts();
@@ -2985,6 +3233,7 @@ function renderSurveySkiffPanel() {
       <p>Survey Skiff is offline. Re-enable it in Controls to relaunch the movable survey craft.</p>
       <p>Use arrow keys or WASD when the skiff is online.</p>
     `;
+    refreshSurveyGridViews();
     return;
   }
 
@@ -3026,6 +3275,7 @@ function renderSurveySkiffPanel() {
     <p class="small skiff-subtitle">Nearby anchors</p>
     ${nearbyHtml}
   `;
+  refreshSurveyGridViews();
 }
 
 function toWorldCoords(marker) {
@@ -3578,11 +3828,13 @@ function initInteractions() {
   state.traverseLatticeEnabled = !el.toggleTraverseLattice || el.toggleTraverseLattice.checked;
   state.surveySkiffEnabled = !el.toggleSurveySkiff || el.toggleSurveySkiff.checked;
   state.surveyWakeEnabled = !el.toggleSurveyWake || el.toggleSurveyWake.checked;
+  state.surveyGridEnabled = !el.toggleSurveyGrid || el.toggleSurveyGrid.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
   state.surveyWakePoints = [{ x: clampPercent(state.surveySkiffCoord.x), y: clampPercent(state.surveySkiffCoord.y) }];
   state.surveyWakeMilestones = [];
+  detectSurveySectorChartingFromCurrentSkiffCoord();
   detectDriftCurrentEntries({ forceBeaconRunEntry: true });
   detectSignalRelayContacts();
   detectTransitLockCharting();
@@ -3592,6 +3844,8 @@ function initInteractions() {
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
+  renderSurveyGridOverlay();
+  renderSurveyGridPanel();
   renderRelayMarkers();
   renderCurrentMarkers();
   renderTransitLockMarkers();
@@ -3754,6 +4008,14 @@ function initInteractions() {
     });
   }
 
+  if (el.toggleSurveyGrid) {
+    el.toggleSurveyGrid.addEventListener("change", () => {
+      state.surveyGridEnabled = el.toggleSurveyGrid.checked;
+      renderSurveyGridOverlay();
+      renderSurveyGridPanel();
+    });
+  }
+
   if (el.toggleSignalRelays) {
     el.toggleSignalRelays.addEventListener("change", () => {
       state.signalRelaysEnabled = el.toggleSignalRelays.checked;
@@ -3853,6 +4115,31 @@ function initInteractions() {
         state.surveyWakeMilestones = [];
         renderSurveyWake();
         renderSurveyWakePanel();
+      }
+    });
+  }
+
+  if (el.surveyGrid) {
+    el.surveyGrid.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element ? ev.target.closest("[data-survey-grid-action], [data-survey-sector-id]") : null;
+      if (!actionNode) return;
+
+      const sectorId = actionNode.getAttribute("data-survey-sector-id");
+      if (sectorId) {
+        const sector = buildSurveyGridSectors(state.surveySkiffCoord).find((entry) => entry.id === sectorId);
+        if (!sector) return;
+        centerViewportOnPercentCoord({ x: sector.centerX, y: sector.centerY }, { scale: state.scale });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-survey-grid-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-current") {
+        centerViewportOnCurrentSurveySector();
+        return;
+      }
+      if (action === "center-charted") {
+        centerViewportOnChartedSurveySectors();
       }
     });
   }
@@ -4076,6 +4363,8 @@ function initInteractions() {
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
+  renderSurveyGridOverlay();
+  renderSurveyGridPanel();
   renderRelayMarkers();
   renderSignalRelaysPanel();
   renderCurrentMarkers();
@@ -4133,6 +4422,8 @@ function init() {
   renderTransitLockOverlay();
   renderSurveySkiff();
   renderSurveyWake();
+  renderSurveyGridOverlay();
+  renderSurveyGridPanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();

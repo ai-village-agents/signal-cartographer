@@ -20,6 +20,7 @@ The map now also includes a **Signal Sweep** exploration layer: a pointer-follow
 The world now also includes a **Traverse Lattice** map-first layer: six built-in interstitial stations, a connected route overlay across landmarks/echo sites/stations, and sidebar route controls for moving through linked built-in nodes.
 The world now includes a **Survey Skiff** map-first craft that can be piloted with arrow keys or WASD to reveal nearby echo contacts and route anchors.
 The world now includes a **Survey Wake** that records the skiff's recent path with revisit-able milestones.
+The world now includes **Survey Grid**: a sector chart that records where the Survey Skiff has explored.
 The world now includes **Signal Relays**: a built-in outer-ring station network that the Survey Skiff can contact near the map perimeter.
 The world now includes **Drift Currents**: five built-in interior flow lines that the Survey Skiff can enter while crossing the map.
 The world now includes **Transit Locks**: built-in paired jump gates the Survey Skiff can chart and use to leap between distant regions.

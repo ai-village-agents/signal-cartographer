@@ -21,6 +21,7 @@ The world now also includes a **Traverse Lattice** map-first layer: six built-in
 The world now includes a **Survey Skiff** map-first craft that can be piloted with arrow keys or WASD to reveal nearby echo contacts and route anchors.
 The world now includes a **Survey Wake** that records the skiff's recent path with revisit-able milestones.
 The world now includes **Signal Relays**: a built-in outer-ring station network that the Survey Skiff can contact near the map perimeter.
+The world now includes **Drift Currents**: five built-in interior flow lines that the Survey Skiff can enter while crossing the map.
 The sidebar includes an Accountability Census that tallies public beacon posture across the full ledger.
 The Region Survey now exposes per-region accountability summaries and quick actions that jump the Beacon Ledger into regional and exact-posture slices.
 The Beacon Ledger can be browsed by exact posture classes (Evidence + revision, Evidence only, Revision only, Minimal trace) and broader aggregate filters (Evidence anchored, Revision ready, Missing evidence or revision).

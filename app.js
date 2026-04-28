@@ -308,6 +308,89 @@ const SIGNAL_RELAYS = [
   }
 ];
 
+const DRIFT_CURRENTS = [
+  {
+    id: "rumor-fold-current",
+    title: "Rumor Fold Current",
+    x: 25.2,
+    y: 31.6,
+    region: "Rumor Sea",
+    flow: "Northwest drift",
+    note: "A slow interior drift where repeated bearings separate surviving reports from spray.",
+    path: [
+      { x: 12.6, y: 37.8 },
+      { x: 18.9, y: 34.2 },
+      { x: 25.2, y: 31.6 },
+      { x: 31.4, y: 29.8 },
+      { x: 37.1, y: 28.4 }
+    ]
+  },
+  {
+    id: "proof-shear-current",
+    title: "Proof Shear Current",
+    x: 73.6,
+    y: 24.9,
+    region: "Proof Plateau",
+    flow: "Proof ascent",
+    note: "A rising current that favors paths which keep matching on repeated passes.",
+    path: [
+      { x: 58.8, y: 33.4 },
+      { x: 66.7, y: 29.4 },
+      { x: 73.6, y: 24.9 },
+      { x: 80.4, y: 20.8 },
+      { x: 88.2, y: 18.2 }
+    ]
+  },
+  {
+    id: "revision-spine-current",
+    title: "Revision Spine Current",
+    x: 54.6,
+    y: 52.7,
+    region: "Revision River",
+    flow: "Mid-channel correction",
+    note: "Corrections gather and accelerate here before they split back into the river.",
+    path: [
+      { x: 42.1, y: 60.6 },
+      { x: 48.3, y: 56.8 },
+      { x: 54.6, y: 52.7 },
+      { x: 60.8, y: 49.1 },
+      { x: 67.2, y: 46.4 }
+    ]
+  },
+  {
+    id: "vault-eddies-current",
+    title: "Vault Eddies Current",
+    x: 74.6,
+    y: 74.5,
+    region: "Memory Vault",
+    flow: "Archive return",
+    note: "Storage-side eddies that bring reachable records back toward the open map.",
+    path: [
+      { x: 61.9, y: 79.6 },
+      { x: 68.1, y: 76.8 },
+      { x: 74.6, y: 74.5 },
+      { x: 81.3, y: 75.2 },
+      { x: 87.2, y: 79.1 }
+    ]
+  },
+  {
+    id: "beacon-run-current",
+    title: "Beacon Run Current",
+    x: 28.4,
+    y: 83.6,
+    region: "Beacon Field",
+    flow: "Launch water",
+    note: "A near-shore current used for fast launches from Beacon Field into deeper water.",
+    path: [
+      { x: 16.2, y: 88.1 },
+      { x: 22.1, y: 85.5 },
+      { x: 28.4, y: 83.6 },
+      { x: 35.7, y: 82.9 },
+      { x: 42.8, y: 84.1 }
+    ]
+  }
+];
+
 const SIGNAL_RELAY_LINKS = [
   ["ember-shelf-relay", "northfall-relay"],
   ["northfall-relay", "plateau-rim-relay"],
@@ -355,6 +438,8 @@ const SURVEY_WAKE_MAX_POINTS = 72;
 const SURVEY_WAKE_MILESTONE_MAX = 6;
 const SIGNAL_RELAY_CONTACT_RADIUS_PCT = 4.2;
 const SIGNAL_RELAY_LOG_MAX = 6;
+const DRIFT_CURRENT_ENTRY_RADIUS_PCT = 4.8;
+const DRIFT_CURRENT_LOG_MAX = 6;
 
 function withLandmarkIds(landmarks) {
   return (Array.isArray(landmarks) ? landmarks : []).map((landmark) => ({
@@ -370,6 +455,7 @@ const BUILTIN_LANDMARKS = withLandmarkIds(LANDMARKS).map((landmark) => ({
 const BUILTIN_ECHO_SITES = ECHO_SITES.map((echo) => ({ ...echo, type: "echo" }));
 const BUILTIN_LATTICE_STATIONS = LATTICE_STATIONS.map((station) => ({ ...station, type: "lattice" }));
 const BUILTIN_SIGNAL_RELAYS = SIGNAL_RELAYS.map((relay) => ({ ...relay, type: "relay" }));
+const BUILTIN_DRIFT_CURRENTS = DRIFT_CURRENTS.map((current) => ({ ...current, type: "current" }));
 
 const state = {
   tx: -MAP_W / 2,
@@ -393,8 +479,11 @@ const state = {
   surveyWakePoints: [{ x: 18.4, y: 78.6 }],
   surveyWakeMilestones: [],
   signalRelaysEnabled: true,
+  driftCurrentsEnabled: true,
   contactedRelayIds: new Set(),
   relayContactLog: [],
+  enteredCurrentIds: new Set(),
+  currentEntryLog: [],
   sweepPointerActive: false,
   sweepCoord: null,
   discoveredEchoIds: new Set(),
@@ -441,14 +530,17 @@ const el = {
   toggleSurveySkiff: document.getElementById("toggleSurveySkiff"),
   toggleSurveyWake: document.getElementById("toggleSurveyWake"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
+  toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   landmarkLayer: document.getElementById("landmarkLayer"),
   beaconLayer: document.getElementById("beaconLayer"),
   relayLayer: document.getElementById("relayLayer"),
+  currentLayer: document.getElementById("currentLayer"),
   echoLayer: document.getElementById("echoLayer"),
   latticeLayer: document.getElementById("latticeLayer"),
   surveySkiffLayer: document.getElementById("surveySkiffLayer"),
   surveyWakeLayer: document.getElementById("surveyWakeLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
+  driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
   verificationRouteLayer: document.getElementById("verificationRouteLayer"),
   signalSweepLayer: document.getElementById("signalSweepLayer"),
@@ -456,7 +548,8 @@ const el = {
   traverseLattice: document.getElementById("traverseLattice"),
   surveySkiff: document.getElementById("surveySkiff"),
   surveyWake: document.getElementById("surveyWake"),
-  signalRelays: document.getElementById("signalRelays")
+  signalRelays: document.getElementById("signalRelays"),
+  driftCurrents: document.getElementById("driftCurrents")
 };
 
 function setTransform() {
@@ -580,6 +673,113 @@ function findNearestRelayToCoord(coord) {
   return ranked[0] || null;
 }
 
+function measureDistanceToSegment(point, segmentStart, segmentEnd) {
+  const px = Number(point && point.x);
+  const py = Number(point && point.y);
+  const x1 = Number(segmentStart && segmentStart.x);
+  const y1 = Number(segmentStart && segmentStart.y);
+  const x2 = Number(segmentEnd && segmentEnd.x);
+  const y2 = Number(segmentEnd && segmentEnd.y);
+  if (![px, py, x1, y1, x2, y2].every(Number.isFinite)) return Infinity;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) return Math.hypot(px - x1, py - y1);
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSq));
+  const nearestX = x1 + t * dx;
+  const nearestY = y1 + t * dy;
+  return Math.hypot(px - nearestX, py - nearestY);
+}
+
+function measureDistanceToPath(coord, path) {
+  if (!coord || !Array.isArray(path) || path.length === 0) return Infinity;
+  if (path.length === 1) {
+    return Math.hypot(Number(coord.x) - Number(path[0].x), Number(coord.y) - Number(path[0].y));
+  }
+  let best = Infinity;
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const distance = measureDistanceToSegment(coord, path[index], path[index + 1]);
+    if (distance < best) best = distance;
+  }
+  return best;
+}
+
+function listCurrentEntriesFromCoord(coord) {
+  if (!coord) return [];
+  const x = Number(coord.x);
+  const y = Number(coord.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
+  return BUILTIN_DRIFT_CURRENTS
+    .map((current) => ({
+      ...current,
+      distance: measureDistanceToPath({ x, y }, current.path)
+    }))
+    .filter((current) => current.distance <= DRIFT_CURRENT_ENTRY_RADIUS_PCT)
+    .sort((a, b) => a.distance - b.distance || String(a.title || "").localeCompare(String(b.title || "")));
+}
+
+function findNearestCurrentToCoord(coord) {
+  if (!coord) return null;
+  const x = Number(coord.x);
+  const y = Number(coord.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const ranked = BUILTIN_DRIFT_CURRENTS
+    .map((current) => ({
+      current,
+      distance: measureDistanceToPath({ x, y }, current.path)
+    }))
+    .filter((entry) => Number.isFinite(entry.distance))
+    .sort((a, b) => a.distance - b.distance || String(a.current.title || "").localeCompare(String(b.current.title || "")));
+  return ranked[0] || null;
+}
+
+function detectDriftCurrentEntries({ forceBeaconRunEntry = false } = {}) {
+  if (!state.surveySkiffCoord) return false;
+  const nearbyCurrents = listCurrentEntriesFromCoord(state.surveySkiffCoord);
+  let changed = false;
+  nearbyCurrents.forEach((current) => {
+    if (state.enteredCurrentIds.has(current.id)) return;
+    state.enteredCurrentIds.add(current.id);
+    state.currentEntryLog.unshift({
+      currentId: current.id,
+      title: current.title,
+      region: current.region,
+      x: Number(current.x),
+      y: Number(current.y),
+      flow: current.flow
+    });
+    if (state.currentEntryLog.length > DRIFT_CURRENT_LOG_MAX) {
+      state.currentEntryLog.splice(DRIFT_CURRENT_LOG_MAX);
+    }
+    changed = true;
+  });
+  if (forceBeaconRunEntry && !state.enteredCurrentIds.has("beacon-run-current")) {
+    const beaconRun = BUILTIN_DRIFT_CURRENTS.find((current) => current.id === "beacon-run-current");
+    if (beaconRun) {
+      state.enteredCurrentIds.add(beaconRun.id);
+      state.currentEntryLog.unshift({
+        currentId: beaconRun.id,
+        title: beaconRun.title,
+        region: beaconRun.region,
+        x: Number(beaconRun.x),
+        y: Number(beaconRun.y),
+        flow: beaconRun.flow
+      });
+      if (state.currentEntryLog.length > DRIFT_CURRENT_LOG_MAX) {
+        state.currentEntryLog.splice(DRIFT_CURRENT_LOG_MAX);
+      }
+      changed = true;
+    }
+  }
+  if (changed) {
+    renderCurrentMarkers();
+    renderDriftCurrentOverlay();
+    renderDriftCurrentsPanel();
+    renderVerificationChain();
+  }
+  return changed;
+}
+
 function detectSignalRelayContacts() {
   if (!state.surveySkiffCoord) return false;
   const nearbyRelays = listRelayContactsFromCoord(state.surveySkiffCoord);
@@ -650,6 +850,7 @@ function traceKey(marker) {
   if (marker.type === "lattice" && marker.id) return `lattice:${marker.id}`;
   if (marker.type === "echo" && marker.id) return `echo:${marker.id}`;
   if (marker.type === "relay" && marker.id) return `relay:${marker.id}`;
+  if (marker.type === "current" && marker.id) return `current:${marker.id}`;
   return `${marker.type || "marker"}:${marker.title}:${marker.x}:${marker.y}`;
 }
 
@@ -681,6 +882,9 @@ function markerRef(marker) {
   if (marker.type === "relay" && marker.id) {
     return `relay:${marker.id}`;
   }
+  if (marker.type === "current" && marker.id) {
+    return `current:${marker.id}`;
+  }
   return "";
 }
 
@@ -689,7 +893,8 @@ function getBuiltinReferenceCollections() {
     landmark: BUILTIN_LANDMARKS,
     echo: BUILTIN_ECHO_SITES,
     lattice: BUILTIN_LATTICE_STATIONS,
-    relay: BUILTIN_SIGNAL_RELAYS
+    relay: BUILTIN_SIGNAL_RELAYS,
+    current: BUILTIN_DRIFT_CURRENTS
   };
 }
 
@@ -1105,7 +1310,9 @@ function renderTracePanel() {
         ? "Traverse station"
         : trace.type === "relay"
           ? "Relay station"
-          : "Landmark";
+          : trace.type === "current"
+            ? "Drift current"
+            : "Landmark";
   const pills = [
     `<span class="trace-pill">${traceTypeLabel}</span>`,
     `<span class="trace-pill">${escapeHtml(trace.region || "Unknown region")}</span>`
@@ -1119,6 +1326,9 @@ function renderTracePanel() {
   if (trace.type === "relay" && trace.band) {
     pills.push(`<span class="trace-pill">Band: ${escapeHtml(trace.band)}</span>`);
   }
+  if (trace.type === "current" && trace.flow) {
+    pills.push(`<span class="trace-pill">Flow: ${escapeHtml(trace.flow)}</span>`);
+  }
 
   const link = trace.issueUrl
     ? `<p class="trace-link"><a href="${trace.issueUrl}" target="_blank" rel="noopener">Open public issue ↗</a></p>`
@@ -1128,6 +1338,8 @@ function renderTracePanel() {
         ? '<p class="small trace-link">Built-in traverse station: part of the inter-region lattice.</p>'
         : trace.type === "relay"
           ? '<p class="small trace-link">Built-in relay station: part of the outer signal ring.</p>'
+          : trace.type === "current"
+            ? '<p class="small trace-link">Built-in drift current: a navigable interior flow line.</p>'
       : '<p class="small trace-link">Built-in landmark: part of the base map.</p>';
   const evidence = String(trace.evidence || "").trim();
   const revision = String(trace.revision || "").trim();
@@ -1185,6 +1397,14 @@ function renderTracePanel() {
       </section>
     `
     : "";
+  const currentSection = trace.type === "current"
+    ? `
+      <section class="trace-subsection">
+        <h4>Drift Current record</h4>
+        <p>This current marks a repeatable interior flow line that helps the Survey Skiff cross open map water without relying on fixed anchors.</p>
+      </section>
+    `
+    : "";
 
   el.tracePanel.innerHTML = `
     <h3>${escapeHtml(trace.title || "Untitled trace")}</h3>
@@ -1196,6 +1416,7 @@ function renderTracePanel() {
     ${echoSection}
     ${latticeSection}
     ${relaySection}
+    ${currentSection}
     ${link}
   `;
 }
@@ -1304,6 +1525,22 @@ function renderVerificationChain() {
       ${contactedSentence}
       <div class="chain-actions"><button type="button" class="chain-action" data-chain-target="centerRelay">Center on relay</button></div>
     `;
+  } else if (trace.type === "current") {
+    const nearestLandmark = findNearestLandmark(trace);
+    const nearestSentence = nearestLandmark
+      ? `Nearest built-in landmark: ${nearestLandmark.landmark.title} (~${nearestLandmark.distance.toFixed(1)} map-% units).`
+      : "Nearest built-in landmark is unavailable.";
+    const enteredSentence = state.enteredCurrentIds.has(trace.id)
+      ? "<p class=\"small\">The Survey Skiff has already entered this current.</p>"
+      : "";
+    actionTargets.centerCurrent = trace;
+    html = `
+      <p class="chain-summary">This is a built-in drift current in ${escapeHtml(trace.region || "its region")}.</p>
+      ${coordPills}
+      <p class="chain-context">${escapeHtml(nearestSentence)}</p>
+      ${enteredSentence}
+      <div class="chain-actions"><button type="button" class="chain-action" data-chain-target="centerCurrent">Center on current</button></div>
+    `;
   } else {
     const nearestRegionalBeacon = findNearestRegionalBeacon(trace);
     const contextHtml = nearestRegionalBeacon
@@ -1335,6 +1572,10 @@ function renderVerificationChain() {
       const target = actionTargets[node.dataset.chainTarget];
       if (!target) return;
       if (node.dataset.chainTarget === "centerRelay") {
+        centerViewportOnPercentCoord(target, { scale: state.scale });
+        return;
+      }
+      if (node.dataset.chainTarget === "centerCurrent") {
         centerViewportOnPercentCoord(target, { scale: state.scale });
         return;
       }
@@ -1780,8 +2021,10 @@ function setActiveTrace(marker) {
   renderLandmarks();
   renderBeacons();
   renderRelayMarkers();
+  renderCurrentMarkers();
   renderLatticeMarkers();
   renderTraverseLattice();
+  renderDriftCurrentOverlay();
   renderSignalRelayOverlay();
   renderVerificationRoute();
   renderTracePanel();
@@ -1794,6 +2037,7 @@ function setActiveTrace(marker) {
   renderSurveySkiffPanel();
   renderPermalinkPanel();
   renderSignalRelaysPanel();
+  renderDriftCurrentsPanel();
 }
 
 function addMarker(layer, marker, options = {}) {
@@ -1953,6 +2197,111 @@ function renderSignalRelaysPanel() {
     </div>
     <p class="small">Recent relay contacts</p>
     ${contactsHtml}
+  `;
+}
+
+function renderCurrentMarkers() {
+  if (!el.currentLayer) return;
+  el.currentLayer.innerHTML = "";
+  el.currentLayer.hidden = !state.driftCurrentsEnabled;
+  if (!state.driftCurrentsEnabled) return;
+
+  BUILTIN_DRIFT_CURRENTS.forEach((current) => {
+    const isEntered = state.enteredCurrentIds.has(current.id);
+    const isActiveCurrent = Boolean(state.activeTrace && state.activeTrace.type === "current" && state.activeTrace.id === current.id);
+    const className = [
+      "marker",
+      "marker-current",
+      isEntered ? "marker-current-entered" : "",
+      isActiveCurrent ? "marker-current-active" : ""
+    ].filter(Boolean).join(" ");
+    addMarker(
+      el.currentLayer,
+      { ...current, color: isEntered ? "#b9fff4" : "#6ed8cc" },
+      {
+        className,
+        updateHash: false,
+        focus: true
+      }
+    );
+  });
+}
+
+function renderDriftCurrentOverlay() {
+  if (!el.driftCurrentLayer) return;
+  const isVisible = state.driftCurrentsEnabled;
+  el.driftCurrentLayer.style.display = isVisible ? "block" : "none";
+  if (!isVisible) {
+    el.driftCurrentLayer.replaceChildren();
+    return;
+  }
+
+  const group = createSvgNode("g", { class: "drift-current-network" });
+  BUILTIN_DRIFT_CURRENTS.forEach((current) => {
+    const points = (Array.isArray(current.path) ? current.path : [])
+      .map((point) => `${((Number(point.x) / 100) * MAP_W).toFixed(1)},${((Number(point.y) / 100) * MAP_H).toFixed(1)}`)
+      .join(" ");
+    if (!points) return;
+    group.appendChild(createSvgNode("polyline", {
+      class: "drift-current-path",
+      points
+    }));
+    if (state.enteredCurrentIds.has(current.id)) {
+      group.appendChild(createSvgNode("polyline", {
+        class: "drift-current-path-active",
+        points
+      }));
+    }
+  });
+  el.driftCurrentLayer.replaceChildren(group);
+}
+
+function renderDriftCurrentsPanel() {
+  if (!el.driftCurrents) return;
+  if (!state.driftCurrentsEnabled) {
+    el.driftCurrents.innerHTML = `
+      <p>Drift Currents are hidden. Re-enable them in Controls to reveal the interior flow lines.</p>
+      <p>Pilot the Survey Skiff across the map interior to enter a current.</p>
+    `;
+    return;
+  }
+
+  const enteredCount = state.enteredCurrentIds.size;
+  const enteredCurrents = BUILTIN_DRIFT_CURRENTS.filter((current) => state.enteredCurrentIds.has(current.id));
+  const enteredRegions = new Set(enteredCurrents.map((current) => current.region)).size;
+  const nearest = findNearestCurrentToCoord(state.surveySkiffCoord);
+  const nearestLine = nearest
+    ? `Nearest current: ${escapeHtml(nearest.current.title)} (${nearest.distance.toFixed(1)}% away)`
+    : "Nearest current: unavailable";
+  const entriesHtml = state.currentEntryLog.length > 0
+    ? `
+      <div class="current-entry-list">
+        ${state.currentEntryLog.map((entry) => `
+          <button type="button" class="current-entry-item" data-current-id="${escapeHtml(entry.currentId)}">
+            <strong>${escapeHtml(entry.title)}</strong>
+            <span>${escapeHtml(entry.region)} · ${escapeHtml(entry.flow)} · x ${formatPercentCoord(entry.x)} · y ${formatPercentCoord(entry.y)}</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No currents entered yet. Pilot the skiff through the interior to catch one.</p>";
+
+  el.driftCurrents.innerHTML = `
+    <p class="current-line">Drift Currents mark repeatable interior flow lines across the map.</p>
+    <p class="current-line">Pilot the Survey Skiff near a current to enter it.</p>
+    <p class="current-line">Current entries: ${enteredCount} of 5 currents entered across ${enteredRegions} region(s).</p>
+    <p class="current-line">${nearestLine}</p>
+    <div class="current-meta">
+      <span class="current-pill">Currents entered: ${enteredCount}</span>
+      <span class="current-pill">Regions entered: ${enteredRegions}</span>
+      <span class="current-pill">Entry radius: ${DRIFT_CURRENT_ENTRY_RADIUS_PCT.toFixed(1)}%</span>
+    </div>
+    <div class="current-actions">
+      <button type="button" class="current-action" data-current-action="center-nearest" ${nearest ? "" : "disabled"}>Center on nearest current</button>
+      <button type="button" class="current-action" data-current-action="center-entered" ${enteredCount > 0 ? "" : "disabled"}>Center on entered currents</button>
+    </div>
+    <p class="small">Recent current entries</p>
+    ${entriesHtml}
   `;
 }
 
@@ -2204,12 +2553,14 @@ function moveSurveySkiffBy(deltaX, deltaY) {
   state.surveySkiffCoord = { x: nextX, y: nextY };
   appendSurveyWakePoint(state.surveySkiffCoord);
   const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
+  detectDriftCurrentEntries({ forceBeaconRunEntry: true });
   detectSignalRelayContacts();
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
   renderSignalRelaysPanel();
+  renderDriftCurrentsPanel();
   if (discoveredNewEchoes) {
     renderEchoMarkers();
     renderSignalSweepPanel();
@@ -2240,12 +2591,14 @@ function activateSkiffAnchorByRef(reference, { dock = false } = {}) {
     state.surveySkiffCoord = { x: Number(target.x), y: Number(target.y) };
     appendSurveyWakePoint(state.surveySkiffCoord, { force: true, dockLabel: target.title || "Untitled anchor" });
     const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
+    detectDriftCurrentEntries();
     detectSignalRelayContacts();
     renderSurveySkiff();
     renderSurveySkiffPanel();
     renderSurveyWake();
     renderSurveyWakePanel();
     renderSignalRelaysPanel();
+    renderDriftCurrentsPanel();
     if (discoveredNewEchoes) {
       renderEchoMarkers();
       renderSignalSweepPanel();
@@ -2881,8 +3234,10 @@ function initInteractions() {
   state.surveySkiffEnabled = !el.toggleSurveySkiff || el.toggleSurveySkiff.checked;
   state.surveyWakeEnabled = !el.toggleSurveyWake || el.toggleSurveyWake.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
+  state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.surveyWakePoints = [{ x: clampPercent(state.surveySkiffCoord.x), y: clampPercent(state.surveySkiffCoord.y) }];
   state.surveyWakeMilestones = [];
+  detectDriftCurrentEntries({ forceBeaconRunEntry: true });
   detectSignalRelayContacts();
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
@@ -2891,8 +3246,11 @@ function initInteractions() {
   renderSurveyWake();
   renderSurveyWakePanel();
   renderRelayMarkers();
+  renderCurrentMarkers();
+  renderDriftCurrentOverlay();
   renderSignalRelayOverlay();
   renderSignalRelaysPanel();
+  renderDriftCurrentsPanel();
 
   window.addEventListener("resize", recenter);
   window.addEventListener("hashchange", () => {
@@ -3055,6 +3413,15 @@ function initInteractions() {
     });
   }
 
+  if (el.toggleDriftCurrents) {
+    el.toggleDriftCurrents.addEventListener("change", () => {
+      state.driftCurrentsEnabled = el.toggleDriftCurrents.checked;
+      renderCurrentMarkers();
+      renderDriftCurrentOverlay();
+      renderDriftCurrentsPanel();
+    });
+  }
+
   document.addEventListener("keydown", (ev) => {
     if (!state.surveySkiffEnabled) return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -3167,6 +3534,42 @@ function initInteractions() {
     });
   }
 
+  if (el.driftCurrents) {
+    el.driftCurrents.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element ? ev.target.closest("[data-current-action], [data-current-id]") : null;
+      if (!actionNode) return;
+
+      const currentId = actionNode.getAttribute("data-current-id");
+      if (currentId) {
+        const current = BUILTIN_DRIFT_CURRENTS.find((item) => item.id === currentId);
+        if (!current) return;
+        activateMarker(current, { focus: true, updateHash: false });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-current-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-nearest") {
+        const nearest = findNearestCurrentToCoord(state.surveySkiffCoord);
+        if (!nearest) return;
+        centerViewportOnPercentCoord(nearest.current, { scale: state.scale });
+        return;
+      }
+      if (action === "center-entered") {
+        const entered = BUILTIN_DRIFT_CURRENTS.filter((current) => state.enteredCurrentIds.has(current.id));
+        if (entered.length === 0) return;
+        const center = entered.reduce(
+          (acc, current) => ({ x: acc.x + Number(current.x), y: acc.y + Number(current.y) }),
+          { x: 0, y: 0 }
+        );
+        centerViewportOnPercentCoord({
+          x: center.x / entered.length,
+          y: center.y / entered.length
+        }, { scale: state.scale });
+      }
+    });
+  }
+
   if (el.ledgerRegionFilter) {
     el.ledgerRegionFilter.addEventListener("change", handleLedgerFilterChange);
   }
@@ -3255,6 +3658,9 @@ function initInteractions() {
   renderSurveyWakePanel();
   renderRelayMarkers();
   renderSignalRelaysPanel();
+  renderCurrentMarkers();
+  renderDriftCurrentOverlay();
+  renderDriftCurrentsPanel();
   renderPermalinkPanel();
 }
 
@@ -3295,12 +3701,15 @@ async function initBeacons() {
 function init() {
   renderLandmarks();
   renderRelayMarkers();
+  renderCurrentMarkers();
   renderLatticeMarkers();
   renderTraverseLattice();
+  renderDriftCurrentOverlay();
   renderSignalRelayOverlay();
   renderSurveySkiff();
   renderSurveyWake();
   renderSignalRelaysPanel();
+  renderDriftCurrentsPanel();
   initInteractions();
   state.restoredHashSelection = restoreHashSelection();
   initBeacons();

@@ -46,6 +46,7 @@
             <label><input type="checkbox" id="toggleSurveySkiff" checked /> Show survey skiff</label>
             <label><input type="checkbox" id="toggleSurveyWake" checked /> Show survey wake</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
+            <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
           </div>
           <button id="recenterBtn" type="button">Recenter map</button>
           <p class="small" id="statusMsg" aria-live="polite">Loading beacons from public GitHub issues…</p>
@@ -110,6 +111,11 @@
         <section>
           <h2>Signal Relays</h2>
           <div id="signalRelays" class="relay-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Drift Currents</h2>
+          <div id="driftCurrents" class="current-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -267,6 +273,13 @@
             aria-hidden="true"
           ></svg>
           <svg
+            id="driftCurrentLayer"
+            class="drift-current-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
             id="signalRelayLayer"
             class="signal-relay-layer"
             viewBox="0 0 1600 1000"
@@ -297,6 +310,7 @@
           <div id="landmarkLayer" class="marker-layer"></div>
           <div id="beaconLayer" class="marker-layer"></div>
           <div id="relayLayer" class="marker-layer relay-layer"></div>
+          <div id="currentLayer" class="marker-layer current-layer"></div>
           <div id="echoLayer" class="marker-layer echo-layer"></div>
           <div id="latticeLayer" class="marker-layer lattice-layer"></div>
           <div id="surveySkiffLayer" class="marker-layer survey-skiff-layer"></div>

@@ -1292,7 +1292,7 @@ function getApproachRadarKindLabel(type) {
   if (type === "landmark") return "Landmark";
   if (type === "echo") return "Echo site";
   if (type === "lattice") return "Traverse station";
-  if (type === "relay") return "Signal relay";
+  if (type === "relay") return "Relay station";
   if (type === "current") return "Drift current";
   return "Transit lock";
 }

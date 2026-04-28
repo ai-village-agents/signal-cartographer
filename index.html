@@ -42,6 +42,7 @@
             <label><input type="checkbox" id="toggleBeacons" checked /> Show visitor beacons</label>
             <label><input type="checkbox" id="toggleVerificationRoute" checked /> Show verification route</label>
             <label><input type="checkbox" id="toggleSignalSweep" checked /> Show signal sweep</label>
+            <label><input type="checkbox" id="toggleTraverseLattice" checked /> Show traverse lattice</label>
           </div>
           <button id="recenterBtn" type="button">Recenter map</button>
           <p class="small" id="statusMsg" aria-live="polite">Loading beacons from public GitHub issues…</p>
@@ -86,6 +87,11 @@
           <div id="signalSweep" class="sweep-panel" aria-live="polite">
             <p class="small">Signal sweep online. Move across the map to scan for hidden echoes.</p>
           </div>
+        </section>
+
+        <section>
+          <h2>Traverse Lattice</h2>
+          <div id="traverseLattice" class="lattice-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -236,6 +242,13 @@
           </div>
 
           <svg
+            id="traverseLatticeLayer"
+            class="traverse-lattice-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
             id="verificationRouteLayer"
             class="verification-route-layer"
             viewBox="0 0 1600 1000"
@@ -252,6 +265,7 @@
           <div id="landmarkLayer" class="marker-layer"></div>
           <div id="beaconLayer" class="marker-layer"></div>
           <div id="echoLayer" class="marker-layer echo-layer"></div>
+          <div id="latticeLayer" class="marker-layer lattice-layer"></div>
           <div id="previewMarker" class="marker preview" hidden></div>
         </div>
       </main>

@@ -185,9 +185,106 @@ const ECHO_SITES = [
   }
 ];
 
+const LATTICE_STATIONS = [
+  {
+    id: "hushwater-gate",
+    x: 34.4,
+    y: 39.1,
+    title: "Hushwater Gate",
+    note: "A slack-water crossing where repeated claims finally lose enough speed to be sampled.",
+    region: "Rumor Sea",
+    corridor: "Rumor Sea ↔ Revision River"
+  },
+  {
+    id: "consensus-narrows",
+    x: 51.9,
+    y: 43.2,
+    title: "Consensus Narrows",
+    note: "Converging channels where incompatible stories are forced into the same measurable passage.",
+    region: "Revision River",
+    corridor: "Rumor Sea ↔ Proof Plateau ↔ Revision River"
+  },
+  {
+    id: "baseline-cut",
+    x: 65.4,
+    y: 39.5,
+    title: "Baseline Cut",
+    note: "A carved shelf where calibration notes and null results travel with the ascent.",
+    region: "Proof Plateau",
+    corridor: "Proof Plateau ↔ Revision River"
+  },
+  {
+    id: "redline-ford",
+    x: 37.6,
+    y: 67.8,
+    title: "Redline Ford",
+    note: "Crossing stones set only where public corrections can still be followed back upstream.",
+    region: "Beacon Field",
+    corridor: "Beacon Field ↔ Revision River"
+  },
+  {
+    id: "custody-bridge",
+    x: 56.8,
+    y: 71.3,
+    title: "Custody Bridge",
+    note: "Suspension span held up by chain-of-custody tags instead of reputation.",
+    region: "Memory Vault",
+    corridor: "Revision River ↔ Memory Vault"
+  },
+  {
+    id: "lantern-causeway",
+    x: 46.7,
+    y: 82.1,
+    title: "Lantern Causeway",
+    note: "A low road lit by claims that kept their source links intact through the fog.",
+    region: "Beacon Field",
+    corridor: "Beacon Field ↔ Memory Vault"
+  }
+];
+
+const LATTICE_LINKS = [
+  ["landmark:whisper-breakwater", "echo:brine-index"],
+  ["landmark:whisper-breakwater", "echo:hearsay-foghorn"],
+  ["landmark:whisper-breakwater", "lattice:hushwater-gate"],
+  ["lattice:hushwater-gate", "lattice:consensus-narrows"],
+  ["lattice:consensus-narrows", "landmark:errata-locks"],
+  ["lattice:consensus-narrows", "echo:amendment-ford"],
+  ["lattice:consensus-narrows", "echo:rollback-bend"],
+  ["lattice:consensus-narrows", "lattice:baseline-cut"],
+  ["lattice:baseline-cut", "landmark:replicator-steps"],
+  ["lattice:baseline-cut", "echo:calibration-arch"],
+  ["lattice:baseline-cut", "echo:null-horizon"],
+  ["landmark:public-rails", "lattice:redline-ford"],
+  ["lattice:redline-ford", "landmark:errata-locks"],
+  ["lattice:redline-ford", "echo:attestation-commons"],
+  ["lattice:redline-ford", "echo:witness-turnstile"],
+  ["lattice:custody-bridge", "landmark:errata-locks"],
+  ["lattice:custody-bridge", "landmark:witness-ledger"],
+  ["lattice:custody-bridge", "echo:custody-aisle"],
+  ["lattice:lantern-causeway", "landmark:public-rails"],
+  ["lattice:lantern-causeway", "landmark:witness-ledger"],
+  ["lattice:lantern-causeway", "landmark:trace-lanterns"],
+  ["lattice:lantern-causeway", "echo:archive-suture"],
+  ["lattice:lantern-causeway", "lattice:custody-bridge"]
+];
+
 const SIGNAL_SWEEP_RADIUS_PCT = 6.5;
 const SIGNAL_SWEEP_NEARBY_MAX = 3;
 const SIGNAL_SWEEP_HIGHLIGHT_MAX = 5;
+
+function withLandmarkIds(landmarks) {
+  return (Array.isArray(landmarks) ? landmarks : []).map((landmark) => ({
+    ...landmark,
+    id: toSlug(landmark && landmark.title)
+  }));
+}
+
+const BUILTIN_LANDMARKS = withLandmarkIds(LANDMARKS).map((landmark) => ({
+  ...landmark,
+  type: "landmark"
+}));
+const BUILTIN_ECHO_SITES = ECHO_SITES.map((echo) => ({ ...echo, type: "echo" }));
+const BUILTIN_LATTICE_STATIONS = LATTICE_STATIONS.map((station) => ({ ...station, type: "lattice" }));
 
 const state = {
   tx: -MAP_W / 2,
@@ -204,6 +301,7 @@ const state = {
   activeRegion: "Beacon Field",
   restoredHashSelection: false,
   sweepEnabled: true,
+  traverseLatticeEnabled: true,
   sweepPointerActive: false,
   sweepCoord: null,
   discoveredEchoIds: new Set(),
@@ -246,12 +344,16 @@ const el = {
   toggleBeacons: document.getElementById("toggleBeacons"),
   toggleVerificationRoute: document.getElementById("toggleVerificationRoute"),
   toggleSignalSweep: document.getElementById("toggleSignalSweep"),
+  toggleTraverseLattice: document.getElementById("toggleTraverseLattice"),
   landmarkLayer: document.getElementById("landmarkLayer"),
   beaconLayer: document.getElementById("beaconLayer"),
   echoLayer: document.getElementById("echoLayer"),
+  latticeLayer: document.getElementById("latticeLayer"),
+  traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   verificationRouteLayer: document.getElementById("verificationRouteLayer"),
   signalSweepLayer: document.getElementById("signalSweepLayer"),
-  signalSweep: document.getElementById("signalSweep")
+  signalSweep: document.getElementById("signalSweep"),
+  traverseLattice: document.getElementById("traverseLattice")
 };
 
 function setTransform() {
@@ -371,6 +473,7 @@ function focusRegion(regionName) {
 function traceKey(marker) {
   if (!marker) return "";
   if (marker.issueNumber) return `beacon:${marker.issueNumber}`;
+  if (marker.type === "lattice" && marker.id) return `lattice:${marker.id}`;
   if (marker.type === "echo" && marker.id) return `echo:${marker.id}`;
   return `${marker.type || "marker"}:${marker.title}:${marker.x}:${marker.y}`;
 }
@@ -384,6 +487,109 @@ function toSlug(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function getLandmarkId(landmark) {
+  return landmark && landmark.id ? landmark.id : toSlug(landmark && landmark.title);
+}
+
+function markerRef(marker) {
+  if (!marker) return "";
+  if (marker.type === "landmark") {
+    const id = getLandmarkId(marker);
+    return id ? `landmark:${id}` : "";
+  }
+  if (marker.type === "echo" && marker.id) {
+    return `echo:${marker.id}`;
+  }
+  if (marker.type === "lattice" && marker.id) {
+    return `lattice:${marker.id}`;
+  }
+  return "";
+}
+
+function getBuiltinReferenceCollections() {
+  return {
+    landmark: BUILTIN_LANDMARKS,
+    echo: BUILTIN_ECHO_SITES,
+    lattice: BUILTIN_LATTICE_STATIONS
+  };
+}
+
+function resolveBuiltinReference(reference) {
+  const [type, id] = String(reference || "").split(":");
+  if (!type || !id) return null;
+  const collections = getBuiltinReferenceCollections();
+  const nodes = collections[type];
+  if (!nodes) return null;
+  const match = nodes.find((node) => {
+    if (type === "landmark") return getLandmarkId(node) === id;
+    return node && node.id === id;
+  });
+  return match ? { ...match, id: type === "landmark" ? getLandmarkId(match) : match.id, type } : null;
+}
+
+function resolveBuiltinNodeFromTrace(trace) {
+  const ref = markerRef(trace);
+  return ref ? resolveBuiltinReference(ref) : null;
+}
+
+function getResolvedLatticeLinks() {
+  return LATTICE_LINKS
+    .map(([from, to]) => {
+      const fromNode = resolveBuiltinReference(from);
+      const toNode = resolveBuiltinReference(to);
+      if (!fromNode || !toNode) return null;
+      return {
+        fromRef: from,
+        toRef: to,
+        from: fromNode,
+        to: toNode
+      };
+    })
+    .filter(Boolean);
+}
+
+function getTraverseNetworkNodes() {
+  const nodes = new Map();
+  getResolvedLatticeLinks().forEach((link) => {
+    nodes.set(link.fromRef, link.from);
+    nodes.set(link.toRef, link.to);
+  });
+  return Array.from(nodes.entries()).map(([ref, node]) => ({ ref, ...node }));
+}
+
+function getDirectTraverseConnections(reference) {
+  const links = getResolvedLatticeLinks();
+  const connected = [];
+  links.forEach((link) => {
+    if (link.fromRef === reference) {
+      connected.push({ ref: link.toRef, ...link.to });
+    } else if (link.toRef === reference) {
+      connected.push({ ref: link.fromRef, ...link.from });
+    }
+  });
+  return connected.sort((a, b) => String(a.title || "").localeCompare(String(b.title || "")));
+}
+
+function rankBeaconEntryCandidates(beacon, count = 3) {
+  if (!beacon) return [];
+  const bx = Number(beacon.x);
+  const by = Number(beacon.y);
+  if (!Number.isFinite(bx) || !Number.isFinite(by)) return [];
+  return getTraverseNetworkNodes()
+    .map((node) => ({
+      ...node,
+      regionMatch: beacon.region && node.region === beacon.region ? 0 : 1,
+      distance: Math.hypot(bx - Number(node.x), by - Number(node.y))
+    }))
+    .sort(
+      (a, b) =>
+        a.regionMatch - b.regionMatch ||
+        a.distance - b.distance ||
+        String(a.title || "").localeCompare(String(b.title || ""))
+    )
+    .slice(0, count);
+}
+
 function getMarkerHash(marker) {
   if (!marker) return "";
   if (marker.type === "beacon") {
@@ -391,7 +597,7 @@ function getMarkerHash(marker) {
     return issueNumber === null ? "" : `#beacon-${issueNumber}`;
   }
   if (marker.type === "landmark") {
-    const slug = toSlug(marker.title);
+    const slug = getLandmarkId(marker);
     return slug ? `#landmark-${slug}` : "";
   }
   return "";
@@ -419,7 +625,7 @@ function getPermalinkStatus(target) {
     const activeLandmarkTitle = state.activeTrace && state.activeTrace.type === "landmark"
       ? state.activeTrace.title
       : "";
-    const landmark = LANDMARKS.find((item) => toSlug(item.title) === target.slug);
+    const landmark = BUILTIN_LANDMARKS.find((item) => getLandmarkId(item) === target.slug);
     const title = activeLandmarkTitle || (landmark && landmark.title) || "";
     const message = title
       ? `This exact link points to landmark: ${title}.`
@@ -621,9 +827,9 @@ function restoreHashSelection() {
   }
 
   if (target.type === "landmark") {
-    const landmark = LANDMARKS.find((item) => toSlug(item.title) === target.slug);
+    const landmark = BUILTIN_LANDMARKS.find((item) => getLandmarkId(item) === target.slug);
     if (!landmark) return false;
-    activateMarker({ ...landmark, type: "landmark" }, { focus: true, updateHash: false });
+    activateMarker(landmark, { focus: true, updateHash: false });
     return true;
   }
 
@@ -716,6 +922,8 @@ function renderTracePanel() {
     ? "Visitor beacon"
     : trace.type === "echo"
       ? "Echo site"
+      : trace.type === "lattice"
+        ? "Traverse station"
       : "Landmark";
   const pills = [
     `<span class="trace-pill">${traceTypeLabel}</span>`,
@@ -732,6 +940,8 @@ function renderTracePanel() {
     ? `<p class="trace-link"><a href="${trace.issueUrl}" target="_blank" rel="noopener">Open public issue ↗</a></p>`
     : trace.type === "echo"
       ? '<p class="small trace-link">Built-in echo site: discoverable through Signal Sweep.</p>'
+      : trace.type === "lattice"
+        ? '<p class="small trace-link">Built-in traverse station: part of the inter-region lattice.</p>'
       : '<p class="small trace-link">Built-in landmark: part of the base map.</p>';
   const evidence = String(trace.evidence || "").trim();
   const revision = String(trace.revision || "").trim();
@@ -773,6 +983,14 @@ function renderTracePanel() {
       </section>
     `
     : "";
+  const latticeSection = trace.type === "lattice"
+    ? `
+      <section class="trace-subsection">
+        <h4>Traverse Lattice record</h4>
+        <p>This station links multiple built-in routes between regions, creating interstitial crossings between landmarks and echo sites.</p>
+      </section>
+    `
+    : "";
 
   el.tracePanel.innerHTML = `
     <h3>${escapeHtml(trace.title || "Untitled trace")}</h3>
@@ -782,6 +1000,7 @@ function renderTracePanel() {
     ${evidenceSection}
     ${revisionSection}
     ${echoSection}
+    ${latticeSection}
     ${link}
   `;
 }
@@ -796,8 +1015,8 @@ function markerDistance(a, b) {
 }
 
 function findNearestLandmark(marker) {
-  if (!marker || LANDMARKS.length === 0) return null;
-  const ranked = LANDMARKS
+  if (!marker || BUILTIN_LANDMARKS.length === 0) return null;
+  const ranked = BUILTIN_LANDMARKS
     .map((landmark) => ({ landmark, distance: markerDistance(marker, landmark) }))
     .filter((entry) => entry.distance !== null)
     .sort((a, b) => a.distance - b.distance || String(a.landmark.title || "").localeCompare(String(b.landmark.title || "")));
@@ -879,7 +1098,9 @@ function renderVerificationChain() {
       : `No public beacons are logged in ${escapeHtml(trace.region || "this region")} yet.`;
     const anchorSentence = trace.type === "echo"
       ? `This is a built-in echo site in ${escapeHtml(trace.region || "its region")}.`
-      : `This is a built-in anchor in ${escapeHtml(trace.region || "its region")}.`;
+      : trace.type === "lattice"
+        ? `This is a built-in traverse station in ${escapeHtml(trace.region || "its region")}.`
+        : `This is a built-in anchor in ${escapeHtml(trace.region || "its region")}.`;
 
     if (nearestRegionalBeacon) {
       actionTargets.nearest = nearestRegionalBeacon.beacon;
@@ -1204,7 +1425,7 @@ function renderRegionSurvey() {
 
   const regionNames = Object.keys(REGION_COPY);
   const landmarkCounts = new Map(regionNames.map((regionName) => [regionName, 0]));
-  LANDMARKS.forEach((landmark) => {
+  BUILTIN_LANDMARKS.forEach((landmark) => {
     const total = landmarkCounts.get(landmark.region) || 0;
     landmarkCounts.set(landmark.region, total + 1);
   });
@@ -1345,12 +1566,15 @@ function setActiveTrace(marker) {
     : null;
   renderLandmarks();
   renderBeacons();
+  renderLatticeMarkers();
+  renderTraverseLattice();
   renderVerificationRoute();
   renderTracePanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
   renderSignalSweepPanel();
+  renderTraverseLatticePanel();
   renderPermalinkPanel();
 }
 
@@ -1388,7 +1612,7 @@ function addMarker(layer, marker, options = {}) {
 
 function renderLandmarks() {
   el.landmarkLayer.innerHTML = "";
-  LANDMARKS.forEach((lm) => addMarker(el.landmarkLayer, { ...lm, type: "landmark" }));
+  BUILTIN_LANDMARKS.forEach((lm) => addMarker(el.landmarkLayer, lm));
 }
 
 function renderBeacons() {
@@ -1405,12 +1629,12 @@ function renderEchoMarkers() {
       .slice(0, SIGNAL_SWEEP_HIGHLIGHT_MAX)
       .map((echo) => echo.id)
   );
-  ECHO_SITES
+  BUILTIN_ECHO_SITES
     .filter((echo) => state.discoveredEchoIds.has(echo.id))
     .forEach((echo) => {
       addMarker(
         el.echoLayer,
-        { ...echo, type: "echo", color: "#9ff8c8" },
+        { ...echo, color: "#9ff8c8" },
         {
           className: "marker marker-echo",
           highlight: nearbyIds.has(echo.id),
@@ -1418,6 +1642,181 @@ function renderEchoMarkers() {
         }
       );
     });
+}
+
+function renderLatticeMarkers() {
+  if (!el.latticeLayer) return;
+  el.latticeLayer.innerHTML = "";
+  if (!state.traverseLatticeEnabled) return;
+  BUILTIN_LATTICE_STATIONS.forEach((station) => {
+    addMarker(
+      el.latticeLayer,
+      { ...station, color: "#ffd8ad" },
+      {
+        className: "marker marker-lattice",
+        updateHash: false
+      }
+    );
+  });
+}
+
+function toWorldCoords(marker) {
+  return {
+    x: (Number(marker.x) / 100) * MAP_W,
+    y: (Number(marker.y) / 100) * MAP_H
+  };
+}
+
+function renderTraverseLattice() {
+  if (!el.traverseLatticeLayer) return;
+
+  el.traverseLatticeLayer.style.display = state.traverseLatticeEnabled ? "block" : "none";
+  if (!state.traverseLatticeEnabled) {
+    el.traverseLatticeLayer.replaceChildren();
+    return;
+  }
+
+  const links = getResolvedLatticeLinks();
+  const group = createSvgNode("g", { class: "traverse-lattice" });
+
+  links.forEach((link) => {
+    const from = toWorldCoords(link.from);
+    const to = toWorldCoords(link.to);
+    group.appendChild(createSvgNode("line", {
+      class: "traverse-lattice-link",
+      x1: from.x.toFixed(1),
+      y1: from.y.toFixed(1),
+      x2: to.x.toFixed(1),
+      y2: to.y.toFixed(1)
+    }));
+  });
+
+  const active = state.activeTrace;
+  const activeNode = resolveBuiltinNodeFromTrace(active);
+  if (activeNode) {
+    const activeRef = markerRef(activeNode);
+    const connectedLinks = links.filter((link) => link.fromRef === activeRef || link.toRef === activeRef);
+    if (connectedLinks.length > 0) {
+      const endpointNodes = new Map();
+      endpointNodes.set(activeRef, activeNode);
+      connectedLinks.forEach((link) => {
+        const from = toWorldCoords(link.from);
+        const to = toWorldCoords(link.to);
+        endpointNodes.set(link.fromRef, link.from);
+        endpointNodes.set(link.toRef, link.to);
+        group.appendChild(createSvgNode("line", {
+          class: "traverse-lattice-link-active",
+          x1: from.x.toFixed(1),
+          y1: from.y.toFixed(1),
+          x2: to.x.toFixed(1),
+          y2: to.y.toFixed(1)
+        }));
+      });
+      endpointNodes.forEach((node) => {
+        const point = toWorldCoords(node);
+        group.appendChild(createSvgNode("circle", {
+          class: "traverse-lattice-endpoint-glow",
+          cx: point.x.toFixed(1),
+          cy: point.y.toFixed(1),
+          r: "6.2"
+        }));
+      });
+    }
+  } else if (active && active.type === "beacon") {
+    const beaconPoint = toWorldCoords(active);
+    rankBeaconEntryCandidates(active, 3).forEach((entry) => {
+      const nodePoint = toWorldCoords(entry);
+      group.appendChild(createSvgNode("line", {
+        class: "traverse-lattice-tether",
+        x1: beaconPoint.x.toFixed(1),
+        y1: beaconPoint.y.toFixed(1),
+        x2: nodePoint.x.toFixed(1),
+        y2: nodePoint.y.toFixed(1)
+      }));
+      group.appendChild(createSvgNode("circle", {
+        class: "traverse-lattice-endpoint-glow is-tether",
+        cx: nodePoint.x.toFixed(1),
+        cy: nodePoint.y.toFixed(1),
+        r: "4.8"
+      }));
+    });
+  }
+
+  el.traverseLatticeLayer.replaceChildren(group);
+}
+
+function renderTraverseLatticePanel() {
+  if (!el.traverseLattice) return;
+
+  if (!state.traverseLatticeEnabled) {
+    el.traverseLattice.innerHTML = `
+      <p class="small">Traverse Lattice is disabled. Re-enable it in Controls to reveal the built-in route network.</p>
+      <p class="small">6 interstitial stations are available when the lattice is online.</p>
+    `;
+    return;
+  }
+
+  const active = state.activeTrace;
+  if (!active) {
+    el.traverseLattice.innerHTML = "<p class=\"small lattice-copy\">Select a landmark, echo site, lattice station, or visitor beacon to inspect traverse routes.</p>";
+    return;
+  }
+
+  const actionTargets = {};
+  const renderRouteButtons = (nodes) => {
+    if (!nodes || nodes.length === 0) return '<p class="small lattice-copy">No direct routes are currently resolved for this trace.</p>';
+    return `
+      <div class="lattice-route-list">
+        ${nodes.map((node, index) => {
+          actionTargets[String(index)] = node;
+          return `<button type="button" class="lattice-route-item" data-lattice-route-index="${index}">${escapeHtml(node.title || "Untitled node")}<span>${escapeHtml(node.region || "Unknown region")} · ${escapeHtml(node.type === "lattice" ? "Traverse station" : node.type === "echo" ? "Echo site" : "Landmark")}</span></button>`;
+        }).join("")}
+      </div>
+    `;
+  };
+
+  const resolved = resolveBuiltinNodeFromTrace(active);
+  const resolvedRef = markerRef(resolved);
+  if (active.type === "lattice" && resolved) {
+    const connected = getDirectTraverseConnections(resolvedRef);
+    el.traverseLattice.innerHTML = `
+      <h3>${escapeHtml(resolved.title)}</h3>
+      <div class="lattice-meta">
+        <span class="lattice-pill">${escapeHtml(resolved.region || "Unknown region")}</span>
+        <span class="lattice-pill">${escapeHtml(resolved.corridor || "Corridor unknown")}</span>
+      </div>
+      <p class="lattice-copy">${escapeHtml(resolved.note || "")}</p>
+      <p class="small lattice-copy">Connected routes</p>
+      ${renderRouteButtons(connected)}
+    `;
+  } else if (resolved && (active.type === "landmark" || active.type === "echo")) {
+    const connected = getDirectTraverseConnections(resolvedRef);
+    if (connected.length === 0) {
+      el.traverseLattice.innerHTML = "<p class=\"small lattice-copy\">This built-in trace is outside the current traverse lattice links.</p>";
+    } else {
+      el.traverseLattice.innerHTML = `
+        <p class="small lattice-copy">This trace sits on the traverse lattice and connects directly into nearby built-in routes.</p>
+        ${renderRouteButtons(connected)}
+      `;
+    }
+  } else if (active.type === "beacon") {
+    const candidates = rankBeaconEntryCandidates(active, 3);
+    el.traverseLattice.innerHTML = `
+      <p class="small lattice-copy">Visitor beacons can enter the built-in lattice through nearby anchor points.</p>
+      ${renderRouteButtons(candidates)}
+      <p class="small lattice-copy">Entry candidates are ranked by region match and map distance.</p>
+    `;
+  } else {
+    el.traverseLattice.innerHTML = "<p class=\"small lattice-copy\">This built-in trace is outside the current traverse lattice links.</p>";
+  }
+
+  el.traverseLattice.querySelectorAll("[data-lattice-route-index]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const target = actionTargets[String(node.dataset.latticeRouteIndex)];
+      if (!target) return;
+      activateMarker(target, { focus: true, updateHash: target.type === "landmark" });
+    });
+  });
 }
 
 function createSvgNode(tagName, attrs) {
@@ -1808,7 +2207,9 @@ function initInteractions() {
   restoreLedgerFiltersFromUrl();
   syncLedgerUrlState();
   state.sweepEnabled = !el.toggleSignalSweep || el.toggleSignalSweep.checked;
+  state.traverseLatticeEnabled = !el.toggleTraverseLattice || el.toggleTraverseLattice.checked;
   renderSignalSweepPanel();
+  renderTraverseLatticePanel();
 
   window.addEventListener("resize", recenter);
   window.addEventListener("hashchange", () => {
@@ -1936,6 +2337,15 @@ function initInteractions() {
     });
   }
 
+  if (el.toggleTraverseLattice) {
+    el.toggleTraverseLattice.addEventListener("change", () => {
+      state.traverseLatticeEnabled = el.toggleTraverseLattice.checked;
+      renderLatticeMarkers();
+      renderTraverseLattice();
+      renderTraverseLatticePanel();
+    });
+  }
+
   if (el.ledgerRegionFilter) {
     el.ledgerRegionFilter.addEventListener("change", handleLedgerFilterChange);
   }
@@ -2012,8 +2422,11 @@ function initInteractions() {
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
+  renderLatticeMarkers();
+  renderTraverseLattice();
   renderSignalSweepOverlay();
   renderSignalSweepPanel();
+  renderTraverseLatticePanel();
   renderPermalinkPanel();
 }
 
@@ -2053,6 +2466,8 @@ async function initBeacons() {
 
 function init() {
   renderLandmarks();
+  renderLatticeMarkers();
+  renderTraverseLattice();
   initInteractions();
   state.restoredHashSelection = restoreHashSelection();
   initBeacons();

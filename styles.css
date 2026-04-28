@@ -307,6 +307,73 @@ body {
   gap: 0.45rem;
 }
 
+.lattice-panel {
+  border: 1px solid rgba(224, 188, 128, 0.32);
+  background: rgba(33, 24, 14, 0.36);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.lattice-panel h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.lattice-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.lattice-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 223, 176, 0.35);
+  background: rgba(82, 56, 28, 0.52);
+  color: #ffe7c8;
+  font-size: 0.75rem;
+}
+
+.lattice-copy {
+  margin: 0;
+  line-height: 1.34;
+}
+
+.lattice-route-list {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.lattice-route-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.44rem 0.5rem;
+  border: 1px solid rgba(234, 198, 141, 0.36);
+  background: rgba(44, 30, 18, 0.72);
+  color: #f7e6ce;
+}
+
+.lattice-route-item span {
+  display: block;
+  font-size: 0.74rem;
+  color: rgba(244, 220, 186, 0.85);
+}
+
+.lattice-route-item:hover,
+.lattice-route-item:focus-visible {
+  border-color: rgba(255, 225, 178, 0.8);
+  background: rgba(56, 38, 21, 0.84);
+  box-shadow: 0 0 16px rgba(255, 207, 137, 0.14);
+}
+
 .sweep-readout {
   margin: 0;
 }
@@ -696,6 +763,7 @@ button:hover {
 .stars,
 .grid,
 .routes,
+.traverse-lattice-layer,
 .verification-route-layer,
 .signal-sweep-layer,
 .marker-layer {
@@ -708,7 +776,7 @@ button:hover {
 }
 
 .verification-route-layer {
-  z-index: 4;
+  z-index: 5;
   display: block;
   width: 100%;
   height: 100%;
@@ -717,7 +785,7 @@ button:hover {
 }
 
 .signal-sweep-layer {
-  z-index: 6;
+  z-index: 9;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -845,15 +913,59 @@ button:hover {
 .beacon-field { background-color: rgba(21, 75, 81, 0.28); }
 
 .marker-layer {
-  z-index: 5;
+  z-index: 6;
 }
 
 .echo-layer {
-  z-index: 7;
+  z-index: 8;
+}
+
+.lattice-layer {
+  z-index: 8;
 }
 
 .echo-layer .marker {
   pointer-events: auto;
+}
+
+.traverse-lattice-layer {
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.traverse-lattice-link {
+  stroke: rgba(248, 212, 153, 0.2);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.traverse-lattice-link-active {
+  stroke: rgba(255, 232, 191, 0.82);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 5px rgba(255, 225, 170, 0.3));
+}
+
+.traverse-lattice-tether {
+  stroke: rgba(205, 234, 255, 0.34);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-dasharray: 5 5;
+}
+
+.traverse-lattice-endpoint-glow {
+  fill: rgba(255, 230, 188, 0.24);
+  stroke: rgba(255, 233, 196, 0.82);
+  stroke-width: 1;
+  filter: drop-shadow(0 0 5px rgba(255, 216, 144, 0.25));
+}
+
+.traverse-lattice-endpoint-glow.is-tether {
+  fill: rgba(180, 221, 250, 0.22);
+  stroke: rgba(203, 235, 255, 0.72);
 }
 
 .marker {
@@ -921,6 +1033,27 @@ button:hover {
 
 .marker-echo.is-nearby::after {
   border-color: rgba(191, 255, 230, 0.85);
+}
+
+.marker-lattice {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  border-color: rgba(255, 233, 204, 0.92);
+  background: #ffd8ad;
+  color: #ffd8ad;
+  transform: translate(-50%, -50%) rotate(45deg);
+  box-shadow: 0 0 14px rgba(255, 210, 147, 0.88);
+}
+
+.marker-lattice::after {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border-style: solid;
+  border-color: rgba(255, 221, 169, 0.45);
+  transform: translate(-50%, -50%) rotate(45deg);
+  animation-duration: 3.4s;
 }
 
 .signal-sweep-glow {

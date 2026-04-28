@@ -49,6 +49,14 @@ const REGION_FOCUS = {
   "Beacon Field": { x: 23, y: 76, scale: 1.52 }
 };
 
+const REGION_BOUNDS = [
+  { region: "Rumor Sea", left: 6, top: 18, width: 27, height: 25 },
+  { region: "Proof Plateau", left: 61, top: 16, width: 30, height: 24 },
+  { region: "Revision River", left: 34, top: 47, width: 37, height: 20 },
+  { region: "Memory Vault", left: 58, top: 67, width: 35, height: 24 },
+  { region: "Beacon Field", left: 8, top: 64, width: 30, height: 24 }
+];
+
 const LANDMARKS = [
   {
     x: 18,
@@ -94,6 +102,93 @@ const LANDMARKS = [
   }
 ];
 
+const ECHO_SITES = [
+  {
+    id: "brine-index",
+    x: 13.8,
+    y: 31.2,
+    title: "Brine Index",
+    note: "Salt-stiff ledgers of claims that traveled fastest before anyone checked their sources.",
+    region: "Rumor Sea"
+  },
+  {
+    id: "hearsay-foghorn",
+    x: 28.6,
+    y: 24.5,
+    title: "Hearsay Foghorn",
+    note: "A warning buoy that repeats every quote until someone asks who first recorded it.",
+    region: "Rumor Sea"
+  },
+  {
+    id: "calibration-arch",
+    x: 69.2,
+    y: 27.1,
+    title: "Calibration Arch",
+    note: "Instruments here only agree after settings, baselines, and run logs are exposed.",
+    region: "Proof Plateau"
+  },
+  {
+    id: "null-horizon",
+    x: 83.4,
+    y: 31.4,
+    title: "Null Horizon",
+    note: "An edge where preferred conclusions dissolve and surviving tests speak plainly.",
+    region: "Proof Plateau"
+  },
+  {
+    id: "amendment-ford",
+    x: 42.2,
+    y: 58.3,
+    title: "Amendment Ford",
+    note: "Crossing point where version notes decide which narrative can continue downstream.",
+    region: "Revision River"
+  },
+  {
+    id: "rollback-bend",
+    x: 63.7,
+    y: 53.2,
+    title: "Rollback Bend",
+    note: "A hard curve where overconfident edits are walked back in public daylight.",
+    region: "Revision River"
+  },
+  {
+    id: "custody-aisle",
+    x: 66.1,
+    y: 84.3,
+    title: "Custody Aisle",
+    note: "Shelves indexed by chain-of-custody tags instead of volume or reputation.",
+    region: "Memory Vault"
+  },
+  {
+    id: "archive-suture",
+    x: 86.4,
+    y: 75.2,
+    title: "Archive Suture",
+    note: "Threads patched through old records where missing context was later restored.",
+    region: "Memory Vault"
+  },
+  {
+    id: "attestation-commons",
+    x: 16.8,
+    y: 79.6,
+    title: "Attestation Commons",
+    note: "Open ground where signatures matter less than whether evidence remains reachable.",
+    region: "Beacon Field"
+  },
+  {
+    id: "witness-turnstile",
+    x: 31.4,
+    y: 71.1,
+    title: "Witness Turnstile",
+    note: "Entry gates that rotate only when a claim arrives with revisable terms.",
+    region: "Beacon Field"
+  }
+];
+
+const SIGNAL_SWEEP_RADIUS_PCT = 6.5;
+const SIGNAL_SWEEP_NEARBY_MAX = 3;
+const SIGNAL_SWEEP_HIGHLIGHT_MAX = 5;
+
 const state = {
   tx: -MAP_W / 2,
   ty: -MAP_H / 2,
@@ -107,7 +202,12 @@ const state = {
   beacons: [],
   activeTrace: null,
   activeRegion: "Beacon Field",
-  restoredHashSelection: false
+  restoredHashSelection: false,
+  sweepEnabled: true,
+  sweepPointerActive: false,
+  sweepCoord: null,
+  discoveredEchoIds: new Set(),
+  nearbyEchoes: []
 };
 
 const el = {
@@ -145,9 +245,13 @@ const el = {
   toggleLandmarks: document.getElementById("toggleLandmarks"),
   toggleBeacons: document.getElementById("toggleBeacons"),
   toggleVerificationRoute: document.getElementById("toggleVerificationRoute"),
+  toggleSignalSweep: document.getElementById("toggleSignalSweep"),
   landmarkLayer: document.getElementById("landmarkLayer"),
   beaconLayer: document.getElementById("beaconLayer"),
-  verificationRouteLayer: document.getElementById("verificationRouteLayer")
+  echoLayer: document.getElementById("echoLayer"),
+  verificationRouteLayer: document.getElementById("verificationRouteLayer"),
+  signalSweepLayer: document.getElementById("signalSweepLayer"),
+  signalSweep: document.getElementById("signalSweep")
 };
 
 function setTransform() {
@@ -175,6 +279,52 @@ function worldToPercent({ x, y }) {
     x: Math.max(0, Math.min(100, (x / MAP_W) * 100)),
     y: Math.max(0, Math.min(100, (y / MAP_H) * 100))
   };
+}
+
+function formatPercentCoord(value) {
+  return `${Number(value).toFixed(1)}%`;
+}
+
+function classifyRegionAtPercent(point) {
+  if (!point) return null;
+  const x = Number(point.x);
+  const y = Number(point.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+  const exact = REGION_BOUNDS.find((bound) => (
+    x >= bound.left &&
+    x <= bound.left + bound.width &&
+    y >= bound.top &&
+    y <= bound.top + bound.height
+  ));
+  if (exact) return exact.region;
+
+  const closest = REGION_BOUNDS
+    .map((bound) => {
+      const cx = bound.left + bound.width / 2;
+      const cy = bound.top + bound.height / 2;
+      return {
+        region: bound.region,
+        distance: Math.hypot(x - cx, y - cy)
+      };
+    })
+    .sort((a, b) => a.distance - b.distance)[0];
+  return closest ? closest.region : null;
+}
+
+function findNearbyEchoSites(coord, radius = SIGNAL_SWEEP_RADIUS_PCT) {
+  if (!coord) return [];
+  const x = Number(coord.x);
+  const y = Number(coord.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
+
+  return ECHO_SITES
+    .map((echo) => ({
+      ...echo,
+      distance: Math.hypot(x - Number(echo.x), y - Number(echo.y))
+    }))
+    .filter((echo) => echo.distance <= radius)
+    .sort((a, b) => a.distance - b.distance || String(a.title || "").localeCompare(String(b.title || "")));
 }
 
 function placePreview(percentX, percentY) {
@@ -221,6 +371,7 @@ function focusRegion(regionName) {
 function traceKey(marker) {
   if (!marker) return "";
   if (marker.issueNumber) return `beacon:${marker.issueNumber}`;
+  if (marker.type === "echo" && marker.id) return `echo:${marker.id}`;
   return `${marker.type || "marker"}:${marker.title}:${marker.x}:${marker.y}`;
 }
 
@@ -427,6 +578,9 @@ function activateRegion(regionName, { updateHash = true } = {}) {
 
 function activateMarker(marker, { focus = false, updateHash = true } = {}) {
   if (!marker) return;
+  if (marker.type === "echo" && marker.id) {
+    state.discoveredEchoIds.add(marker.id);
+  }
   setActiveTrace(marker);
   if (marker.region) {
     setRegionDetail(marker.region);
@@ -558,8 +712,13 @@ function renderTracePanel() {
     return;
   }
 
+  const traceTypeLabel = trace.type === "beacon"
+    ? "Visitor beacon"
+    : trace.type === "echo"
+      ? "Echo site"
+      : "Landmark";
   const pills = [
-    `<span class="trace-pill">${trace.type === "beacon" ? "Visitor beacon" : "Landmark"}</span>`,
+    `<span class="trace-pill">${traceTypeLabel}</span>`,
     `<span class="trace-pill">${escapeHtml(trace.region || "Unknown region")}</span>`
   ];
   if (trace.visitor) {
@@ -571,7 +730,9 @@ function renderTracePanel() {
 
   const link = trace.issueUrl
     ? `<p class="trace-link"><a href="${trace.issueUrl}" target="_blank" rel="noopener">Open public issue ↗</a></p>`
-    : '<p class="small trace-link">Built-in landmark: part of the base map.</p>';
+    : trace.type === "echo"
+      ? '<p class="small trace-link">Built-in echo site: discoverable through Signal Sweep.</p>'
+      : '<p class="small trace-link">Built-in landmark: part of the base map.</p>';
   const evidence = String(trace.evidence || "").trim();
   const revision = String(trace.revision || "").trim();
   const posture = trace.type === "beacon" ? getBeaconPosture(trace) : null;
@@ -604,6 +765,14 @@ function renderTracePanel() {
       </section>
     `
     : "";
+  const echoSection = trace.type === "echo"
+    ? `
+      <section class="trace-subsection">
+        <h4>Signal Sweep record</h4>
+        <p>This is a built-in exploration point in ${escapeHtml(trace.region || "unknown region")}. It was surfaced by scan radius contact, not a visitor submission.</p>
+      </section>
+    `
+    : "";
 
   el.tracePanel.innerHTML = `
     <h3>${escapeHtml(trace.title || "Untitled trace")}</h3>
@@ -612,6 +781,7 @@ function renderTracePanel() {
     ${postureSection}
     ${evidenceSection}
     ${revisionSection}
+    ${echoSection}
     ${link}
   `;
 }
@@ -707,13 +877,16 @@ function renderVerificationChain() {
           nearestRegionalBeacon.beacon.title || "Untitled beacon"
         )} by ${escapeHtml(nearestRegionalBeacon.beacon.visitor || "Unknown")}.`
       : `No public beacons are logged in ${escapeHtml(trace.region || "this region")} yet.`;
+    const anchorSentence = trace.type === "echo"
+      ? `This is a built-in echo site in ${escapeHtml(trace.region || "its region")}.`
+      : `This is a built-in anchor in ${escapeHtml(trace.region || "its region")}.`;
 
     if (nearestRegionalBeacon) {
       actionTargets.nearest = nearestRegionalBeacon.beacon;
     }
 
     html = `
-      <p class="chain-summary">This is a built-in anchor in ${escapeHtml(trace.region || "its region")}.</p>
+      <p class="chain-summary">${anchorSentence}</p>
       ${coordPills}
       <p class="chain-context">${contextHtml}</p>
       ${nearestRegionalBeacon ? '<div class="chain-actions"><button type="button" class="chain-action" data-chain-target="nearest">Jump to nearest public beacon</button></div>' : ""}
@@ -1176,15 +1349,25 @@ function setActiveTrace(marker) {
   renderTracePanel();
   renderVerificationChain();
   renderBeaconLedger();
+  renderEchoMarkers();
+  renderSignalSweepPanel();
   renderPermalinkPanel();
 }
 
-function addMarker(layer, marker) {
+function addMarker(layer, marker, options = {}) {
+  const {
+    className = "marker",
+    highlight = false,
+    updateHash = true
+  } = options;
   const node = document.createElement("button");
   node.type = "button";
-  node.className = "marker";
+  node.className = className;
   if (state.activeTrace && traceKey(state.activeTrace) === traceKey(marker)) {
     node.classList.add("is-active");
+  }
+  if (highlight) {
+    node.classList.add("is-nearby");
   }
   node.dataset.type = marker.type;
   node.style.left = `${marker.x}%`;
@@ -1198,7 +1381,7 @@ function addMarker(layer, marker) {
   node.addEventListener("pointerup", (ev) => ev.stopPropagation());
   node.addEventListener("click", (ev) => {
     ev.stopPropagation();
-    activateMarker(marker, { updateHash: true });
+    activateMarker(marker, { updateHash });
   });
   layer.appendChild(node);
 }
@@ -1211,6 +1394,30 @@ function renderLandmarks() {
 function renderBeacons() {
   el.beaconLayer.innerHTML = "";
   state.beacons.forEach((b) => addMarker(el.beaconLayer, { ...b, type: "beacon" }));
+}
+
+function renderEchoMarkers() {
+  if (!el.echoLayer) return;
+  el.echoLayer.innerHTML = "";
+  if (!state.sweepEnabled) return;
+  const nearbyIds = new Set(
+    (state.nearbyEchoes || [])
+      .slice(0, SIGNAL_SWEEP_HIGHLIGHT_MAX)
+      .map((echo) => echo.id)
+  );
+  ECHO_SITES
+    .filter((echo) => state.discoveredEchoIds.has(echo.id))
+    .forEach((echo) => {
+      addMarker(
+        el.echoLayer,
+        { ...echo, type: "echo", color: "#9ff8c8" },
+        {
+          className: "marker marker-echo",
+          highlight: nearbyIds.has(echo.id),
+          updateHash: false
+        }
+      );
+    });
 }
 
 function createSvgNode(tagName, attrs) {
@@ -1292,6 +1499,113 @@ function renderVerificationRoute() {
   routeGroup.appendChild(oldestLabel);
 
   el.verificationRouteLayer.replaceChildren(routeGroup);
+}
+
+function renderSignalSweepOverlay() {
+  if (!el.signalSweepLayer) return;
+
+  const shouldShow = state.sweepEnabled && state.sweepPointerActive && state.sweepCoord;
+  if (!shouldShow) {
+    el.signalSweepLayer.replaceChildren();
+    return;
+  }
+
+  const centerX = (Number(state.sweepCoord.x) / 100) * MAP_W;
+  const centerY = (Number(state.sweepCoord.y) / 100) * MAP_H;
+  const radius = (SIGNAL_SWEEP_RADIUS_PCT / 100) * Math.min(MAP_W, MAP_H);
+  const group = createSvgNode("g", {
+    class: "signal-sweep"
+  });
+  group.appendChild(createSvgNode("circle", {
+    class: "signal-sweep-glow",
+    cx: centerX.toFixed(1),
+    cy: centerY.toFixed(1),
+    r: (radius * 1.32).toFixed(1)
+  }));
+  group.appendChild(createSvgNode("circle", {
+    class: "signal-sweep-ring",
+    cx: centerX.toFixed(1),
+    cy: centerY.toFixed(1),
+    r: radius.toFixed(1)
+  }));
+  group.appendChild(createSvgNode("circle", {
+    class: "signal-sweep-core",
+    cx: centerX.toFixed(1),
+    cy: centerY.toFixed(1),
+    r: "3.2"
+  }));
+  el.signalSweepLayer.replaceChildren(group);
+}
+
+function activateEchoSiteById(id) {
+  const echo = ECHO_SITES.find((site) => site.id === id);
+  if (!echo) return;
+  state.discoveredEchoIds.add(echo.id);
+  activateMarker({ ...echo, type: "echo" }, { focus: true, updateHash: false });
+  renderEchoMarkers();
+  renderSignalSweepPanel();
+}
+
+function renderSignalSweepPanel() {
+  if (!el.signalSweep) return;
+
+  if (!state.sweepEnabled) {
+    el.signalSweep.innerHTML = `
+      <p class="small">Signal Sweep is disabled. Re-enable it in Controls to resume scanning for built-in echo sites.</p>
+      <p class="small">Discovered ${state.discoveredEchoIds.size} of ${ECHO_SITES.length} echo sites.</p>
+    `;
+    return;
+  }
+
+  const coord = state.sweepCoord;
+  const region = classifyRegionAtPercent(coord) || "Unknown region";
+  const discoveredCount = state.discoveredEchoIds.size;
+  const nearby = (state.nearbyEchoes || []).slice(0, SIGNAL_SWEEP_NEARBY_MAX);
+  const coordLine = coord
+    ? `x ${formatPercentCoord(coord.x)} · y ${formatPercentCoord(coord.y)}`
+    : "Awaiting sweep position";
+  const nearbyHtml = nearby.length > 0
+    ? `
+      <div class="sweep-nearby-list">
+        ${nearby.map((echo, index) => `
+          <button type="button" class="sweep-nearby-item" data-echo-nearby-index="${index}">
+            <strong>${escapeHtml(echo.title)}</strong>
+            <span>${escapeHtml(echo.region)}</span>
+            <span>${escapeHtml(String(echo.note || "").slice(0, 92))}${echo.note && echo.note.length > 92 ? "..." : ""}</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : '<p class="small sweep-hint">No echo contacts in this sweep radius. Drift along region edges and route intersections to locate dormant traces.</p>';
+
+  el.signalSweep.innerHTML = `
+    <p class="sweep-readout"><span class="sweep-pill">Coordinates: ${coordLine}</span></p>
+    <p class="sweep-readout"><span class="sweep-pill">Region: ${escapeHtml(region)}</span></p>
+    <p class="small">Discovered ${discoveredCount} of ${ECHO_SITES.length} echo sites.</p>
+    ${nearbyHtml}
+  `;
+
+  el.signalSweep.querySelectorAll("[data-echo-nearby-index]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const index = Number(node.dataset.echoNearbyIndex);
+      const echo = nearby[index];
+      if (!echo) return;
+      activateEchoSiteById(echo.id);
+    });
+  });
+}
+
+function refreshSignalSweepAt(coord, pointerActive) {
+  if (!state.sweepEnabled) return;
+  state.sweepPointerActive = Boolean(pointerActive);
+  if (coord) {
+    state.sweepCoord = { x: Number(coord.x), y: Number(coord.y) };
+  }
+  state.nearbyEchoes = state.sweepCoord ? findNearbyEchoSites(state.sweepCoord) : [];
+  state.nearbyEchoes.forEach((echo) => state.discoveredEchoIds.add(echo.id));
+  renderEchoMarkers();
+  renderSignalSweepOverlay();
+  renderSignalSweepPanel();
 }
 
 function parseBeaconBlock(text) {
@@ -1477,12 +1791,24 @@ function buildIssueUrl(values) {
   return `${base}?${params.toString()}`;
 }
 
+function isPointerInsideViewport(clientX, clientY) {
+  const rect = el.viewport.getBoundingClientRect();
+  return (
+    clientX >= rect.left &&
+    clientX <= rect.right &&
+    clientY >= rect.top &&
+    clientY <= rect.bottom
+  );
+}
+
 function initInteractions() {
   let copyBtnResetTimer = null;
 
   recenter();
   restoreLedgerFiltersFromUrl();
   syncLedgerUrlState();
+  state.sweepEnabled = !el.toggleSignalSweep || el.toggleSignalSweep.checked;
+  renderSignalSweepPanel();
 
   window.addEventListener("resize", recenter);
   window.addEventListener("hashchange", () => {
@@ -1509,16 +1835,31 @@ function initInteractions() {
     state.downY = ev.clientY;
     state.dragStartX = ev.clientX;
     state.dragStartY = ev.clientY;
+    if (state.sweepEnabled) {
+      const percent = worldToPercent(screenToWorld(ev.clientX, ev.clientY));
+      refreshSignalSweepAt(percent, true);
+    }
     el.viewport.setPointerCapture(ev.pointerId);
   });
 
   el.viewport.addEventListener("pointermove", (ev) => {
-    if (!state.dragging) return;
-    state.tx += ev.clientX - state.dragStartX;
-    state.ty += ev.clientY - state.dragStartY;
-    state.dragStartX = ev.clientX;
-    state.dragStartY = ev.clientY;
-    setTransform();
+    if (state.sweepEnabled) {
+      const pointerInside = isPointerInsideViewport(ev.clientX, ev.clientY);
+      if (pointerInside) {
+        const percent = worldToPercent(screenToWorld(ev.clientX, ev.clientY));
+        refreshSignalSweepAt(percent, true);
+      } else if (!state.dragging) {
+        refreshSignalSweepAt(null, false);
+      }
+    }
+
+    if (state.dragging) {
+      state.tx += ev.clientX - state.dragStartX;
+      state.ty += ev.clientY - state.dragStartY;
+      state.dragStartX = ev.clientX;
+      state.dragStartY = ev.clientY;
+      setTransform();
+    }
   });
 
   el.viewport.addEventListener("pointerup", (ev) => {
@@ -1529,10 +1870,27 @@ function initInteractions() {
       const percent = worldToPercent(world);
       setSelectedCoord(percent.x, percent.y);
     }
+    if (state.sweepEnabled) {
+      if (isPointerInsideViewport(ev.clientX, ev.clientY)) {
+        const percent = worldToPercent(screenToWorld(ev.clientX, ev.clientY));
+        refreshSignalSweepAt(percent, true);
+      } else {
+        refreshSignalSweepAt(null, false);
+      }
+    }
   });
 
   el.viewport.addEventListener("pointercancel", () => {
     state.dragging = false;
+    if (state.sweepEnabled) {
+      refreshSignalSweepAt(null, false);
+    }
+  });
+
+  el.viewport.addEventListener("pointerleave", () => {
+    if (!state.dragging && state.sweepEnabled) {
+      refreshSignalSweepAt(null, false);
+    }
   });
 
   document.querySelectorAll(".region, .region-list [data-region]").forEach((node) => {
@@ -1562,6 +1920,20 @@ function initInteractions() {
 
   if (el.toggleVerificationRoute) {
     el.toggleVerificationRoute.addEventListener("change", renderVerificationRoute);
+  }
+
+  if (el.toggleSignalSweep) {
+    el.toggleSignalSweep.addEventListener("change", () => {
+      state.sweepEnabled = el.toggleSignalSweep.checked;
+      if (!state.sweepEnabled) {
+        state.sweepPointerActive = false;
+        state.sweepCoord = null;
+        state.nearbyEchoes = [];
+      }
+      renderEchoMarkers();
+      renderSignalSweepOverlay();
+      renderSignalSweepPanel();
+    });
   }
 
   if (el.ledgerRegionFilter) {
@@ -1639,6 +2011,9 @@ function initInteractions() {
   renderTracePanel();
   renderVerificationChain();
   renderVerificationRoute();
+  renderEchoMarkers();
+  renderSignalSweepOverlay();
+  renderSignalSweepPanel();
   renderPermalinkPanel();
 }
 

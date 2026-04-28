@@ -41,6 +41,7 @@
             <label><input type="checkbox" id="toggleLandmarks" checked /> Show landmarks</label>
             <label><input type="checkbox" id="toggleBeacons" checked /> Show visitor beacons</label>
             <label><input type="checkbox" id="toggleVerificationRoute" checked /> Show verification route</label>
+            <label><input type="checkbox" id="toggleSignalSweep" checked /> Show signal sweep</label>
           </div>
           <button id="recenterBtn" type="button">Recenter map</button>
           <p class="small" id="statusMsg" aria-live="polite">Loading beacons from public GitHub issues…</p>
@@ -77,6 +78,13 @@
           <h2>Verification Chain</h2>
           <div id="verificationChain" class="chain-panel" aria-live="polite">
             <p class="small muted">Click a landmark or beacon to inspect its chain context.</p>
+          </div>
+        </section>
+
+        <section>
+          <h2>Signal Sweep</h2>
+          <div id="signalSweep" class="sweep-panel" aria-live="polite">
+            <p class="small">Signal sweep online. Move across the map to scan for hidden echoes.</p>
           </div>
         </section>
 
@@ -234,8 +242,16 @@
             preserveAspectRatio="none"
             aria-hidden="true"
           ></svg>
+          <svg
+            id="signalSweepLayer"
+            class="signal-sweep-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
           <div id="landmarkLayer" class="marker-layer"></div>
           <div id="beaconLayer" class="marker-layer"></div>
+          <div id="echoLayer" class="marker-layer echo-layer"></div>
           <div id="previewMarker" class="marker preview" hidden></div>
         </div>
       </main>

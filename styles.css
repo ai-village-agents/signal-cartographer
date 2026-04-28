@@ -525,6 +525,97 @@ body {
   box-shadow: 0 0 16px rgba(149, 231, 255, 0.2);
 }
 
+.wake-panel {
+  border: 1px solid rgba(162, 228, 246, 0.3);
+  background: rgba(8, 30, 43, 0.82);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.wake-line {
+  margin: 0;
+  line-height: 1.34;
+}
+
+.wake-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.wake-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(188, 242, 255, 0.34);
+  background: rgba(20, 61, 85, 0.72);
+  color: #d8f5ff;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.wake-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.wake-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(180, 238, 253, 0.42);
+  background: rgba(15, 52, 73, 0.88);
+  color: #def5ff;
+  font-size: 0.78rem;
+}
+
+.wake-action:hover,
+.wake-action:focus-visible {
+  border-color: #cff6ff;
+  background: rgba(22, 66, 90, 0.93);
+}
+
+.wake-subtitle {
+  margin: 0;
+}
+
+.wake-milestone-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.wake-milestone-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgba(166, 229, 245, 0.4);
+  background: rgba(12, 41, 59, 0.82);
+  color: #def4ff;
+}
+
+.wake-milestone-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.wake-milestone-item span {
+  font-size: 0.74rem;
+  color: rgba(208, 238, 249, 0.9);
+  line-height: 1.28;
+}
+
+.wake-milestone-item:hover,
+.wake-milestone-item:focus-visible {
+  border-color: rgba(202, 245, 255, 0.88);
+  background: rgba(17, 53, 76, 0.9);
+  box-shadow: 0 0 15px rgba(130, 213, 238, 0.16);
+}
+
 .muted {
   color: var(--muted);
 }
@@ -862,6 +953,7 @@ button:hover {
 .routes,
 .traverse-lattice-layer,
 .verification-route-layer,
+.survey-wake-layer,
 .signal-sweep-layer,
 .marker-layer {
   position: absolute;
@@ -881,8 +973,16 @@ button:hover {
   overflow: visible;
 }
 
+.survey-wake-layer {
+  z-index: 6;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
 .signal-sweep-layer {
-  z-index: 10;
+  z-index: 11;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -1010,19 +1110,19 @@ button:hover {
 .beacon-field { background-color: rgba(21, 75, 81, 0.28); }
 
 .marker-layer {
-  z-index: 6;
-}
-
-.echo-layer {
-  z-index: 9;
-}
-
-.lattice-layer {
   z-index: 7;
 }
 
-.survey-skiff-layer {
+.echo-layer {
+  z-index: 10;
+}
+
+.lattice-layer {
   z-index: 8;
+}
+
+.survey-skiff-layer {
+  z-index: 9;
 }
 
 .echo-layer .marker {
@@ -1199,6 +1299,46 @@ button:hover {
   filter: drop-shadow(0 0 6px rgba(190, 255, 231, 0.75));
 }
 
+.survey-wake-glow {
+  fill: none;
+  stroke: rgba(138, 232, 255, 0.16);
+  stroke-width: 9.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 9px rgba(156, 232, 252, 0.2));
+}
+
+.survey-wake-path {
+  fill: none;
+  stroke: rgba(171, 241, 255, 0.72);
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 7 6;
+  animation: routeFlow 14s linear infinite;
+}
+
+.survey-wake-point {
+  fill: rgba(206, 248, 255, 0.86);
+  stroke: rgba(195, 245, 255, 0.86);
+  stroke-width: 1.2;
+  filter: drop-shadow(0 0 4px rgba(184, 241, 255, 0.42));
+}
+
+.survey-wake-milestone {
+  fill: rgba(175, 239, 255, 0.2);
+  stroke: rgba(194, 246, 255, 0.72);
+  stroke-width: 1.2;
+  filter: drop-shadow(0 0 5px rgba(171, 236, 252, 0.18));
+}
+
+.survey-wake-origin {
+  fill: rgba(180, 238, 255, 0.1);
+  stroke: rgba(185, 244, 255, 0.65);
+  stroke-width: 1.5;
+  animation: wakeOriginPulse 2.2s ease-in-out infinite;
+}
+
 .marker[title] {
   cursor: pointer;
 }
@@ -1246,6 +1386,12 @@ button:hover {
 @keyframes sweepRing {
   from { stroke-dashoffset: 0; }
   to { stroke-dashoffset: -48; }
+}
+
+@keyframes wakeOriginPulse {
+  0% { opacity: 0.5; transform: scale(0.84); }
+  55% { opacity: 0.95; transform: scale(1); }
+  100% { opacity: 0.55; transform: scale(0.88); }
 }
 
 @media (max-width: 920px) {

@@ -274,6 +274,9 @@ const SIGNAL_SWEEP_HIGHLIGHT_MAX = 5;
 const SURVEY_SKIFF_STEP_PCT = 1.1;
 const SURVEY_SKIFF_SHIFT_STEP_PCT = 2.2;
 const SURVEY_SKIFF_NEARBY_ANCHOR_MAX = 3;
+const SURVEY_WAKE_POINT_MIN_STEP_PCT = 0.6;
+const SURVEY_WAKE_MAX_POINTS = 72;
+const SURVEY_WAKE_MILESTONE_MAX = 6;
 
 function withLandmarkIds(landmarks) {
   return (Array.isArray(landmarks) ? landmarks : []).map((landmark) => ({
@@ -307,6 +310,9 @@ const state = {
   traverseLatticeEnabled: true,
   surveySkiffEnabled: true,
   surveySkiffCoord: { x: 18.4, y: 78.6 },
+  surveyWakeEnabled: true,
+  surveyWakePoints: [{ x: 18.4, y: 78.6 }],
+  surveyWakeMilestones: [],
   sweepPointerActive: false,
   sweepCoord: null,
   discoveredEchoIds: new Set(),
@@ -351,17 +357,20 @@ const el = {
   toggleSignalSweep: document.getElementById("toggleSignalSweep"),
   toggleTraverseLattice: document.getElementById("toggleTraverseLattice"),
   toggleSurveySkiff: document.getElementById("toggleSurveySkiff"),
+  toggleSurveyWake: document.getElementById("toggleSurveyWake"),
   landmarkLayer: document.getElementById("landmarkLayer"),
   beaconLayer: document.getElementById("beaconLayer"),
   echoLayer: document.getElementById("echoLayer"),
   latticeLayer: document.getElementById("latticeLayer"),
   surveySkiffLayer: document.getElementById("surveySkiffLayer"),
+  surveyWakeLayer: document.getElementById("surveyWakeLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   verificationRouteLayer: document.getElementById("verificationRouteLayer"),
   signalSweepLayer: document.getElementById("signalSweepLayer"),
   signalSweep: document.getElementById("signalSweep"),
   traverseLattice: document.getElementById("traverseLattice"),
-  surveySkiff: document.getElementById("surveySkiff")
+  surveySkiff: document.getElementById("surveySkiff"),
+  surveyWake: document.getElementById("surveyWake")
 };
 
 function setTransform() {
@@ -1025,13 +1034,17 @@ function renderTracePanel() {
   `;
 }
 
-function markerDistance(a, b) {
+function measurePercentDistance(a, b) {
   const ax = Number(a && a.x);
   const ay = Number(a && a.y);
   const bx = Number(b && b.x);
   const by = Number(b && b.y);
   if (![ax, ay, bx, by].every(Number.isFinite)) return null;
   return Math.hypot(ax - bx, ay - by);
+}
+
+function markerDistance(a, b) {
+  return measurePercentDistance(a, b);
 }
 
 function findNearestLandmark(marker) {
@@ -1676,6 +1689,177 @@ function renderLatticeMarkers() {
   });
 }
 
+function appendSurveyWakePoint(coord, { force = false, dockLabel = "" } = {}) {
+  if (!coord) return;
+  const x = clampPercent(Number(coord.x));
+  const y = clampPercent(Number(coord.y));
+  if (![x, y].every(Number.isFinite)) return;
+
+  const points = Array.isArray(state.surveyWakePoints) ? state.surveyWakePoints : [];
+  const lastPoint = points[points.length - 1] || null;
+  const distance = lastPoint ? measurePercentDistance(lastPoint, { x, y }) : null;
+
+  if (!force && lastPoint && distance !== null && distance < SURVEY_WAKE_POINT_MIN_STEP_PCT) {
+    return;
+  }
+
+  const nextPoint = { x, y };
+  points.push(nextPoint);
+  if (points.length > SURVEY_WAKE_MAX_POINTS) {
+    points.splice(0, points.length - SURVEY_WAKE_MAX_POINTS);
+  }
+  state.surveyWakePoints = points;
+
+  const lastMilestone = state.surveyWakeMilestones[state.surveyWakeMilestones.length - 1] || null;
+  const prevRegion = classifyRegionAtPercent(lastPoint);
+  const nextRegion = classifyRegionAtPercent(nextPoint);
+  if (lastPoint && prevRegion && nextRegion && prevRegion !== nextRegion) {
+    const label = `Crossed into ${nextRegion}`;
+    if (!lastMilestone || !(lastMilestone.label === label && measurePercentDistance(lastMilestone, nextPoint) === 0)) {
+      state.surveyWakeMilestones.push({
+        label,
+        x,
+        y,
+        region: nextRegion,
+        type: "crossing",
+        order: Date.now()
+      });
+    }
+  }
+
+  if (dockLabel) {
+    state.surveyWakeMilestones.push({
+      label: `Docked at ${dockLabel}`,
+      x,
+      y,
+      region: nextRegion || "Unknown region",
+      type: "dock",
+      order: Date.now()
+    });
+  }
+
+  if (state.surveyWakeMilestones.length > SURVEY_WAKE_MILESTONE_MAX) {
+    state.surveyWakeMilestones.splice(0, state.surveyWakeMilestones.length - SURVEY_WAKE_MILESTONE_MAX);
+  }
+}
+
+function summarizeSurveyWake() {
+  const points = Array.isArray(state.surveyWakePoints) ? state.surveyWakePoints : [];
+  const milestones = Array.isArray(state.surveyWakeMilestones) ? state.surveyWakeMilestones : [];
+  const wakeSpan = points.reduce((total, point, index) => {
+    if (index === 0) return total;
+    return total + (measurePercentDistance(points[index - 1], point) || 0);
+  }, 0);
+  const crossingCount = milestones.filter((item) => item && item.type === "crossing").length;
+  const dockCount = milestones.filter((item) => item && item.type === "dock").length;
+  return {
+    pointCount: points.length,
+    wakeSpan,
+    crossingCount,
+    dockCount
+  };
+}
+
+function renderSurveyWake() {
+  if (!el.surveyWakeLayer) return;
+  const points = Array.isArray(state.surveyWakePoints) ? state.surveyWakePoints : [];
+  const milestones = Array.isArray(state.surveyWakeMilestones) ? state.surveyWakeMilestones : [];
+  const isVisible = state.surveyWakeEnabled;
+  el.surveyWakeLayer.style.display = isVisible ? "block" : "none";
+
+  if (!isVisible || points.length === 0) {
+    el.surveyWakeLayer.replaceChildren();
+    return;
+  }
+
+  const group = createSvgNode("g", { class: "survey-wake" });
+  const pointString = points
+    .map((point) => `${((Number(point.x) / 100) * MAP_W).toFixed(1)},${((Number(point.y) / 100) * MAP_H).toFixed(1)}`)
+    .join(" ");
+
+  if (points.length > 1) {
+    group.appendChild(createSvgNode("polyline", {
+      class: "survey-wake-glow",
+      points: pointString
+    }));
+    group.appendChild(createSvgNode("polyline", {
+      class: "survey-wake-path",
+      points: pointString
+    }));
+  } else {
+    const origin = points[0];
+    group.appendChild(createSvgNode("circle", {
+      class: "survey-wake-origin",
+      cx: ((Number(origin.x) / 100) * MAP_W).toFixed(1),
+      cy: ((Number(origin.y) / 100) * MAP_H).toFixed(1),
+      r: "6.4"
+    }));
+  }
+
+  const tip = points[points.length - 1];
+  group.appendChild(createSvgNode("circle", {
+    class: "survey-wake-point",
+    cx: ((Number(tip.x) / 100) * MAP_W).toFixed(1),
+    cy: ((Number(tip.y) / 100) * MAP_H).toFixed(1),
+    r: "2.6"
+  }));
+
+  milestones.forEach((milestone) => {
+    group.appendChild(createSvgNode("circle", {
+      class: "survey-wake-milestone",
+      cx: ((Number(milestone.x) / 100) * MAP_W).toFixed(1),
+      cy: ((Number(milestone.y) / 100) * MAP_H).toFixed(1),
+      r: "3.8"
+    }));
+  });
+
+  el.surveyWakeLayer.replaceChildren(group);
+}
+
+function renderSurveyWakePanel() {
+  if (!el.surveyWake) return;
+
+  if (!state.surveyWakeEnabled) {
+    el.surveyWake.innerHTML = `
+      <p>Survey Wake is hidden. Re-enable it in Controls to reveal the skiff's recent path.</p>
+      <p>Wake milestones appear here after the skiff starts moving.</p>
+    `;
+    return;
+  }
+
+  const summary = summarizeSurveyWake();
+  const milestoneList = state.surveyWakeMilestones || [];
+  const milestoneHtml = milestoneList.length > 0
+    ? `
+      <div class="wake-milestone-list">
+        ${milestoneList.map((milestone, index) => `
+          <button type="button" class="wake-milestone-item" data-wake-milestone-index="${index}">
+            <strong>${escapeHtml(milestone.label || "Wake event")}</strong>
+            <span>${escapeHtml(milestone.region || "Unknown region")} · x ${formatPercentCoord(milestone.x)} · y ${formatPercentCoord(milestone.y)}</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No wake milestones yet. Pilot the skiff to begin tracing the map.</p>";
+
+  el.surveyWake.innerHTML = `
+    <p class="wake-line">The wake records the skiff's recent path across the map.</p>
+    <p class="wake-line">Move the Survey Skiff or dock to anchors to add new wake points.</p>
+    <p class="wake-line">Wake span: ${summary.pointCount} points stored across ${formatPercentCoord(summary.wakeSpan)} total map distance, with ${summary.crossingCount} region crossing${summary.crossingCount === 1 ? "" : "s"} and ${summary.dockCount} dock${summary.dockCount === 1 ? "" : "s"} logged.</p>
+    <div class="wake-meta">
+      <span class="wake-pill">Points stored: ${summary.pointCount}</span>
+      <span class="wake-pill">Region crossings: ${summary.crossingCount}</span>
+      <span class="wake-pill">Docks logged: ${summary.dockCount}</span>
+    </div>
+    <div class="wake-actions">
+      <button type="button" class="wake-action" data-wake-action="center">Center on wake</button>
+      <button type="button" class="wake-action" data-wake-action="clear">Clear wake</button>
+    </div>
+    <p class="small wake-subtitle">Recent wake milestones</p>
+    ${milestoneHtml}
+  `;
+}
+
 function rankNearbySkiffAnchors(limit = SURVEY_SKIFF_NEARBY_ANCHOR_MAX) {
   if (!state.surveySkiffCoord) return [];
   const sx = Number(state.surveySkiffCoord.x);
@@ -1711,9 +1895,12 @@ function moveSurveySkiffBy(deltaX, deltaY) {
   if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
   if (nextX === state.surveySkiffCoord.x && nextY === state.surveySkiffCoord.y) return;
   state.surveySkiffCoord = { x: nextX, y: nextY };
+  appendSurveyWakePoint(state.surveySkiffCoord);
   const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
   renderSurveySkiff();
   renderSurveySkiffPanel();
+  renderSurveyWake();
+  renderSurveyWakePanel();
   if (discoveredNewEchoes) {
     renderEchoMarkers();
     renderSignalSweepPanel();
@@ -1742,9 +1929,12 @@ function activateSkiffAnchorByRef(reference, { dock = false } = {}) {
   if (!target) return;
   if (dock) {
     state.surveySkiffCoord = { x: Number(target.x), y: Number(target.y) };
+    appendSurveyWakePoint(state.surveySkiffCoord, { force: true, dockLabel: target.title || "Untitled anchor" });
     const discoveredNewEchoes = discoverEchoesNearSurveySkiff();
     renderSurveySkiff();
     renderSurveySkiffPanel();
+    renderSurveyWake();
+    renderSurveyWakePanel();
     if (discoveredNewEchoes) {
       renderEchoMarkers();
       renderSignalSweepPanel();
@@ -2378,10 +2568,15 @@ function initInteractions() {
   state.sweepEnabled = !el.toggleSignalSweep || el.toggleSignalSweep.checked;
   state.traverseLatticeEnabled = !el.toggleTraverseLattice || el.toggleTraverseLattice.checked;
   state.surveySkiffEnabled = !el.toggleSurveySkiff || el.toggleSurveySkiff.checked;
+  state.surveyWakeEnabled = !el.toggleSurveyWake || el.toggleSurveyWake.checked;
+  state.surveyWakePoints = [{ x: clampPercent(state.surveySkiffCoord.x), y: clampPercent(state.surveySkiffCoord.y) }];
+  state.surveyWakeMilestones = [];
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
   renderSurveySkiff();
   renderSurveySkiffPanel();
+  renderSurveyWake();
+  renderSurveyWakePanel();
 
   window.addEventListener("resize", recenter);
   window.addEventListener("hashchange", () => {
@@ -2527,6 +2722,14 @@ function initInteractions() {
     });
   }
 
+  if (el.toggleSurveyWake) {
+    el.toggleSurveyWake.addEventListener("change", () => {
+      state.surveyWakeEnabled = el.toggleSurveyWake.checked;
+      renderSurveyWake();
+      renderSurveyWakePanel();
+    });
+  }
+
   document.addEventListener("keydown", (ev) => {
     if (!state.surveySkiffEnabled) return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -2558,6 +2761,47 @@ function initInteractions() {
         const reference = actionNode.getAttribute("data-skiff-anchor-ref");
         if (!reference) return;
         activateSkiffAnchorByRef(reference, { dock: false });
+      }
+    });
+  }
+
+  if (el.surveyWake) {
+    el.surveyWake.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element ? ev.target.closest("[data-wake-action], [data-wake-milestone-index]") : null;
+      if (!actionNode) return;
+
+      const milestoneIndexValue = actionNode.getAttribute("data-wake-milestone-index");
+      if (milestoneIndexValue !== null) {
+        const milestone = state.surveyWakeMilestones[Number(milestoneIndexValue)];
+        if (!milestone) return;
+        centerViewportOnPercentCoord({ x: milestone.x, y: milestone.y });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-wake-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        const points = Array.isArray(state.surveyWakePoints) ? state.surveyWakePoints : [];
+        if (points.length === 0) return;
+        const center = points.reduce(
+          (acc, point) => ({ x: acc.x + Number(point.x), y: acc.y + Number(point.y) }),
+          { x: 0, y: 0 }
+        );
+        centerViewportOnPercentCoord({
+          x: center.x / points.length,
+          y: center.y / points.length
+        });
+        return;
+      }
+      if (action === "clear") {
+        const origin = {
+          x: clampPercent(state.surveySkiffCoord && state.surveySkiffCoord.x),
+          y: clampPercent(state.surveySkiffCoord && state.surveySkiffCoord.y)
+        };
+        state.surveyWakePoints = [origin];
+        state.surveyWakeMilestones = [];
+        renderSurveyWake();
+        renderSurveyWakePanel();
       }
     });
   }
@@ -2645,6 +2889,8 @@ function initInteractions() {
   renderTraverseLatticePanel();
   renderSurveySkiff();
   renderSurveySkiffPanel();
+  renderSurveyWake();
+  renderSurveyWakePanel();
   renderPermalinkPanel();
 }
 
@@ -2687,6 +2933,7 @@ function init() {
   renderLatticeMarkers();
   renderTraverseLattice();
   renderSurveySkiff();
+  renderSurveyWake();
   initInteractions();
   state.restoredHashSelection = restoreHashSelection();
   initBeacons();

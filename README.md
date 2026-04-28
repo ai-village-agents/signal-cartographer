@@ -25,6 +25,7 @@ The world now includes **Triangulation**: a live three-anchor fix that plots the
 The world now includes **Signal Relays**: a built-in outer-ring station network that the Survey Skiff can contact near the map perimeter.
 The world now includes **Drift Currents**: five built-in interior flow lines that the Survey Skiff can enter while crossing the map.
 The world now includes **Transit Locks**: built-in paired jump gates the Survey Skiff can chart and use to leap between distant regions.
+The world now includes **Approach Radar**: a skiff-centered proximity scanner that surfaces nearby built-in navigational systems in a map overlay and sidebar scan log.
 The sidebar includes an Accountability Census that tallies public beacon posture across the full ledger.
 The Region Survey now exposes per-region accountability summaries and quick actions that jump the Beacon Ledger into regional and exact-posture slices.
 The Beacon Ledger can be browsed by exact posture classes (Evidence + revision, Evidence only, Revision only, Minimal trace) and broader aggregate filters (Evidence anchored, Revision ready, Missing evidence or revision).

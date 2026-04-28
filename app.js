@@ -481,6 +481,10 @@ const SURVEY_GRID_ROWS = 5;
 const SURVEY_GRID_LOG_MAX = 8;
 const TRIANGULATION_ANCHOR_COUNT = 3;
 const TRIANGULATION_LOG_MAX = 6;
+const APPROACH_RADAR_RADIUS_PCT = 16;
+const APPROACH_RADAR_RING_STEPS = [0.34, 0.67, 1];
+const APPROACH_RADAR_TARGET_LIST_MAX = 6;
+const APPROACH_RADAR_LOG_MAX = 6;
 const SURVEY_WAKE_POINT_MIN_STEP_PCT = 0.6;
 const SURVEY_WAKE_MAX_POINTS = 72;
 const SURVEY_WAKE_MILESTONE_MAX = 6;
@@ -528,8 +532,11 @@ const state = {
   surveySkiffCoord: { x: 18.4, y: 78.6 },
   surveyGridEnabled: true,
   triangulationEnabled: true,
+  approachRadarEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
+  currentApproachRadarScan: null,
+  approachRadarLog: [],
   chartedSurveySectorIds: new Set(),
   surveySectorLog: [],
   surveyWakeEnabled: true,
@@ -591,6 +598,7 @@ const el = {
   toggleSurveyWake: document.getElementById("toggleSurveyWake"),
   toggleSurveyGrid: document.getElementById("toggleSurveyGrid"),
   toggleTriangulation: document.getElementById("toggleTriangulation"),
+  toggleApproachRadar: document.getElementById("toggleApproachRadar"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -605,6 +613,7 @@ const el = {
   surveyWakeLayer: document.getElementById("surveyWakeLayer"),
   surveyGridLayer: document.getElementById("surveyGridLayer"),
   triangulationLayer: document.getElementById("triangulationLayer"),
+  approachRadarLayer: document.getElementById("approachRadarLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -617,6 +626,7 @@ const el = {
   surveyWake: document.getElementById("surveyWake"),
   surveyGrid: document.getElementById("surveyGrid"),
   triangulation: document.getElementById("triangulation"),
+  approachRadar: document.getElementById("approachRadar"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -1276,6 +1286,115 @@ function updateTriangulationFix({ logOnAnchorChange = false, seedLogIfEmpty = fa
 function refreshTriangulationViews() {
   renderTriangulationOverlay();
   renderTriangulationPanel();
+}
+
+function getApproachRadarKindLabel(type) {
+  if (type === "landmark") return "Landmark";
+  if (type === "echo") return "Echo site";
+  if (type === "lattice") return "Traverse station";
+  if (type === "relay") return "Signal relay";
+  if (type === "current") return "Drift current";
+  return "Transit lock";
+}
+
+function buildApproachRadarTargetList() {
+  const allTargets = [
+    ...BUILTIN_LANDMARKS,
+    ...BUILTIN_ECHO_SITES,
+    ...BUILTIN_LATTICE_STATIONS,
+    ...BUILTIN_SIGNAL_RELAYS,
+    ...BUILTIN_DRIFT_CURRENTS,
+    ...BUILTIN_TRANSIT_LOCKS
+  ];
+
+  return allTargets
+    .map((target) => ({
+      ref: markerRef(target),
+      title: target.title,
+      type: target.type,
+      region: target.region,
+      x: Number(target.x),
+      y: Number(target.y),
+      kindLabel: getApproachRadarKindLabel(target.type)
+    }))
+    .filter((target) => (
+      target.ref &&
+      Number.isFinite(target.x) &&
+      Number.isFinite(target.y)
+    ));
+}
+
+function buildApproachRadarScan(coord = state.surveySkiffCoord, { radius = APPROACH_RADAR_RADIUS_PCT } = {}) {
+  const sx = Number(coord && coord.x);
+  const sy = Number(coord && coord.y);
+  if (!Number.isFinite(sx) || !Number.isFinite(sy)) return null;
+
+  const rankedTargets = buildApproachRadarTargetList()
+    .map((target) => ({
+      ...target,
+      distance: Math.hypot(sx - Number(target.x), sy - Number(target.y))
+    }))
+    .filter((target) => Number.isFinite(target.distance))
+    .sort(
+      (a, b) =>
+        a.distance - b.distance ||
+        String(a.title || "").localeCompare(String(b.title || "")) ||
+        String(a.ref || "").localeCompare(String(b.ref || ""))
+    );
+
+  const inRangeTargets = rankedTargets.filter((target) => target.distance <= radius);
+  return {
+    radius,
+    skiffCoord: { x: sx, y: sy },
+    rankedTargets,
+    inRangeTargets,
+    nearestTarget: rankedTargets[0] || null
+  };
+}
+
+function appendApproachRadarLogEntry(scan) {
+  if (!scan) return;
+  const nearest = scan.nearestTarget;
+  const nearestCoord = nearest
+    ? { x: Number(nearest.x), y: Number(nearest.y) }
+    : { x: Number(scan.skiffCoord && scan.skiffCoord.x), y: Number(scan.skiffCoord && scan.skiffCoord.y) };
+  state.approachRadarLog.unshift({
+    nearestRef: nearest ? nearest.ref : "",
+    nearestTitle: nearest ? nearest.title : "",
+    nearestKind: nearest ? nearest.kindLabel : "",
+    nearestDistance: nearest ? Number(nearest.distance) : null,
+    inRangeCount: Array.isArray(scan.inRangeTargets) ? scan.inRangeTargets.length : 0,
+    radius: Number(scan.radius),
+    targetCoord: nearestCoord,
+    skiffCoord: { x: Number(scan.skiffCoord.x), y: Number(scan.skiffCoord.y) }
+  });
+  if (state.approachRadarLog.length > APPROACH_RADAR_LOG_MAX) {
+    state.approachRadarLog.splice(APPROACH_RADAR_LOG_MAX);
+  }
+}
+
+function updateApproachRadarScan({ logOnNearestChange = false, seedLogIfEmpty = false } = {}) {
+  const previousNearestRef = state.currentApproachRadarScan && state.currentApproachRadarScan.nearestTarget
+    ? state.currentApproachRadarScan.nearestTarget.ref
+    : "";
+  const nextScan = state.surveySkiffEnabled ? buildApproachRadarScan(state.surveySkiffCoord) : null;
+  state.currentApproachRadarScan = nextScan;
+  if (!nextScan) return;
+
+  if (seedLogIfEmpty && state.approachRadarLog.length === 0) {
+    appendApproachRadarLogEntry(nextScan);
+    return;
+  }
+
+  const nextNearestRef = nextScan.nearestTarget ? nextScan.nearestTarget.ref : "";
+  if (logOnNearestChange && previousNearestRef !== nextNearestRef) {
+    appendApproachRadarLogEntry(nextScan);
+  }
+}
+
+function refreshApproachRadarViews() {
+  renderApproachRadarOverlay();
+  renderApproachRadarPanel();
 }
 
 function getDirectTraverseConnections(reference) {
@@ -2408,6 +2527,7 @@ function setActiveTrace(marker) {
   renderTraverseLatticePanel();
   renderSurveySkiff();
   renderSurveySkiffPanel();
+  renderApproachRadarPanel();
   renderPermalinkPanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
@@ -2794,11 +2914,13 @@ function transitThroughLock(lock) {
   detectSignalRelayContacts();
   detectTransitLockCharting();
   updateTriangulationFix({ logOnAnchorChange: true });
+  updateApproachRadarScan({ logOnNearestChange: true });
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
   refreshTriangulationViews();
+  refreshApproachRadarViews();
   renderTransitLockMarkers();
   renderTransitLockOverlay();
   renderTransitLocksPanel();
@@ -3348,6 +3470,167 @@ function renderTriangulationPanel() {
   `;
 }
 
+function activateApproachRadarTarget(target) {
+  if (!target || !target.ref) return;
+  if (target.type === "landmark" || target.type === "echo" || target.type === "lattice") {
+    activateSkiffAnchorByRef(target.ref, { dock: false });
+    return;
+  }
+  const resolved = resolveBuiltinReference(target.ref);
+  if (!resolved) return;
+  activateMarker(resolved, { focus: true, updateHash: false });
+}
+
+function renderApproachRadarOverlay() {
+  if (!el.approachRadarLayer) return;
+  const isVisible = state.approachRadarEnabled;
+  el.approachRadarLayer.style.display = isVisible ? "block" : "none";
+  if (!isVisible) {
+    el.approachRadarLayer.replaceChildren();
+    return;
+  }
+
+  const scan = state.currentApproachRadarScan;
+  if (!state.surveySkiffEnabled || !scan || !scan.skiffCoord) {
+    el.approachRadarLayer.replaceChildren();
+    return;
+  }
+
+  const centerX = ((Number(scan.skiffCoord.x) / 100) * MAP_W).toFixed(1);
+  const centerY = ((Number(scan.skiffCoord.y) / 100) * MAP_H).toFixed(1);
+  const worldRadius = (Number(scan.radius) / 100) * Math.min(MAP_W, MAP_H);
+  const inRangeTargets = Array.isArray(scan.inRangeTargets) ? scan.inRangeTargets : [];
+  const nearest = scan.nearestTarget;
+
+  const group = createSvgNode("g", { class: "approach-radar-overlay" });
+  APPROACH_RADAR_RING_STEPS.forEach((step, index) => {
+    group.appendChild(createSvgNode("circle", {
+      class: `approach-radar-ring${index < APPROACH_RADAR_RING_STEPS.length - 1 ? " is-inner" : ""}`,
+      cx: centerX,
+      cy: centerY,
+      r: (worldRadius * Number(step)).toFixed(1)
+    }));
+  });
+
+  inRangeTargets.forEach((target) => {
+    const tx = ((Number(target.x) / 100) * MAP_W).toFixed(1);
+    const ty = ((Number(target.y) / 100) * MAP_H).toFixed(1);
+    group.appendChild(createSvgNode("line", {
+      class: "approach-radar-bearing",
+      x1: centerX,
+      y1: centerY,
+      x2: tx,
+      y2: ty
+    }));
+    group.appendChild(createSvgNode("circle", {
+      class: "approach-radar-blip-glow",
+      cx: tx,
+      cy: ty,
+      r: "5.3"
+    }));
+    group.appendChild(createSvgNode("circle", {
+      class: "approach-radar-blip",
+      cx: tx,
+      cy: ty,
+      r: "2.6"
+    }));
+  });
+
+  group.appendChild(createSvgNode("circle", {
+    class: "approach-radar-skiff-core",
+    cx: centerX,
+    cy: centerY,
+    r: "3.1"
+  }));
+
+  const label = createSvgNode("text", {
+    class: "approach-radar-label",
+    x: (Number(centerX) + worldRadius + 12).toFixed(1),
+    y: (Number(centerY) - 10).toFixed(1)
+  });
+  label.textContent = nearest
+    ? `Approach radar · ${nearest.title}`
+    : "Approach radar · no targets";
+  group.appendChild(label);
+  el.approachRadarLayer.replaceChildren(group);
+}
+
+function renderApproachRadarPanel() {
+  if (!el.approachRadar) return;
+  if (!state.approachRadarEnabled) {
+    el.approachRadar.innerHTML = `
+      <p>Approach Radar is hidden. Re-enable it in Controls to reveal nearby systems around the Survey Skiff.</p>
+      <p>Pilot the Survey Skiff with approach radar enabled to scan local map traffic.</p>
+    `;
+    return;
+  }
+  if (!state.surveySkiffEnabled) {
+    el.approachRadar.innerHTML = "<p class=\"small\">Approach Radar is unavailable while the Survey Skiff is offline.</p>";
+    return;
+  }
+
+  const scan = state.currentApproachRadarScan || buildApproachRadarScan(state.surveySkiffCoord);
+  if (!scan) {
+    el.approachRadar.innerHTML = "<p class=\"small\">Approach Radar is unavailable while the Survey Skiff is offline.</p>";
+    return;
+  }
+
+  const inRangeTargets = Array.isArray(scan.inRangeTargets) ? scan.inRangeTargets.slice(0, APPROACH_RADAR_TARGET_LIST_MAX) : [];
+  const nearest = scan.nearestTarget;
+  const kindsInRange = new Set(inRangeTargets.map((target) => target.kindLabel)).size;
+  const currentScanLine = nearest
+    ? `Current scan: ${inRangeTargets.length} target${inRangeTargets.length === 1 ? "" : "s"} in range, nearest ${escapeHtml(nearest.title)} (${escapeHtml(nearest.kindLabel)}).`
+    : `Current scan: ${inRangeTargets.length} target${inRangeTargets.length === 1 ? "" : "s"} in range, nearest None.`;
+  const radiusLine = nearest
+    ? `Radar radius: ${APPROACH_RADAR_RADIUS_PCT.toFixed(1)}% · nearest target ${nearest.distance.toFixed(1)}% away.`
+    : `Radar radius: ${APPROACH_RADAR_RADIUS_PCT.toFixed(1)}% · no nearest target available.`;
+  const targetsHtml = inRangeTargets.length > 0
+    ? `
+      <div class="approach-radar-target-list">
+        ${inRangeTargets.map((target) => `
+          <button type="button" class="approach-radar-target-item" data-approach-radar-ref="${escapeHtml(target.ref)}" data-approach-radar-type="${escapeHtml(target.type)}">
+            <strong>${escapeHtml(target.title)}</strong>
+            <span>${escapeHtml(target.region || "Unknown region")} · ${escapeHtml(target.kindLabel)}</span>
+            <span>${target.distance.toFixed(1)}% away · x ${formatPercentCoord(target.x)} · y ${formatPercentCoord(target.y)}</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No targets are currently in range. Pilot the Survey Skiff to bring built-in systems into local radar range.</p>";
+  const logHtml = state.approachRadarLog.length > 0
+    ? `
+      <div class="approach-radar-log-list">
+        ${state.approachRadarLog.map((entry, index) => `
+          <button type="button" class="approach-radar-log-item" data-approach-radar-log-index="${index}">
+            <strong>${escapeHtml(entry.nearestTitle || "No nearest target")}</strong>
+            <span>${escapeHtml(entry.nearestKind || "Scan snapshot")} · in-range ${Number(entry.inRangeCount) || 0}</span>
+            <span>${entry.nearestDistance === null ? "Distance unavailable" : `${Number(entry.nearestDistance).toFixed(1)}% away`}</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No radar scans logged yet.</p>";
+
+  el.approachRadar.innerHTML = `
+    <p class="approach-radar-line">Approach Radar scans built-in navigational systems around the Survey Skiff.</p>
+    <p class="approach-radar-line">Pilot the Survey Skiff to bring different systems into local range.</p>
+    <p class="approach-radar-line">${currentScanLine}</p>
+    <p class="approach-radar-line">${radiusLine}</p>
+    <div class="approach-radar-actions">
+      <button type="button" class="approach-radar-action" data-approach-radar-action="center-radar">Center on radar</button>
+      <button type="button" class="approach-radar-action" data-approach-radar-action="center-skiff">Center on skiff</button>
+    </div>
+    <div class="approach-radar-meta">
+      <span class="approach-radar-pill">Targets in range: ${inRangeTargets.length}</span>
+      <span class="approach-radar-pill">Kinds in range: ${kindsInRange}</span>
+      <span class="approach-radar-pill">Nearest target: ${nearest ? escapeHtml(nearest.kindLabel) : "None"}</span>
+    </div>
+    <p class="small approach-radar-subtitle">Targets in range</p>
+    ${targetsHtml}
+    <p class="small approach-radar-subtitle">Recent radar scans</p>
+    ${logHtml}
+  `;
+}
 function rankNearbySkiffAnchors(limit = SURVEY_SKIFF_NEARBY_ANCHOR_MAX) {
   if (!state.surveySkiffCoord) return [];
   const sx = Number(state.surveySkiffCoord.x);
@@ -3390,11 +3673,13 @@ function moveSurveySkiffBy(deltaX, deltaY) {
   detectSignalRelayContacts();
   detectTransitLockCharting();
   updateTriangulationFix({ logOnAnchorChange: true });
+  updateApproachRadarScan({ logOnNearestChange: true });
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
   refreshTriangulationViews();
+  refreshApproachRadarViews();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();
@@ -3433,11 +3718,13 @@ function activateSkiffAnchorByRef(reference, { dock = false } = {}) {
     detectSignalRelayContacts();
     detectTransitLockCharting();
     updateTriangulationFix({ logOnAnchorChange: true });
+    updateApproachRadarScan({ logOnNearestChange: true });
     renderSurveySkiff();
     renderSurveySkiffPanel();
     renderSurveyWake();
     renderSurveyWakePanel();
     refreshTriangulationViews();
+    refreshApproachRadarViews();
     renderSignalRelaysPanel();
     renderDriftCurrentsPanel();
     renderTransitLocksPanel();
@@ -4079,6 +4366,7 @@ function initInteractions() {
   state.surveyWakeEnabled = !el.toggleSurveyWake || el.toggleSurveyWake.checked;
   state.surveyGridEnabled = !el.toggleSurveyGrid || el.toggleSurveyGrid.checked;
   state.triangulationEnabled = !el.toggleTriangulation || el.toggleTriangulation.checked;
+  state.approachRadarEnabled = !el.toggleApproachRadar || el.toggleApproachRadar.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -4089,6 +4377,7 @@ function initInteractions() {
   detectSignalRelayContacts();
   detectTransitLockCharting();
   updateTriangulationFix({ seedLogIfEmpty: true });
+  updateApproachRadarScan({ seedLogIfEmpty: true });
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
   renderSurveySkiff();
@@ -4099,6 +4388,8 @@ function initInteractions() {
   renderSurveyGridPanel();
   renderTriangulationOverlay();
   renderTriangulationPanel();
+  renderApproachRadarOverlay();
+  renderApproachRadarPanel();
   renderRelayMarkers();
   renderCurrentMarkers();
   renderTransitLockMarkers();
@@ -4242,6 +4533,7 @@ function initInteractions() {
       renderTraverseLattice();
       renderTraverseLatticePanel();
       renderSurveySkiffPanel();
+      refreshApproachRadarViews();
     });
   }
 
@@ -4249,9 +4541,11 @@ function initInteractions() {
     el.toggleSurveySkiff.addEventListener("change", () => {
       state.surveySkiffEnabled = el.toggleSurveySkiff.checked;
       updateTriangulationFix();
+      updateApproachRadarScan({ seedLogIfEmpty: true });
       renderSurveySkiff();
       renderSurveySkiffPanel();
       refreshTriangulationViews();
+      refreshApproachRadarViews();
     });
   }
 
@@ -4279,12 +4573,23 @@ function initInteractions() {
     });
   }
 
+  if (el.toggleApproachRadar) {
+    el.toggleApproachRadar.addEventListener("change", () => {
+      state.approachRadarEnabled = el.toggleApproachRadar.checked;
+      if (state.approachRadarEnabled) {
+        updateApproachRadarScan({ seedLogIfEmpty: true });
+      }
+      refreshApproachRadarViews();
+    });
+  }
+
   if (el.toggleSignalRelays) {
     el.toggleSignalRelays.addEventListener("change", () => {
       state.signalRelaysEnabled = el.toggleSignalRelays.checked;
       renderRelayMarkers();
       renderSignalRelayOverlay();
       renderSignalRelaysPanel();
+      refreshApproachRadarViews();
     });
   }
 
@@ -4294,6 +4599,7 @@ function initInteractions() {
       renderCurrentMarkers();
       renderDriftCurrentOverlay();
       renderDriftCurrentsPanel();
+      refreshApproachRadarViews();
     });
   }
 
@@ -4303,6 +4609,7 @@ function initInteractions() {
       renderTransitLockMarkers();
       renderTransitLockOverlay();
       renderTransitLocksPanel();
+      refreshApproachRadarViews();
     });
   }
 
@@ -4434,6 +4741,47 @@ function initInteractions() {
         const fix = state.currentTriangulationFix;
         if (!fix || !fix.centroid) return;
         centerViewportOnPercentCoord(fix.centroid, { scale: state.scale });
+        return;
+      }
+      if (action === "center-skiff" && state.surveySkiffCoord) {
+        centerViewportOnPercentCoord(state.surveySkiffCoord, { scale: state.scale });
+      }
+    });
+  }
+
+  if (el.approachRadar) {
+    el.approachRadar.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-approach-radar-action], [data-approach-radar-ref], [data-approach-radar-log-index]")
+        : null;
+      if (!actionNode) return;
+
+      const targetRef = actionNode.getAttribute("data-approach-radar-ref");
+      if (targetRef) {
+        const targetType = actionNode.getAttribute("data-approach-radar-type");
+        const scan = state.currentApproachRadarScan;
+        const target = scan && Array.isArray(scan.rankedTargets)
+          ? scan.rankedTargets.find((entry) => entry.ref === targetRef && (!targetType || entry.type === targetType))
+          : null;
+        if (!target) return;
+        activateApproachRadarTarget(target);
+        return;
+      }
+
+      const logIndex = actionNode.getAttribute("data-approach-radar-log-index");
+      if (logIndex !== null) {
+        const entry = state.approachRadarLog[Number(logIndex)];
+        if (!entry) return;
+        const coord = entry.targetCoord || entry.skiffCoord || state.surveySkiffCoord;
+        if (!coord) return;
+        centerViewportOnPercentCoord(coord, { scale: state.scale });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-approach-radar-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-radar") {
+        centerViewportOnApproachRadar();
         return;
       }
       if (action === "center-skiff" && state.surveySkiffCoord) {
@@ -4664,8 +5012,11 @@ function initInteractions() {
   renderSurveyGridOverlay();
   renderSurveyGridPanel();
   updateTriangulationFix({ seedLogIfEmpty: true });
+  updateApproachRadarScan({ seedLogIfEmpty: true });
   renderTriangulationOverlay();
   renderTriangulationPanel();
+  renderApproachRadarOverlay();
+  renderApproachRadarPanel();
   renderRelayMarkers();
   renderSignalRelaysPanel();
   renderCurrentMarkers();
@@ -4726,8 +5077,11 @@ function init() {
   renderSurveyGridOverlay();
   renderSurveyGridPanel();
   updateTriangulationFix({ seedLogIfEmpty: true });
+  updateApproachRadarScan({ seedLogIfEmpty: true });
   renderTriangulationOverlay();
   renderTriangulationPanel();
+  renderApproachRadarOverlay();
+  renderApproachRadarPanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();

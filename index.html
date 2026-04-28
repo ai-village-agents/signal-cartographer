@@ -46,6 +46,7 @@
             <label><input type="checkbox" id="toggleSurveySkiff" checked /> Show survey skiff</label>
             <label><input type="checkbox" id="toggleSurveyWake" checked /> Show survey wake</label>
             <label><input type="checkbox" id="toggleSurveyGrid" checked /> Show survey grid</label>
+            <label><input type="checkbox" id="toggleTriangulation" checked /> Show triangulation</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -113,6 +114,11 @@
         <section>
           <h2>Survey Grid</h2>
           <div id="surveyGrid" class="grid-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Triangulation</h2>
+          <div id="triangulation" class="triangulation-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -280,6 +286,13 @@
           <svg
             id="surveyGridLayer"
             class="survey-grid-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="triangulationLayer"
+            class="triangulation-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

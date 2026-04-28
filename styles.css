@@ -718,6 +718,103 @@ body {
   box-shadow: 0 0 15px rgba(128, 242, 245, 0.18);
 }
 
+.triangulation-panel {
+  border: 1px solid rgba(118, 245, 255, 0.4);
+  background: rgba(6, 33, 43, 0.85);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.triangulation-line {
+  margin: 0;
+  line-height: 1.34;
+}
+
+.triangulation-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.triangulation-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(142, 248, 255, 0.48);
+  background: rgba(10, 80, 88, 0.9);
+  color: #ddffff;
+  font-size: 0.78rem;
+}
+
+.triangulation-action:hover,
+.triangulation-action:focus-visible {
+  border-color: rgba(198, 255, 255, 0.96);
+  background: rgba(18, 96, 104, 0.95);
+}
+
+.triangulation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.triangulation-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(158, 249, 255, 0.45);
+  background: rgba(12, 92, 101, 0.58);
+  color: #d8ffff;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.triangulation-subtitle {
+  margin: 0;
+}
+
+.triangulation-anchor-list,
+.triangulation-log-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.triangulation-anchor-item,
+.triangulation-log-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgba(144, 246, 252, 0.45);
+  background: rgba(10, 69, 76, 0.84);
+  color: #dcffff;
+}
+
+.triangulation-anchor-item strong,
+.triangulation-log-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.triangulation-anchor-item span,
+.triangulation-log-item span {
+  font-size: 0.74rem;
+  color: rgba(214, 255, 255, 0.92);
+  line-height: 1.28;
+}
+
+.triangulation-anchor-item:hover,
+.triangulation-anchor-item:focus-visible,
+.triangulation-log-item:hover,
+.triangulation-log-item:focus-visible {
+  border-color: rgba(202, 255, 255, 0.92);
+  background: rgba(15, 86, 94, 0.92);
+  box-shadow: 0 0 15px rgba(138, 245, 252, 0.2);
+}
+
 .relay-panel {
   border: 1px solid rgba(182, 240, 255, 0.34);
   background: rgba(8, 28, 41, 0.84);
@@ -1342,6 +1439,7 @@ button:hover {
 .grid,
 .routes,
 .survey-grid-layer,
+.triangulation-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -1376,6 +1474,14 @@ button:hover {
 }
 
 .survey-grid-layer {
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.triangulation-layer {
   z-index: 4;
   width: 100%;
   height: 100%;
@@ -1947,6 +2053,53 @@ button:hover {
   stroke: rgba(218, 255, 255, 0.94);
   stroke-width: 1.7;
   filter: drop-shadow(0 0 8px rgba(139, 255, 255, 0.36));
+}
+
+.triangulation-polygon {
+  fill: rgba(80, 244, 255, 0.16);
+  stroke: rgba(142, 252, 255, 0.52);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.triangulation-bearing {
+  stroke: rgba(149, 249, 255, 0.72);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-dasharray: 5 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.triangulation-anchor-glow {
+  fill: rgba(116, 249, 255, 0.22);
+  stroke: rgba(170, 255, 255, 0.75);
+  stroke-width: 1.1;
+  filter: drop-shadow(0 0 7px rgba(138, 247, 255, 0.36));
+}
+
+.triangulation-anchor-point {
+  fill: rgba(196, 255, 255, 0.95);
+  stroke: rgba(184, 255, 255, 0.96);
+  stroke-width: 1;
+  filter: drop-shadow(0 0 4px rgba(173, 255, 255, 0.45));
+}
+
+.triangulation-centroid-point {
+  fill: rgba(173, 255, 255, 0.26);
+  stroke: rgba(214, 255, 255, 0.94);
+  stroke-width: 1.3;
+  filter: drop-shadow(0 0 7px rgba(168, 255, 255, 0.42));
+}
+
+.triangulation-label {
+  fill: rgba(217, 255, 255, 0.95);
+  font-size: 12px;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+  letter-spacing: 0.02em;
+  paint-order: stroke;
+  stroke: rgba(5, 24, 30, 0.94);
+  stroke-width: 3px;
+  font-weight: 600;
 }
 
 .survey-grid-current-label {

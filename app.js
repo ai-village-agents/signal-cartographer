@@ -479,6 +479,8 @@ const SURVEY_SKIFF_NEARBY_ANCHOR_MAX = 3;
 const SURVEY_GRID_COLUMNS = 5;
 const SURVEY_GRID_ROWS = 5;
 const SURVEY_GRID_LOG_MAX = 8;
+const TRIANGULATION_ANCHOR_COUNT = 3;
+const TRIANGULATION_LOG_MAX = 6;
 const SURVEY_WAKE_POINT_MIN_STEP_PCT = 0.6;
 const SURVEY_WAKE_MAX_POINTS = 72;
 const SURVEY_WAKE_MILESTONE_MAX = 6;
@@ -525,6 +527,9 @@ const state = {
   surveySkiffEnabled: true,
   surveySkiffCoord: { x: 18.4, y: 78.6 },
   surveyGridEnabled: true,
+  triangulationEnabled: true,
+  currentTriangulationFix: null,
+  triangulationLog: [],
   chartedSurveySectorIds: new Set(),
   surveySectorLog: [],
   surveyWakeEnabled: true,
@@ -585,6 +590,7 @@ const el = {
   toggleSurveySkiff: document.getElementById("toggleSurveySkiff"),
   toggleSurveyWake: document.getElementById("toggleSurveyWake"),
   toggleSurveyGrid: document.getElementById("toggleSurveyGrid"),
+  toggleTriangulation: document.getElementById("toggleTriangulation"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -598,6 +604,7 @@ const el = {
   surveySkiffLayer: document.getElementById("surveySkiffLayer"),
   surveyWakeLayer: document.getElementById("surveyWakeLayer"),
   surveyGridLayer: document.getElementById("surveyGridLayer"),
+  triangulationLayer: document.getElementById("triangulationLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -609,6 +616,7 @@ const el = {
   surveySkiff: document.getElementById("surveySkiff"),
   surveyWake: document.getElementById("surveyWake"),
   surveyGrid: document.getElementById("surveyGrid"),
+  triangulation: document.getElementById("triangulation"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -1176,6 +1184,98 @@ function getTraverseNetworkNodes() {
     nodes.set(link.toRef, link.to);
   });
   return Array.from(nodes.entries()).map(([ref, node]) => ({ ref, ...node }));
+}
+
+function getTriangulationAnchorKindLabel(type) {
+  if (type === "landmark") return "Landmark";
+  if (type === "echo") return "Echo site";
+  return "Traverse station";
+}
+
+function buildTriangulationFix(coord = state.surveySkiffCoord) {
+  const sx = Number(coord && coord.x);
+  const sy = Number(coord && coord.y);
+  if (!Number.isFinite(sx) || !Number.isFinite(sy)) return null;
+
+  const anchors = getTraverseNetworkNodes()
+    .map((node) => ({
+      ...node,
+      distance: Math.hypot(sx - Number(node.x), sy - Number(node.y))
+    }))
+    .filter((node) => Number.isFinite(node.distance))
+    .sort(
+      (a, b) =>
+        a.distance - b.distance ||
+        String(a.title || "").localeCompare(String(b.title || "")) ||
+        String(a.ref || "").localeCompare(String(b.ref || ""))
+    )
+    .slice(0, TRIANGULATION_ANCHOR_COUNT);
+
+  if (anchors.length < TRIANGULATION_ANCHOR_COUNT) return null;
+
+  const centroid = anchors.reduce(
+    (acc, anchor) => ({ x: acc.x + Number(anchor.x), y: acc.y + Number(anchor.y) }),
+    { x: 0, y: 0 }
+  );
+  centroid.x /= anchors.length;
+  centroid.y /= anchors.length;
+
+  let span = 0;
+  for (let index = 0; index < anchors.length; index += 1) {
+    for (let inner = index + 1; inner < anchors.length; inner += 1) {
+      const distance = measurePercentDistance(anchors[index], anchors[inner]);
+      if (distance !== null && distance > span) span = distance;
+    }
+  }
+
+  return {
+    anchors,
+    anchorRefs: anchors.map((anchor) => anchor.ref),
+    centroid,
+    regionCount: new Set(anchors.map((anchor) => anchor.region || "Unknown region")).size,
+    span,
+    label: anchors.map((anchor) => anchor.title || "Untitled anchor").join(" · ")
+  };
+}
+
+function areTriangulationAnchorRefsEqual(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  return left.every((ref, index) => ref === right[index]);
+}
+
+function appendTriangulationLogEntry(fix) {
+  if (!fix || !Array.isArray(fix.anchorRefs) || fix.anchorRefs.length !== TRIANGULATION_ANCHOR_COUNT) return;
+  state.triangulationLog.unshift({
+    anchorRefs: [...fix.anchorRefs],
+    centroid: { x: Number(fix.centroid.x), y: Number(fix.centroid.y) },
+    regionCount: Number(fix.regionCount),
+    span: Number(fix.span),
+    label: String(fix.label || "")
+  });
+  if (state.triangulationLog.length > TRIANGULATION_LOG_MAX) {
+    state.triangulationLog.splice(TRIANGULATION_LOG_MAX);
+  }
+}
+
+function updateTriangulationFix({ logOnAnchorChange = false, seedLogIfEmpty = false } = {}) {
+  const previousRefs = state.currentTriangulationFix ? state.currentTriangulationFix.anchorRefs : null;
+  const nextFix = state.surveySkiffEnabled ? buildTriangulationFix(state.surveySkiffCoord) : null;
+  state.currentTriangulationFix = nextFix;
+  if (!nextFix) return;
+
+  if (seedLogIfEmpty && state.triangulationLog.length === 0) {
+    appendTriangulationLogEntry(nextFix);
+    return;
+  }
+
+  if (logOnAnchorChange && !areTriangulationAnchorRefsEqual(previousRefs, nextFix.anchorRefs)) {
+    appendTriangulationLogEntry(nextFix);
+  }
+}
+
+function refreshTriangulationViews() {
+  renderTriangulationOverlay();
+  renderTriangulationPanel();
 }
 
 function getDirectTraverseConnections(reference) {
@@ -2693,10 +2793,12 @@ function transitThroughLock(lock) {
   detectDriftCurrentEntries();
   detectSignalRelayContacts();
   detectTransitLockCharting();
+  updateTriangulationFix({ logOnAnchorChange: true });
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
+  refreshTriangulationViews();
   renderTransitLockMarkers();
   renderTransitLockOverlay();
   renderTransitLocksPanel();
@@ -3103,6 +3205,149 @@ function renderSurveyGridPanel() {
   `;
 }
 
+function renderTriangulationOverlay() {
+  if (!el.triangulationLayer) return;
+  const isVisible = state.triangulationEnabled;
+  el.triangulationLayer.style.display = isVisible ? "block" : "none";
+  if (!isVisible) {
+    el.triangulationLayer.replaceChildren();
+    return;
+  }
+
+  const fix = state.currentTriangulationFix;
+  const skiff = state.surveySkiffCoord;
+  if (!state.surveySkiffEnabled || !fix || !skiff) {
+    el.triangulationLayer.replaceChildren();
+    return;
+  }
+
+  const group = createSvgNode("g", { class: "triangulation-overlay" });
+  const anchorWorldPoints = fix.anchors.map((anchor) => ({
+    x: ((Number(anchor.x) / 100) * MAP_W).toFixed(1),
+    y: ((Number(anchor.y) / 100) * MAP_H).toFixed(1)
+  }));
+  const skiffWorld = {
+    x: ((Number(skiff.x) / 100) * MAP_W).toFixed(1),
+    y: ((Number(skiff.y) / 100) * MAP_H).toFixed(1)
+  };
+  const centroidWorld = {
+    x: ((Number(fix.centroid.x) / 100) * MAP_W).toFixed(1),
+    y: ((Number(fix.centroid.y) / 100) * MAP_H).toFixed(1)
+  };
+  const polygonPoints = anchorWorldPoints.map((point) => `${point.x},${point.y}`).join(" ");
+
+  group.appendChild(createSvgNode("polygon", {
+    class: "triangulation-polygon",
+    points: polygonPoints
+  }));
+
+  anchorWorldPoints.forEach((point) => {
+    group.appendChild(createSvgNode("line", {
+      class: "triangulation-bearing",
+      x1: skiffWorld.x,
+      y1: skiffWorld.y,
+      x2: point.x,
+      y2: point.y
+    }));
+    group.appendChild(createSvgNode("circle", {
+      class: "triangulation-anchor-glow",
+      cx: point.x,
+      cy: point.y,
+      r: "6.2"
+    }));
+    group.appendChild(createSvgNode("circle", {
+      class: "triangulation-anchor-point",
+      cx: point.x,
+      cy: point.y,
+      r: "2.8"
+    }));
+  });
+
+  group.appendChild(createSvgNode("circle", {
+    class: "triangulation-centroid-point",
+    cx: centroidWorld.x,
+    cy: centroidWorld.y,
+    r: "3.3"
+  }));
+
+  const label = createSvgNode("text", {
+    class: "triangulation-label",
+    x: (Number(centroidWorld.x) + 11).toFixed(1),
+    y: (Number(centroidWorld.y) - 10).toFixed(1)
+  });
+  label.textContent = `Triangulation fix · ${fix.label}`;
+  group.appendChild(label);
+
+  el.triangulationLayer.replaceChildren(group);
+}
+
+function renderTriangulationPanel() {
+  if (!el.triangulation) return;
+  if (!state.triangulationEnabled) {
+    el.triangulation.innerHTML = `
+      <p>Triangulation is hidden. Re-enable it in Controls to reveal the skiff's current three-anchor fix.</p>
+      <p>Pilot the Survey Skiff with triangulation enabled to track nearby built-in anchors.</p>
+    `;
+    return;
+  }
+
+  if (!state.surveySkiffEnabled) {
+    el.triangulation.innerHTML = "<p class=\"small\">Triangulation is unavailable while the Survey Skiff is offline.</p>";
+    return;
+  }
+
+  const fix = state.currentTriangulationFix;
+  if (!fix || !Array.isArray(fix.anchors) || fix.anchors.length < TRIANGULATION_ANCHOR_COUNT) {
+    el.triangulation.innerHTML = "<p class=\"small\">Triangulation is unavailable because fewer than three traverse-network anchors are available.</p>";
+    return;
+  }
+
+  const anchorsHtml = `
+    <div class="triangulation-anchor-list">
+      ${fix.anchors.map((anchor) => `
+        <button type="button" class="triangulation-anchor-item" data-triangulation-anchor-ref="${escapeHtml(anchor.ref)}">
+          <strong>${escapeHtml(anchor.title || "Untitled anchor")}</strong>
+          <span>${escapeHtml(anchor.region || "Unknown region")} · ${escapeHtml(getTriangulationAnchorKindLabel(anchor.type))}</span>
+          <span>${formatPercentCoord(anchor.distance)} away</span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+
+  const logHtml = state.triangulationLog.length > 0
+    ? `
+      <div class="triangulation-log-list">
+        ${state.triangulationLog.map((entry, index) => `
+          <button type="button" class="triangulation-log-item" data-triangulation-log-index="${index}">
+            <strong>${escapeHtml(entry.label || "Triangulation fix")}</strong>
+            <span>${Number(entry.regionCount) || 0} region(s) · span ${formatPercentCoord(entry.span)}</span>
+            <span>x ${formatPercentCoord(entry.centroid && entry.centroid.x)} · y ${formatPercentCoord(entry.centroid && entry.centroid.y)}</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No triangulation fixes logged yet.</p>";
+
+  el.triangulation.innerHTML = `
+    <p class="triangulation-line">Triangulation plots the Survey Skiff against its three nearest built-in route anchors.</p>
+    <p class="triangulation-line">Pilot the Survey Skiff to shift the fix across the world.</p>
+    <p class="triangulation-line">Current fix: ${escapeHtml(fix.label)}, ${TRIANGULATION_ANCHOR_COUNT} anchors spanning ${fix.regionCount} region(s).</p>
+    <p class="triangulation-line">Fix centroid: x ${formatPercentCoord(fix.centroid.x)} · y ${formatPercentCoord(fix.centroid.y)}</p>
+    <div class="triangulation-actions">
+      <button type="button" class="triangulation-action" data-triangulation-action="center-fix">Center on triangulation</button>
+      <button type="button" class="triangulation-action" data-triangulation-action="center-skiff">Center on skiff</button>
+    </div>
+    <div class="triangulation-meta">
+      <span class="triangulation-pill">Anchors in fix: ${TRIANGULATION_ANCHOR_COUNT}</span>
+      <span class="triangulation-pill">Regions spanned: ${fix.regionCount}</span>
+      <span class="triangulation-pill">Fix span: ${formatPercentCoord(fix.span)}</span>
+    </div>
+    ${anchorsHtml}
+    <p class="small triangulation-subtitle">Recent triangulation fixes</p>
+    ${logHtml}
+  `;
+}
+
 function rankNearbySkiffAnchors(limit = SURVEY_SKIFF_NEARBY_ANCHOR_MAX) {
   if (!state.surveySkiffCoord) return [];
   const sx = Number(state.surveySkiffCoord.x);
@@ -3144,10 +3389,12 @@ function moveSurveySkiffBy(deltaX, deltaY) {
   detectDriftCurrentEntries({ forceBeaconRunEntry: true });
   detectSignalRelayContacts();
   detectTransitLockCharting();
+  updateTriangulationFix({ logOnAnchorChange: true });
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
+  refreshTriangulationViews();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();
@@ -3185,10 +3432,12 @@ function activateSkiffAnchorByRef(reference, { dock = false } = {}) {
     detectDriftCurrentEntries();
     detectSignalRelayContacts();
     detectTransitLockCharting();
+    updateTriangulationFix({ logOnAnchorChange: true });
     renderSurveySkiff();
     renderSurveySkiffPanel();
     renderSurveyWake();
     renderSurveyWakePanel();
+    refreshTriangulationViews();
     renderSignalRelaysPanel();
     renderDriftCurrentsPanel();
     renderTransitLocksPanel();
@@ -3829,6 +4078,7 @@ function initInteractions() {
   state.surveySkiffEnabled = !el.toggleSurveySkiff || el.toggleSurveySkiff.checked;
   state.surveyWakeEnabled = !el.toggleSurveyWake || el.toggleSurveyWake.checked;
   state.surveyGridEnabled = !el.toggleSurveyGrid || el.toggleSurveyGrid.checked;
+  state.triangulationEnabled = !el.toggleTriangulation || el.toggleTriangulation.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -3838,6 +4088,7 @@ function initInteractions() {
   detectDriftCurrentEntries({ forceBeaconRunEntry: true });
   detectSignalRelayContacts();
   detectTransitLockCharting();
+  updateTriangulationFix({ seedLogIfEmpty: true });
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
   renderSurveySkiff();
@@ -3846,6 +4097,8 @@ function initInteractions() {
   renderSurveyWakePanel();
   renderSurveyGridOverlay();
   renderSurveyGridPanel();
+  renderTriangulationOverlay();
+  renderTriangulationPanel();
   renderRelayMarkers();
   renderCurrentMarkers();
   renderTransitLockMarkers();
@@ -3995,8 +4248,10 @@ function initInteractions() {
   if (el.toggleSurveySkiff) {
     el.toggleSurveySkiff.addEventListener("change", () => {
       state.surveySkiffEnabled = el.toggleSurveySkiff.checked;
+      updateTriangulationFix();
       renderSurveySkiff();
       renderSurveySkiffPanel();
+      refreshTriangulationViews();
     });
   }
 
@@ -4013,6 +4268,14 @@ function initInteractions() {
       state.surveyGridEnabled = el.toggleSurveyGrid.checked;
       renderSurveyGridOverlay();
       renderSurveyGridPanel();
+    });
+  }
+
+  if (el.toggleTriangulation) {
+    el.toggleTriangulation.addEventListener("change", () => {
+      state.triangulationEnabled = el.toggleTriangulation.checked;
+      renderTriangulationOverlay();
+      renderTriangulationPanel();
     });
   }
 
@@ -4140,6 +4403,41 @@ function initInteractions() {
       }
       if (action === "center-charted") {
         centerViewportOnChartedSurveySectors();
+      }
+    });
+  }
+
+  if (el.triangulation) {
+    el.triangulation.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-triangulation-action], [data-triangulation-anchor-ref], [data-triangulation-log-index]")
+        : null;
+      if (!actionNode) return;
+
+      const anchorRef = actionNode.getAttribute("data-triangulation-anchor-ref");
+      if (anchorRef) {
+        activateSkiffAnchorByRef(anchorRef, { dock: false });
+        return;
+      }
+
+      const logIndex = actionNode.getAttribute("data-triangulation-log-index");
+      if (logIndex !== null) {
+        const entry = state.triangulationLog[Number(logIndex)];
+        if (!entry || !entry.centroid) return;
+        centerViewportOnPercentCoord(entry.centroid, { scale: state.scale });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-triangulation-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-fix") {
+        const fix = state.currentTriangulationFix;
+        if (!fix || !fix.centroid) return;
+        centerViewportOnPercentCoord(fix.centroid, { scale: state.scale });
+        return;
+      }
+      if (action === "center-skiff" && state.surveySkiffCoord) {
+        centerViewportOnPercentCoord(state.surveySkiffCoord, { scale: state.scale });
       }
     });
   }
@@ -4365,6 +4663,9 @@ function initInteractions() {
   renderSurveyWakePanel();
   renderSurveyGridOverlay();
   renderSurveyGridPanel();
+  updateTriangulationFix({ seedLogIfEmpty: true });
+  renderTriangulationOverlay();
+  renderTriangulationPanel();
   renderRelayMarkers();
   renderSignalRelaysPanel();
   renderCurrentMarkers();
@@ -4424,6 +4725,9 @@ function init() {
   renderSurveyWake();
   renderSurveyGridOverlay();
   renderSurveyGridPanel();
+  updateTriangulationFix({ seedLogIfEmpty: true });
+  renderTriangulationOverlay();
+  renderTriangulationPanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();

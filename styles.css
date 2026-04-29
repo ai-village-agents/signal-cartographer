@@ -917,6 +917,108 @@ body {
   box-shadow: 0 0 15px rgba(122, 243, 251, 0.2);
 }
 
+.beacon-soundings-panel {
+  border: 1px solid rgba(255, 197, 136, 0.44);
+  background: rgba(56, 17, 38, 0.84);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.beacon-soundings-line {
+  margin: 0;
+  line-height: 1.34;
+}
+
+.beacon-soundings-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.beacon-soundings-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 193, 135, 0.54);
+  background: rgba(128, 38, 84, 0.44);
+  color: #ffe5ca;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.beacon-soundings-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.beacon-soundings-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(255, 192, 142, 0.58);
+  background: rgba(125, 36, 79, 0.78);
+  color: #ffe8cc;
+  font-size: 0.78rem;
+}
+
+.beacon-soundings-action:hover,
+.beacon-soundings-action:focus-visible {
+  border-color: rgba(255, 225, 177, 0.92);
+  background: rgba(154, 48, 99, 0.86);
+}
+
+.beacon-soundings-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.beacon-soundings-subtitle {
+  margin: 0;
+}
+
+.beacon-soundings-target-list,
+.beacon-soundings-log-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.beacon-soundings-target-item,
+.beacon-soundings-log-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgba(255, 180, 130, 0.48);
+  background: rgba(90, 24, 58, 0.82);
+  color: #ffe8d3;
+}
+
+.beacon-soundings-target-item strong,
+.beacon-soundings-log-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.beacon-soundings-target-item span,
+.beacon-soundings-log-item span {
+  font-size: 0.74rem;
+  color: rgba(255, 222, 195, 0.94);
+  line-height: 1.28;
+}
+
+.beacon-soundings-target-item:hover,
+.beacon-soundings-target-item:focus-visible,
+.beacon-soundings-log-item:hover,
+.beacon-soundings-log-item:focus-visible {
+  border-color: rgba(255, 227, 184, 0.94);
+  background: rgba(116, 32, 72, 0.9);
+  box-shadow: 0 0 15px rgba(255, 177, 126, 0.22);
+}
+
 .relay-panel {
   border: 1px solid rgba(182, 240, 255, 0.34);
   background: rgba(8, 28, 41, 0.84);
@@ -1543,6 +1645,7 @@ button:hover {
 .survey-grid-layer,
 .triangulation-layer,
 .approach-radar-layer,
+.beacon-soundings-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -1593,6 +1696,14 @@ button:hover {
 }
 
 .approach-radar-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.beacon-soundings-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -2260,6 +2371,55 @@ button:hover {
   letter-spacing: 0.02em;
   paint-order: stroke;
   stroke: rgba(5, 24, 30, 0.94);
+  stroke-width: 3px;
+  font-weight: 600;
+}
+
+.beacon-soundings-ring {
+  fill: rgba(255, 171, 150, 0.05);
+  stroke: rgba(255, 189, 129, 0.6);
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+}
+
+.beacon-soundings-ring.is-inner {
+  stroke: rgba(255, 157, 195, 0.42);
+  stroke-dasharray: 4 6;
+}
+
+.beacon-soundings-bearing {
+  stroke: rgba(255, 176, 214, 0.76);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-dasharray: 5 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.beacon-soundings-blip-glow {
+  opacity: 0.24;
+  stroke-width: 1;
+  filter: drop-shadow(0 0 6px rgba(255, 174, 120, 0.32));
+}
+
+.beacon-soundings-blip {
+  opacity: 0.94;
+  stroke-width: 1;
+}
+
+.beacon-soundings-skiff-core {
+  fill: rgba(255, 223, 178, 0.9);
+  stroke: rgba(255, 214, 155, 0.96);
+  stroke-width: 1;
+  filter: drop-shadow(0 0 6px rgba(255, 170, 102, 0.42));
+}
+
+.beacon-soundings-label {
+  fill: rgba(255, 232, 203, 0.95);
+  font-size: 12px;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+  letter-spacing: 0.02em;
+  paint-order: stroke;
+  stroke: rgba(39, 7, 24, 0.96);
   stroke-width: 3px;
   font-weight: 600;
 }

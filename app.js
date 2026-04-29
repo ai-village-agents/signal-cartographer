@@ -485,6 +485,10 @@ const APPROACH_RADAR_RADIUS_PCT = 16;
 const APPROACH_RADAR_RING_STEPS = [0.34, 0.67, 1];
 const APPROACH_RADAR_TARGET_LIST_MAX = 6;
 const APPROACH_RADAR_LOG_MAX = 6;
+const BEACON_SOUNDING_RADIUS_PCT = 18;
+const BEACON_SOUNDING_RING_STEPS = [0.34, 0.67, 1];
+const BEACON_SOUNDING_TARGET_LIST_MAX = 6;
+const BEACON_SOUNDING_LOG_MAX = 6;
 const SURVEY_WAKE_POINT_MIN_STEP_PCT = 0.6;
 const SURVEY_WAKE_MAX_POINTS = 72;
 const SURVEY_WAKE_MILESTONE_MAX = 6;
@@ -533,10 +537,13 @@ const state = {
   surveyGridEnabled: true,
   triangulationEnabled: true,
   approachRadarEnabled: true,
+  beaconSoundingsEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
   approachRadarLog: [],
+  currentBeaconSounding: null,
+  beaconSoundingLog: [],
   chartedSurveySectorIds: new Set(),
   surveySectorLog: [],
   surveyWakeEnabled: true,
@@ -599,6 +606,7 @@ const el = {
   toggleSurveyGrid: document.getElementById("toggleSurveyGrid"),
   toggleTriangulation: document.getElementById("toggleTriangulation"),
   toggleApproachRadar: document.getElementById("toggleApproachRadar"),
+  toggleBeaconSoundings: document.getElementById("toggleBeaconSoundings"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -614,6 +622,7 @@ const el = {
   surveyGridLayer: document.getElementById("surveyGridLayer"),
   triangulationLayer: document.getElementById("triangulationLayer"),
   approachRadarLayer: document.getElementById("approachRadarLayer"),
+  beaconSoundingsLayer: document.getElementById("beaconSoundingsLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -627,6 +636,7 @@ const el = {
   surveyGrid: document.getElementById("surveyGrid"),
   triangulation: document.getElementById("triangulation"),
   approachRadar: document.getElementById("approachRadar"),
+  beaconSoundings: document.getElementById("beaconSoundings"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -1395,6 +1405,111 @@ function updateApproachRadarScan({ logOnNearestChange = false, seedLogIfEmpty = 
 function refreshApproachRadarViews() {
   renderApproachRadarOverlay();
   renderApproachRadarPanel();
+}
+
+function buildBeaconSounding(coord = state.surveySkiffCoord, { radius = BEACON_SOUNDING_RADIUS_PCT } = {}) {
+  const sx = Number(coord && coord.x);
+  const sy = Number(coord && coord.y);
+  if (!Number.isFinite(sx) || !Number.isFinite(sy)) return null;
+
+  const targets = (Array.isArray(state.beacons) ? state.beacons : [])
+    .map((beacon) => {
+      const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+      const x = Number(beacon && beacon.x);
+      const y = Number(beacon && beacon.y);
+      if (issueNumber === null || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+      const posture = getBeaconPosture(beacon);
+      return {
+        issueNumber,
+        title: String((beacon && beacon.title) || "Untitled beacon"),
+        region: String((beacon && beacon.region) || "Unknown region"),
+        visitor: String((beacon && beacon.visitor) || "Unknown visitor"),
+        x,
+        y,
+        color: String((beacon && beacon.color) || ""),
+        posture: posture.code,
+        postureLabel: posture.label,
+        distance: Math.hypot(sx - x, sy - y)
+      };
+    })
+    .filter((target) => target && Number.isFinite(target.distance))
+    .sort(
+      (a, b) =>
+        a.distance - b.distance ||
+        b.issueNumber - a.issueNumber
+    );
+
+  const inRangeTargets = targets.filter((target) => target.distance <= radius);
+  return {
+    skiffCoord: { x: sx, y: sy },
+    radius,
+    targets,
+    inRangeTargets,
+    nearestTarget: targets[0] || null,
+    regionCount: new Set(inRangeTargets.map((target) => target.region || "Unknown region")).size
+  };
+}
+
+function appendBeaconSoundingLogEntry(sounding) {
+  if (!sounding) return;
+  const nearest = sounding.nearestTarget;
+  state.beaconSoundingLog.unshift({
+    nearestIssueNumber: nearest ? Number(nearest.issueNumber) : null,
+    nearestTitle: nearest ? String(nearest.title || "") : "",
+    nearestPosture: nearest ? String(nearest.postureLabel || "") : "",
+    nearestDistance: nearest ? Number(nearest.distance) : null,
+    nearestCoord: nearest ? { x: Number(nearest.x), y: Number(nearest.y) } : null,
+    inRangeCount: Array.isArray(sounding.inRangeTargets) ? sounding.inRangeTargets.length : 0,
+    regionCount: Number(sounding.regionCount) || 0,
+    skiffCoord: { x: Number(sounding.skiffCoord && sounding.skiffCoord.x), y: Number(sounding.skiffCoord && sounding.skiffCoord.y) }
+  });
+  if (state.beaconSoundingLog.length > BEACON_SOUNDING_LOG_MAX) {
+    state.beaconSoundingLog.splice(BEACON_SOUNDING_LOG_MAX);
+  }
+}
+
+function updateBeaconSounding({ logOnNearestChange = false, seedLogIfEmpty = false } = {}) {
+  const previousNearestIssueNumber = state.currentBeaconSounding && state.currentBeaconSounding.nearestTarget
+    ? parseIssueNumber(state.currentBeaconSounding.nearestTarget.issueNumber)
+    : null;
+  const nextSounding = state.surveySkiffEnabled ? buildBeaconSounding(state.surveySkiffCoord) : null;
+  state.currentBeaconSounding = nextSounding;
+  if (!nextSounding) return;
+
+  if (seedLogIfEmpty && state.beaconSoundingLog.length === 0) {
+    appendBeaconSoundingLogEntry(nextSounding);
+    return;
+  }
+
+  const nextNearestIssueNumber = nextSounding.nearestTarget
+    ? parseIssueNumber(nextSounding.nearestTarget.issueNumber)
+    : null;
+  if (logOnNearestChange && previousNearestIssueNumber !== nextNearestIssueNumber) {
+    appendBeaconSoundingLogEntry(nextSounding);
+  }
+}
+
+function refreshBeaconSoundingViews() {
+  renderBeaconSoundingOverlay();
+  renderBeaconSoundingPanel();
+}
+
+function centerViewportOnBeaconSounding() {
+  const sounding = state.currentBeaconSounding;
+  if (!sounding) return;
+  const target = sounding.nearestTarget || sounding.skiffCoord;
+  if (!target) return;
+  centerViewportOnPercentCoord(target, { scale: state.scale });
+}
+
+function activateBeaconSoundingTarget(target) {
+  if (!target) return;
+  const issueNumber = parseIssueNumber(target.issueNumber);
+  if (issueNumber === null) return;
+  const beacon = (Array.isArray(state.beacons) ? state.beacons : [])
+    .find((item) => parseIssueNumber(item && item.issueNumber) === issueNumber);
+  if (!beacon) return;
+  activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: false });
 }
 
 function getDirectTraverseConnections(reference) {
@@ -2915,12 +3030,14 @@ function transitThroughLock(lock) {
   detectTransitLockCharting();
   updateTriangulationFix({ logOnAnchorChange: true });
   updateApproachRadarScan({ logOnNearestChange: true });
+  updateBeaconSounding({ logOnNearestChange: true });
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
   refreshTriangulationViews();
   refreshApproachRadarViews();
+  refreshBeaconSoundingViews();
   renderTransitLockMarkers();
   renderTransitLockOverlay();
   renderTransitLocksPanel();
@@ -3631,6 +3748,166 @@ function renderApproachRadarPanel() {
     ${logHtml}
   `;
 }
+
+function renderBeaconSoundingOverlay() {
+  if (!el.beaconSoundingsLayer) return;
+  const isVisible = state.beaconSoundingsEnabled;
+  el.beaconSoundingsLayer.style.display = isVisible ? "block" : "none";
+  if (!isVisible) {
+    el.beaconSoundingsLayer.replaceChildren();
+    return;
+  }
+
+  const sounding = state.currentBeaconSounding;
+  if (!state.surveySkiffEnabled || !sounding || !sounding.skiffCoord) {
+    el.beaconSoundingsLayer.replaceChildren();
+    return;
+  }
+
+  const centerX = ((Number(sounding.skiffCoord.x) / 100) * MAP_W).toFixed(1);
+  const centerY = ((Number(sounding.skiffCoord.y) / 100) * MAP_H).toFixed(1);
+  const worldRadius = (Number(sounding.radius) / 100) * Math.min(MAP_W, MAP_H);
+  const inRangeTargets = Array.isArray(sounding.inRangeTargets) ? sounding.inRangeTargets : [];
+  const nearest = sounding.nearestTarget;
+
+  const group = createSvgNode("g", { class: "beacon-soundings-overlay" });
+  BEACON_SOUNDING_RING_STEPS.forEach((step, index) => {
+    group.appendChild(createSvgNode("circle", {
+      class: `beacon-soundings-ring${index < BEACON_SOUNDING_RING_STEPS.length - 1 ? " is-inner" : ""}`,
+      cx: centerX,
+      cy: centerY,
+      r: (worldRadius * Number(step)).toFixed(1)
+    }));
+  });
+
+  inRangeTargets.forEach((target) => {
+    const tx = ((Number(target.x) / 100) * MAP_W).toFixed(1);
+    const ty = ((Number(target.y) / 100) * MAP_H).toFixed(1);
+    const targetColor = String(target.color || "").trim() || "#f8a3d8";
+    group.appendChild(createSvgNode("line", {
+      class: "beacon-soundings-bearing",
+      x1: centerX,
+      y1: centerY,
+      x2: tx,
+      y2: ty
+    }));
+    group.appendChild(createSvgNode("circle", {
+      class: "beacon-soundings-blip-glow",
+      cx: tx,
+      cy: ty,
+      r: "5.6",
+      fill: targetColor,
+      stroke: targetColor
+    }));
+    group.appendChild(createSvgNode("circle", {
+      class: "beacon-soundings-blip",
+      cx: tx,
+      cy: ty,
+      r: "2.8",
+      fill: targetColor,
+      stroke: targetColor
+    }));
+  });
+
+  group.appendChild(createSvgNode("circle", {
+    class: "beacon-soundings-skiff-core",
+    cx: centerX,
+    cy: centerY,
+    r: "3.2"
+  }));
+
+  const label = createSvgNode("text", {
+    class: "beacon-soundings-label",
+    x: (Number(centerX) + worldRadius + 12).toFixed(1),
+    y: (Number(centerY) - 10).toFixed(1)
+  });
+  label.textContent = nearest
+    ? `Beacon soundings · #${nearest.issueNumber} ${nearest.title}`
+    : "Beacon soundings · no public beacons";
+  group.appendChild(label);
+
+  el.beaconSoundingsLayer.replaceChildren(group);
+}
+
+function renderBeaconSoundingPanel() {
+  if (!el.beaconSoundings) return;
+  if (!state.beaconSoundingsEnabled) {
+    el.beaconSoundings.innerHTML = `
+      <p>Beacon Soundings is hidden. Re-enable it in Controls to reveal nearby public traces around the Survey Skiff.</p>
+      <p>Pilot the Survey Skiff with beacon soundings enabled to survey visitor marks.</p>
+    `;
+    return;
+  }
+  if (!state.surveySkiffEnabled) {
+    el.beaconSoundings.innerHTML = "<p class=\"small\">Beacon Soundings is unavailable while the Survey Skiff is offline.</p>";
+    return;
+  }
+
+  const sounding = state.currentBeaconSounding || buildBeaconSounding(state.surveySkiffCoord);
+  if (!sounding) {
+    el.beaconSoundings.innerHTML = "<p class=\"small\">Beacon Soundings is unavailable while the Survey Skiff is offline.</p>";
+    return;
+  }
+
+  const allInRangeTargets = Array.isArray(sounding.inRangeTargets) ? sounding.inRangeTargets : [];
+  const inRangeTargets = allInRangeTargets.slice(0, BEACON_SOUNDING_TARGET_LIST_MAX);
+  const nearest = sounding.nearestTarget;
+  const evidenceRevisionCount = allInRangeTargets.filter((target) => target.posture === "full").length;
+  const inRangeCount = allInRangeTargets.length;
+  const currentLine = nearest
+    ? `Current sounding: ${inRangeCount} public beacon${inRangeCount === 1 ? "" : "s"} in range, nearest ${escapeHtml(nearest.title)} (#${nearest.issueNumber}, ${escapeHtml(nearest.postureLabel)}).`
+    : `Current sounding: ${inRangeCount} public beacon${inRangeCount === 1 ? "" : "s"} in range, nearest None.`;
+  const radiusLine = nearest
+    ? `Sounding radius: ${BEACON_SOUNDING_RADIUS_PCT.toFixed(1)}% · nearest public beacon ${nearest.distance.toFixed(1)}% away.`
+    : `Sounding radius: ${BEACON_SOUNDING_RADIUS_PCT.toFixed(1)}% · no nearest public beacon available.`;
+  const targetsHtml = inRangeTargets.length > 0
+    ? `
+      <div class="beacon-soundings-target-list">
+        ${inRangeTargets.map((target) => `
+          <button type="button" class="beacon-soundings-target-item" data-beacon-sounding-issue="${target.issueNumber}">
+            <strong>${escapeHtml(target.title)}</strong>
+            <span>${escapeHtml(target.region || "Unknown region")} · ${escapeHtml(target.visitor || "Unknown visitor")} · issue #${target.issueNumber}</span>
+            <span>${escapeHtml(target.postureLabel || "Unknown posture")} · ${target.distance.toFixed(1)}% away · x ${formatPercentCoord(target.x)} · y ${formatPercentCoord(target.y)}</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No public beacons are currently in range. Pilot the Survey Skiff to bring visitor traces into local range.</p>";
+  const logHtml = state.beaconSoundingLog.length > 0
+    ? `
+      <div class="beacon-soundings-log-list">
+        ${state.beaconSoundingLog.map((entry, index) => `
+          <button type="button" class="beacon-soundings-log-item" data-beacon-sounding-log-index="${index}">
+            <strong>${escapeHtml(entry.nearestTitle || "Nearest beacon unavailable")}</strong>
+            <span>${entry.nearestIssueNumber === null ? "Issue unavailable" : `Issue #${Number(entry.nearestIssueNumber)}`} · ${escapeHtml(entry.nearestPosture || "Unavailable")} · in-range ${Number(entry.inRangeCount) || 0}</span>
+            <span>${entry.nearestDistance === null ? "Distance unavailable" : `${Number(entry.nearestDistance).toFixed(1)}% away`}</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+    : "<p class=\"small\">No beacon soundings logged yet.</p>";
+
+  el.beaconSoundings.innerHTML = `
+    <p class="beacon-soundings-line">Beacon Soundings surveys nearby public beacons around the Survey Skiff.</p>
+    <p class="beacon-soundings-line">Pilot the Survey Skiff to bring different visitor traces into local range.</p>
+    <p class="beacon-soundings-line">${currentLine}</p>
+    <p class="beacon-soundings-line">${radiusLine}</p>
+    <div class="beacon-soundings-actions">
+      <button type="button" class="beacon-soundings-action" data-beacon-sounding-action="center-soundings">Center on soundings</button>
+      <button type="button" class="beacon-soundings-action" data-beacon-sounding-action="center-skiff">Center on skiff</button>
+    </div>
+    <div class="beacon-soundings-meta">
+      <span class="beacon-soundings-pill">Beacons in range: ${inRangeCount}</span>
+      <span class="beacon-soundings-pill">Regions in range: ${Number(sounding.regionCount) || 0}</span>
+      <span class="beacon-soundings-pill">Evidence + revision in range: ${evidenceRevisionCount}</span>
+    </div>
+    <p class="small beacon-soundings-subtitle">Public beacons in range</p>
+    ${targetsHtml}
+    <p class="small beacon-soundings-subtitle">Recent soundings</p>
+    ${logHtml}
+  `;
+}
+
 function rankNearbySkiffAnchors(limit = SURVEY_SKIFF_NEARBY_ANCHOR_MAX) {
   if (!state.surveySkiffCoord) return [];
   const sx = Number(state.surveySkiffCoord.x);
@@ -3674,12 +3951,14 @@ function moveSurveySkiffBy(deltaX, deltaY) {
   detectTransitLockCharting();
   updateTriangulationFix({ logOnAnchorChange: true });
   updateApproachRadarScan({ logOnNearestChange: true });
+  updateBeaconSounding({ logOnNearestChange: true });
   renderSurveySkiff();
   renderSurveySkiffPanel();
   renderSurveyWake();
   renderSurveyWakePanel();
   refreshTriangulationViews();
   refreshApproachRadarViews();
+  refreshBeaconSoundingViews();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();
@@ -3719,12 +3998,14 @@ function activateSkiffAnchorByRef(reference, { dock = false } = {}) {
     detectTransitLockCharting();
     updateTriangulationFix({ logOnAnchorChange: true });
     updateApproachRadarScan({ logOnNearestChange: true });
+    updateBeaconSounding({ logOnNearestChange: true });
     renderSurveySkiff();
     renderSurveySkiffPanel();
     renderSurveyWake();
     renderSurveyWakePanel();
     refreshTriangulationViews();
     refreshApproachRadarViews();
+    refreshBeaconSoundingViews();
     renderSignalRelaysPanel();
     renderDriftCurrentsPanel();
     renderTransitLocksPanel();
@@ -4367,6 +4648,7 @@ function initInteractions() {
   state.surveyGridEnabled = !el.toggleSurveyGrid || el.toggleSurveyGrid.checked;
   state.triangulationEnabled = !el.toggleTriangulation || el.toggleTriangulation.checked;
   state.approachRadarEnabled = !el.toggleApproachRadar || el.toggleApproachRadar.checked;
+  state.beaconSoundingsEnabled = !el.toggleBeaconSoundings || el.toggleBeaconSoundings.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -4378,6 +4660,7 @@ function initInteractions() {
   detectTransitLockCharting();
   updateTriangulationFix({ seedLogIfEmpty: true });
   updateApproachRadarScan({ seedLogIfEmpty: true });
+  updateBeaconSounding({ seedLogIfEmpty: true });
   renderSignalSweepPanel();
   renderTraverseLatticePanel();
   renderSurveySkiff();
@@ -4390,6 +4673,8 @@ function initInteractions() {
   renderTriangulationPanel();
   renderApproachRadarOverlay();
   renderApproachRadarPanel();
+  renderBeaconSoundingOverlay();
+  renderBeaconSoundingPanel();
   renderRelayMarkers();
   renderCurrentMarkers();
   renderTransitLockMarkers();
@@ -4542,10 +4827,12 @@ function initInteractions() {
       state.surveySkiffEnabled = el.toggleSurveySkiff.checked;
       updateTriangulationFix();
       updateApproachRadarScan({ seedLogIfEmpty: true });
+      updateBeaconSounding({ seedLogIfEmpty: true });
       renderSurveySkiff();
       renderSurveySkiffPanel();
       refreshTriangulationViews();
       refreshApproachRadarViews();
+      refreshBeaconSoundingViews();
     });
   }
 
@@ -4580,6 +4867,16 @@ function initInteractions() {
         updateApproachRadarScan({ seedLogIfEmpty: true });
       }
       refreshApproachRadarViews();
+    });
+  }
+
+  if (el.toggleBeaconSoundings) {
+    el.toggleBeaconSoundings.addEventListener("change", () => {
+      state.beaconSoundingsEnabled = el.toggleBeaconSoundings.checked;
+      if (state.beaconSoundingsEnabled) {
+        updateBeaconSounding({ seedLogIfEmpty: true });
+      }
+      refreshBeaconSoundingViews();
     });
   }
 
@@ -4782,6 +5079,46 @@ function initInteractions() {
       if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
       if (action === "center-radar") {
         centerViewportOnApproachRadar();
+        return;
+      }
+      if (action === "center-skiff" && state.surveySkiffCoord) {
+        centerViewportOnPercentCoord(state.surveySkiffCoord, { scale: state.scale });
+      }
+    });
+  }
+
+  if (el.beaconSoundings) {
+    el.beaconSoundings.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-beacon-sounding-action], [data-beacon-sounding-issue], [data-beacon-sounding-log-index]")
+        : null;
+      if (!actionNode) return;
+
+      const targetIssueNumber = parseIssueNumber(actionNode.getAttribute("data-beacon-sounding-issue"));
+      if (targetIssueNumber !== null) {
+        const sounding = state.currentBeaconSounding;
+        const target = sounding && Array.isArray(sounding.targets)
+          ? sounding.targets.find((entry) => parseIssueNumber(entry.issueNumber) === targetIssueNumber)
+          : null;
+        if (!target) return;
+        activateBeaconSoundingTarget(target);
+        return;
+      }
+
+      const logIndex = actionNode.getAttribute("data-beacon-sounding-log-index");
+      if (logIndex !== null) {
+        const entry = state.beaconSoundingLog[Number(logIndex)];
+        if (!entry) return;
+        const coord = entry.nearestCoord || entry.skiffCoord || state.surveySkiffCoord;
+        if (!coord) return;
+        centerViewportOnPercentCoord(coord, { scale: state.scale });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-beacon-sounding-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-soundings") {
+        centerViewportOnBeaconSounding();
         return;
       }
       if (action === "center-skiff" && state.surveySkiffCoord) {
@@ -5013,10 +5350,13 @@ function initInteractions() {
   renderSurveyGridPanel();
   updateTriangulationFix({ seedLogIfEmpty: true });
   updateApproachRadarScan({ seedLogIfEmpty: true });
+  updateBeaconSounding({ seedLogIfEmpty: true });
   renderTriangulationOverlay();
   renderTriangulationPanel();
   renderApproachRadarOverlay();
   renderApproachRadarPanel();
+  renderBeaconSoundingOverlay();
+  renderBeaconSoundingPanel();
   renderRelayMarkers();
   renderSignalRelaysPanel();
   renderCurrentMarkers();
@@ -5047,6 +5387,8 @@ async function initBeacons() {
     }
     renderVerificationRoute();
     renderVerificationChain();
+    updateBeaconSounding({ seedLogIfEmpty: true });
+    refreshBeaconSoundingViews();
     setStatus(`${beacons.length} visitor beacon${beacons.length === 1 ? "" : "s"} loaded from public issues.`);
   } catch (err) {
     console.error(err);
@@ -5055,6 +5397,8 @@ async function initBeacons() {
     renderBeaconLedger();
     renderVerificationRoute();
     renderVerificationChain();
+    updateBeaconSounding({ seedLogIfEmpty: true });
+    refreshBeaconSoundingViews();
     setStatus(
       "Visitor beacons are temporarily unavailable (GitHub API limit or network issue). Landmarks remain explorable.",
       true
@@ -5078,10 +5422,13 @@ function init() {
   renderSurveyGridPanel();
   updateTriangulationFix({ seedLogIfEmpty: true });
   updateApproachRadarScan({ seedLogIfEmpty: true });
+  updateBeaconSounding({ seedLogIfEmpty: true });
   renderTriangulationOverlay();
   renderTriangulationPanel();
   renderApproachRadarOverlay();
   renderApproachRadarPanel();
+  renderBeaconSoundingOverlay();
+  renderBeaconSoundingPanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();

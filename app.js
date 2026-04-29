@@ -498,6 +498,21 @@ const DRIFT_CURRENT_ENTRY_RADIUS_PCT = 4.8;
 const DRIFT_CURRENT_LOG_MAX = 6;
 const TRANSIT_LOCK_CHART_RADIUS_PCT = 4.6;
 const TRANSIT_JUMP_LOG_MAX = 6;
+const DRIFT_SIGNAL_BASE_BERTHS = [
+  { x: 8.5, y: 10.5 },
+  { x: 27.5, y: 8.0 },
+  { x: 49.5, y: 7.2 },
+  { x: 72.0, y: 8.4 },
+  { x: 90.8, y: 16.5 },
+  { x: 93.0, y: 37.5 },
+  { x: 91.6, y: 60.5 },
+  { x: 86.8, y: 83.5 },
+  { x: 67.0, y: 92.5 },
+  { x: 43.0, y: 93.8 },
+  { x: 19.5, y: 91.0 },
+  { x: 7.0, y: 67.5 }
+];
+const DRIFT_SIGNAL_LANE_OFFSETS = [{ x: 0, y: 0 }, { x: 1.2, y: 1.2 }, { x: -1.2, y: -1.2 }];
 
 function withLandmarkIds(landmarks) {
   return (Array.isArray(landmarks) ? landmarks : []).map((landmark) => ({
@@ -623,6 +638,7 @@ const el = {
   triangulationLayer: document.getElementById("triangulationLayer"),
   approachRadarLayer: document.getElementById("approachRadarLayer"),
   beaconSoundingsLayer: document.getElementById("beaconSoundingsLayer"),
+  driftSignalLayer: document.getElementById("driftSignalLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -637,6 +653,7 @@ const el = {
   triangulation: document.getElementById("triangulation"),
   approachRadar: document.getElementById("approachRadar"),
   beaconSoundings: document.getElementById("beaconSoundings"),
+  driftSignals: document.getElementById("driftSignals"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -1512,6 +1529,41 @@ function activateBeaconSoundingTarget(target) {
   activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: false });
 }
 
+function getDriftSignals() {
+  return (Array.isArray(state.beacons) ? state.beacons : []).filter((beacon) => beacon && beacon.isDriftSignal);
+}
+
+function centerViewportOnDriftSignals() {
+  const driftSignals = getDriftSignals();
+  if (driftSignals.length === 0) return;
+  const center = driftSignals.reduce(
+    (acc, signal) => ({ x: acc.x + Number(signal.x), y: acc.y + Number(signal.y) }),
+    { x: 0, y: 0 }
+  );
+  centerViewportOnPercentCoord({
+    x: center.x / driftSignals.length,
+    y: center.y / driftSignals.length
+  }, { scale: state.scale });
+}
+
+function openNearestDriftSignalIssue() {
+  const driftSignals = getDriftSignals();
+  if (driftSignals.length === 0) return;
+  const origin = state.surveySkiffCoord || { x: 50, y: 50 };
+  const nearest = driftSignals
+    .map((signal) => ({
+      signal,
+      distance: Math.hypot(Number(signal.x) - Number(origin.x), Number(signal.y) - Number(origin.y))
+    }))
+    .sort(
+      (a, b) =>
+        a.distance - b.distance ||
+        compareBeaconLedger(a.signal, b.signal)
+    )[0];
+  if (!nearest || !nearest.signal || !nearest.signal.issueUrl) return;
+  window.open(nearest.signal.issueUrl, "_blank", "noopener");
+}
+
 function getDirectTraverseConnections(reference) {
   const links = getResolvedLatticeLinks();
   const connected = [];
@@ -1874,7 +1926,7 @@ function renderTracePanel() {
   }
 
   const traceTypeLabel = trace.type === "beacon"
-    ? "Visitor beacon"
+    ? (trace.isDriftSignal ? "Drift signal" : "Visitor beacon")
     : trace.type === "echo"
       ? "Echo site"
       : trace.type === "lattice"
@@ -1951,6 +2003,15 @@ function renderTracePanel() {
       </section>
     `
     : "";
+  const driftCoordinateSection = trace.type === "beacon" && trace.isDriftSignal
+    ? `
+      <section class="trace-subsection">
+        <h4>Coordinate status</h4>
+        <p>This labeled public issue did not include usable x/y coordinates, so The Signal Cartographer assigned it a deterministic perimeter berth until the issue is revised.
+Assigned berth: x ${Number(trace.x).toFixed(1)} · y ${Number(trace.y).toFixed(1)}.</p>
+      </section>
+    `
+    : "";
   const echoSection = trace.type === "echo"
     ? `
       <section class="trace-subsection">
@@ -1997,6 +2058,7 @@ function renderTracePanel() {
     <div class="trace-meta">${pills.join("")}</div>
     <p class="trace-note">${escapeHtml(trace.note || "No note recorded.")}</p>
     ${postureSection}
+    ${driftCoordinateSection}
     ${evidenceSection}
     ${revisionSection}
     ${echoSection}
@@ -2644,6 +2706,8 @@ function setActiveTrace(marker) {
   renderSurveySkiffPanel();
   renderApproachRadarPanel();
   renderPermalinkPanel();
+  renderDriftSignalOverlay();
+  renderDriftSignalsPanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();
@@ -2689,7 +2753,11 @@ function renderLandmarks() {
 
 function renderBeacons() {
   el.beaconLayer.innerHTML = "";
-  state.beacons.forEach((b) => addMarker(el.beaconLayer, { ...b, type: "beacon" }));
+  state.beacons.forEach((b) => {
+    const className = b && b.isDriftSignal ? "marker marker-drift-signal" : "marker";
+    addMarker(el.beaconLayer, { ...b, type: "beacon" }, { className });
+  });
+  renderDriftSignalOverlay();
 }
 
 function renderRelayMarkers() {
@@ -3908,6 +3976,114 @@ function renderBeaconSoundingPanel() {
   `;
 }
 
+function renderDriftSignalOverlay() {
+  if (!el.driftSignalLayer) return;
+  const driftSignals = getDriftSignals();
+  if (driftSignals.length === 0) {
+    el.driftSignalLayer.style.display = "none";
+    el.driftSignalLayer.replaceChildren();
+    return;
+  }
+
+  el.driftSignalLayer.style.display = "block";
+  const group = createSvgNode("g", { class: "drift-signal-overlay" });
+  const hullPoints = [...DRIFT_SIGNAL_BASE_BERTHS, DRIFT_SIGNAL_BASE_BERTHS[0]]
+    .map((point) => `${((Number(point.x) / 100) * MAP_W).toFixed(1)},${((Number(point.y) / 100) * MAP_H).toFixed(1)}`)
+    .join(" ");
+  group.appendChild(createSvgNode("polyline", {
+    class: "drift-signal-hull",
+    points: hullPoints
+  }));
+
+  DRIFT_SIGNAL_BASE_BERTHS.forEach((berth) => {
+    group.appendChild(createSvgNode("circle", {
+      class: "drift-signal-berth",
+      cx: ((Number(berth.x) / 100) * MAP_W).toFixed(1),
+      cy: ((Number(berth.y) / 100) * MAP_H).toFixed(1),
+      r: "4.1"
+    }));
+  });
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  driftSignals.forEach((signal) => {
+    const x = (Number(signal.x) / 100) * MAP_W;
+    const y = (Number(signal.y) / 100) * MAP_H;
+    const isActive = parseIssueNumber(signal.issueNumber) === activeIssue;
+    group.appendChild(createSvgNode("circle", {
+      class: `drift-signal-berth is-occupied${isActive ? " is-active" : ""}`,
+      cx: x.toFixed(1),
+      cy: y.toFixed(1),
+      r: isActive ? "6.2" : "5.3"
+    }));
+    const label = createSvgNode("text", {
+      class: "drift-signal-label",
+      x: (x + 8.5).toFixed(1),
+      y: (y - 6.5).toFixed(1)
+    });
+    label.textContent = `#${signal.issueNumber}`;
+    group.appendChild(label);
+  });
+
+  el.driftSignalLayer.replaceChildren(group);
+}
+
+function renderDriftSignalsPanel() {
+  if (!el.driftSignals) return;
+  const driftSignals = getDriftSignals().sort(compareBeaconLedger);
+  if (driftSignals.length === 0) {
+    el.driftSignals.innerHTML = `
+      <p>Drift Signals is clear. All labeled public beacon issues currently include usable coordinates, so none are parked in the perimeter ring.</p>
+      <p>Revise a labeled public issue without x/y values and it will appear here on the next fetch.</p>
+    `;
+    return;
+  }
+
+  const skiff = state.surveySkiffCoord || { x: 50, y: 50 };
+  const nearestEntry = driftSignals
+    .map((signal) => ({
+      signal,
+      distance: Math.hypot(Number(signal.x) - Number(skiff.x), Number(signal.y) - Number(skiff.y))
+    }))
+    .sort(
+      (a, b) =>
+        a.distance - b.distance ||
+        compareBeaconLedger(a.signal, b.signal)
+    )[0];
+  const nearest = nearestEntry ? nearestEntry.signal : driftSignals[0];
+  const nearestDistance = nearestEntry ? nearestEntry.distance : 0;
+  const regionCount = new Set(driftSignals.map((signal) => signal.region || "Beacon Field")).size;
+  const nearestTitle = String((nearest && nearest.title) || "Untitled beacon");
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+
+  el.driftSignals.innerHTML = `
+    <p class="drift-signals-line">Drift Signals holds labeled public issues that arrived without usable map coordinates.</p>
+    <p class="drift-signals-line">Each one is parked in a deterministic perimeter berth until its issue is revised with x and y values.</p>
+    <p class="drift-signals-line">Current drift: ${driftSignals.length} public issue(s) parked, nearest ${escapeHtml(nearestTitle)} (#${nearest.issueNumber}).</p>
+    <p class="drift-signals-line">Nearest berth: ${nearestDistance.toFixed(1)}% from the Survey Skiff · ${regionCount} region(s) adjacent to parked signals.</p>
+    <div class="drift-signals-actions">
+      <button type="button" class="drift-signals-action" data-drift-signal-action="center-ring">Center on drift ring</button>
+      <button type="button" class="drift-signals-action" data-drift-signal-action="open-nearest">Open nearest drift issue</button>
+    </div>
+    <p class="drift-signals-subtitle">Drift ring arrivals</p>
+    <div class="drift-signals-list">
+      ${driftSignals.map((signal) => {
+        const isActive = parseIssueNumber(signal.issueNumber) === activeIssue;
+        return `
+          <button type="button" class="drift-signals-item${isActive ? " is-active" : ""}" data-drift-signal-issue="${signal.issueNumber}">
+            <strong>${escapeHtml(signal.title || "Untitled beacon")}</strong>
+            <span>${escapeHtml(signal.visitor || "Unknown")} · issue #${signal.issueNumber} · ${escapeHtml(signal.driftReason || "Missing x/y coordinates")} · berth x ${formatPercentCoord(signal.x)} · y ${formatPercentCoord(signal.y)}</span>
+          </button>
+        `;
+      }).join("")}
+    </div>
+    <p class="drift-signals-subtitle">How to settle a drift signal</p>
+    <ul class="drift-signals-guidance">
+      <li>Add <code>x:</code> and <code>y:</code> fields in the structured beacon block or issue-form sections.</li>
+      <li>The berth is deterministic and temporary; usable coordinates will replace it on the next public fetch.</li>
+    </ul>
+  `;
+}
+
 function rankNearbySkiffAnchors(limit = SURVEY_SKIFF_NEARBY_ANCHOR_MAX) {
   if (!state.surveySkiffCoord) return [];
   const sx = Number(state.surveySkiffCoord.x);
@@ -4442,6 +4618,64 @@ function refreshSignalSweepAt(coord, pointerActive) {
   renderSignalSweepPanel();
 }
 
+function computeDriftSignalBerth(issueNumber) {
+  const parsedIssueNumber = Math.max(1, parseIssueNumber(issueNumber) || 1);
+  const berthIndex = (parsedIssueNumber - 1) % DRIFT_SIGNAL_BASE_BERTHS.length;
+  const laneIndex = Math.floor((parsedIssueNumber - 1) / DRIFT_SIGNAL_BASE_BERTHS.length) % DRIFT_SIGNAL_LANE_OFFSETS.length;
+  const base = DRIFT_SIGNAL_BASE_BERTHS[berthIndex];
+  const offset = DRIFT_SIGNAL_LANE_OFFSETS[laneIndex];
+  return {
+    x: Math.max(4, Math.min(96, Number(base.x) + Number(offset.x))),
+    y: Math.max(4, Math.min(96, Number(base.y) + Number(offset.y)))
+  };
+}
+
+function stripBeaconPrefix(title) {
+  return String(title || "").replace(/^\s*\[\s*beacon\s*]\s*/i, "").trim();
+}
+
+function extractFirstUrl(text) {
+  const match = String(text || "").match(/https?:\/\/[^\s<>()"']+/i);
+  return match ? match[0] : "";
+}
+
+function toPlainExcerpt(text) {
+  const cleaned = String(text || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`]*`/g, " ")
+    .replace(/^#+\s*/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/\[([^\]]+)]\((https?:\/\/[^\s)]+)\)/g, "$1")
+    .replace(/https?:\/\/[^\s<>()"']+/g, " ")
+    .replace(/\r/g, "")
+    .replace(/\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  return cleaned.length > 280 ? `${cleaned.slice(0, 280).trimEnd()}...` : cleaned;
+}
+
+function normalizeDriftSignalIssue(issue) {
+  const berth = computeDriftSignalBerth(issue && issue.number);
+  const title = stripBeaconPrefix(issue && issue.title) || "Untitled beacon";
+  const body = String((issue && issue.body) || "");
+  return {
+    ...berth,
+    title: title.slice(0, 80),
+    note: toPlainExcerpt(body),
+    evidence: extractFirstUrl(body),
+    revision: "",
+    region: classifyRegionAtPercent(berth) || "Beacon Field",
+    color: "#ffb066",
+    visitor: (issue && issue.user && issue.user.login) ? String(issue.user.login) : "Unknown",
+    issueUrl: issue && issue.html_url,
+    issueNumber: issue && issue.number,
+    createdAt: issue && issue.created_at,
+    isDriftSignal: true,
+    driftReason: "Missing x/y coordinates"
+  };
+}
+
 function parseBeaconBlock(text) {
   if (!text) return null;
 
@@ -4523,7 +4757,9 @@ function normalizeBeaconIssues(items) {
     .filter((issue) => issue && !issue.pull_request && hasBeaconLabel(issue))
     .map((issue) => {
       const parsed = parseBeaconBlock(issue.body || "");
-      if (!parsed) return null;
+      if (!parsed) {
+        return normalizeDriftSignalIssue(issue);
+      }
       return {
         ...parsed,
         issueUrl: issue.html_url,
@@ -4675,6 +4911,8 @@ function initInteractions() {
   renderApproachRadarPanel();
   renderBeaconSoundingOverlay();
   renderBeaconSoundingPanel();
+  renderDriftSignalOverlay();
+  renderDriftSignalsPanel();
   renderRelayMarkers();
   renderCurrentMarkers();
   renderTransitLockMarkers();
@@ -4791,6 +5029,7 @@ function initInteractions() {
 
   el.toggleBeacons.addEventListener("change", () => {
     el.beaconLayer.hidden = !el.toggleBeacons.checked;
+    renderDriftSignalOverlay();
   });
 
   if (el.toggleVerificationRoute) {
@@ -5127,6 +5366,33 @@ function initInteractions() {
     });
   }
 
+  if (el.driftSignals) {
+    el.driftSignals.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-drift-signal-action], [data-drift-signal-issue]")
+        : null;
+      if (!actionNode) return;
+
+      const issueNumber = parseIssueNumber(actionNode.getAttribute("data-drift-signal-issue"));
+      if (issueNumber !== null) {
+        const signal = getDriftSignals().find((item) => parseIssueNumber(item.issueNumber) === issueNumber);
+        if (!signal) return;
+        activateMarker({ ...signal, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-drift-signal-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-ring") {
+        centerViewportOnDriftSignals();
+        return;
+      }
+      if (action === "open-nearest") {
+        openNearestDriftSignalIssue();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -5357,6 +5623,8 @@ function initInteractions() {
   renderApproachRadarPanel();
   renderBeaconSoundingOverlay();
   renderBeaconSoundingPanel();
+  renderDriftSignalOverlay();
+  renderDriftSignalsPanel();
   renderRelayMarkers();
   renderSignalRelaysPanel();
   renderCurrentMarkers();
@@ -5389,7 +5657,16 @@ async function initBeacons() {
     renderVerificationChain();
     updateBeaconSounding({ seedLogIfEmpty: true });
     refreshBeaconSoundingViews();
-    setStatus(`${beacons.length} visitor beacon${beacons.length === 1 ? "" : "s"} loaded from public issues.`);
+    renderDriftSignalOverlay();
+    renderDriftSignalsPanel();
+    const driftCount = getDriftSignals().length;
+    if (driftCount > 0) {
+      setStatus(
+        `${beacons.length} visitor beacons loaded from public issues, including ${driftCount} drift signal${driftCount === 1 ? "" : "s"} without usable coordinates.`
+      );
+    } else {
+      setStatus(`${beacons.length} visitor beacon${beacons.length === 1 ? "" : "s"} loaded from public issues.`);
+    }
   } catch (err) {
     console.error(err);
     state.beacons = [];
@@ -5399,6 +5676,8 @@ async function initBeacons() {
     renderVerificationChain();
     updateBeaconSounding({ seedLogIfEmpty: true });
     refreshBeaconSoundingViews();
+    renderDriftSignalOverlay();
+    renderDriftSignalsPanel();
     setStatus(
       "Visitor beacons are temporarily unavailable (GitHub API limit or network issue). Landmarks remain explorable.",
       true
@@ -5429,6 +5708,8 @@ function init() {
   renderApproachRadarPanel();
   renderBeaconSoundingOverlay();
   renderBeaconSoundingPanel();
+  renderDriftSignalOverlay();
+  renderDriftSignalsPanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();

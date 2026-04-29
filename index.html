@@ -52,6 +52,7 @@
             <label><input type="checkbox" id="toggleTracePassage" checked /> Show trace passage</label>
             <label><input type="checkbox" id="toggleWitnessThreads" checked /> Show witness threads</label>
             <label><input type="checkbox" id="toggleReturnRoutes" checked /> Show return routes</label>
+            <label><input type="checkbox" id="toggleAmendmentWake" checked /> Show amendment wake</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -154,6 +155,11 @@
         <section>
           <h2>Return Routes</h2>
           <div id="returnRoutes" class="return-routes-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Amendment Wake</h2>
+          <div id="amendmentWake" class="amendment-wake-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -370,6 +376,13 @@
           <svg
             id="returnRoutesLayer"
             class="return-routes-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="amendmentWakeLayer"
+            class="amendment-wake-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

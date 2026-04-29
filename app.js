@@ -556,6 +556,7 @@ const state = {
   tracePassageEnabled: true,
   witnessThreadsEnabled: true,
   returnRoutesEnabled: true,
+  amendmentWakeEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -628,6 +629,7 @@ const el = {
   toggleTracePassage: document.getElementById("toggleTracePassage"),
   toggleWitnessThreads: document.getElementById("toggleWitnessThreads"),
   toggleReturnRoutes: document.getElementById("toggleReturnRoutes"),
+  toggleAmendmentWake: document.getElementById("toggleAmendmentWake"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -648,6 +650,7 @@ const el = {
   tracePassageLayer: document.getElementById("tracePassageLayer"),
   witnessThreadsLayer: document.getElementById("witnessThreadsLayer"),
   returnRoutesLayer: document.getElementById("returnRoutesLayer"),
+  amendmentWakeLayer: document.getElementById("amendmentWakeLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -666,6 +669,7 @@ const el = {
   tracePassage: document.getElementById("tracePassage"),
   witnessThreads: document.getElementById("witnessThreads"),
   returnRoutes: document.getElementById("returnRoutes"),
+  amendmentWake: document.getElementById("amendmentWake"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -1650,6 +1654,68 @@ function jumpToBusiestReturnRoute() {
   const route = routes[0];
   if (!route || !route.newestBeacon) return;
   activateMarker({ ...route.newestBeacon, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function compareAmendmentWakeBeacons(a, b) {
+  const aCommentCount = Math.max(0, Number(a && a.commentCount) || 0);
+  const bCommentCount = Math.max(0, Number(b && b.commentCount) || 0);
+  if (aCommentCount !== bCommentCount) return bCommentCount - aCommentCount;
+
+  const aUpdatedAt = parseCreatedAt((a && a.updatedAt) || (a && a.createdAt));
+  const bUpdatedAt = parseCreatedAt((b && b.updatedAt) || (b && b.createdAt));
+  if (aUpdatedAt !== null || bUpdatedAt !== null) {
+    if (aUpdatedAt !== null && bUpdatedAt !== null && aUpdatedAt !== bUpdatedAt) return bUpdatedAt - aUpdatedAt;
+    if (aUpdatedAt !== null) return -1;
+    if (bUpdatedAt !== null) return 1;
+  }
+
+  const aIssue = parseIssueNumber(a && a.issueNumber);
+  const bIssue = parseIssueNumber(b && b.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return bIssue - aIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+
+  return String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+}
+
+function getAmendmentWakeBeacons() {
+  return [...(Array.isArray(state.beacons) ? state.beacons : [])]
+    .filter((beacon) => Math.max(0, Number(beacon && beacon.commentCount) || 0) > 0)
+    .sort(compareAmendmentWakeBeacons);
+}
+
+function centerViewportOnAmendmentWake() {
+  const beacons = getAmendmentWakeBeacons();
+  if (beacons.length === 0) return;
+  const coords = beacons
+    .map((beacon) => ({ x: Number(beacon && beacon.x), y: Number(beacon && beacon.y) }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToMostAmendedBeacon() {
+  const beacons = getAmendmentWakeBeacons();
+  if (beacons.length === 0) return;
+  const target = beacons[0];
+  if (!target) return;
+  activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
 }
 
 function centerViewportOnDriftSignals() {
@@ -3105,6 +3171,8 @@ function setActiveTrace(marker) {
   renderWitnessThreadsPanel();
   renderReturnRoutesOverlay();
   renderReturnRoutesPanel();
+  renderAmendmentWakeOverlay();
+  renderAmendmentWakePanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -3159,6 +3227,7 @@ function renderBeacons() {
   renderDriftSignalOverlay();
   renderWitnessThreadsOverlay();
   renderReturnRoutesOverlay();
+  renderAmendmentWakeOverlay();
   renderTracePassageOverlay();
 }
 
@@ -4784,6 +4853,129 @@ function renderReturnRoutesPanel() {
   `;
 }
 
+function renderAmendmentWakeOverlay() {
+  if (!el.amendmentWakeLayer) return;
+  const beacons = getAmendmentWakeBeacons();
+  if (!state.amendmentWakeEnabled || beacons.length === 0) {
+    el.amendmentWakeLayer.style.display = "none";
+    el.amendmentWakeLayer.replaceChildren();
+    return;
+  }
+
+  const positioned = beacons
+    .map((beacon) => {
+      const x = Number(beacon && beacon.x);
+      const y = Number(beacon && beacon.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return {
+        beacon,
+        worldX: (x / 100) * MAP_W,
+        worldY: (y / 100) * MAP_H,
+        commentCount: Math.max(0, Number(beacon && beacon.commentCount) || 0)
+      };
+    })
+    .filter(Boolean);
+
+  if (positioned.length === 0) {
+    el.amendmentWakeLayer.style.display = "none";
+    el.amendmentWakeLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "amendment-wake-overlay" });
+  positioned.forEach((entry) => {
+    const issueNumber = parseIssueNumber(entry && entry.beacon && entry.beacon.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const haloRadius = 8.6 + Math.min(11.2, entry.commentCount * 1.5);
+    const node = createSvgNode("g", {
+      class: `amendment-wake-node${isActive ? " is-active" : ""}`,
+      transform: `translate(${entry.worldX.toFixed(1)} ${entry.worldY.toFixed(1)})`
+    });
+    node.appendChild(createSvgNode("circle", {
+      class: "amendment-wake-halo",
+      r: haloRadius.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "amendment-wake-ripple",
+      r: (haloRadius + 4.8).toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "amendment-wake-core",
+      r: "3.1"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "amendment-wake-active-ring",
+      r: (haloRadius + 7.8).toFixed(1)
+    }));
+    group.appendChild(node);
+
+    const label = createSvgNode("text", {
+      class: `amendment-wake-count${isActive ? " is-active" : ""}`,
+      x: (entry.worldX + haloRadius + 7.2).toFixed(1),
+      y: (entry.worldY - Math.max(9.2, haloRadius * 0.35)).toFixed(1)
+    });
+    label.textContent = String(entry.commentCount);
+    group.appendChild(label);
+  });
+
+  el.amendmentWakeLayer.style.display = "block";
+  el.amendmentWakeLayer.replaceChildren(group);
+}
+
+function renderAmendmentWakePanel() {
+  if (!el.amendmentWake) return;
+  if (!state.amendmentWakeEnabled) {
+    el.amendmentWake.innerHTML = "<p>Amendment Wake is hidden. Re-enable it in Controls to show revised beacon trails again.</p>";
+    return;
+  }
+
+  const beacons = getAmendmentWakeBeacons();
+  if (beacons.length === 0) {
+    el.amendmentWake.innerHTML = "<p class=\"amendment-wake-line\">Amendment Wake appears once visitors add public issue comments to a beacon.</p>";
+    return;
+  }
+
+  const totalComments = beacons.reduce((sum, beacon) => sum + Math.max(0, Number(beacon && beacon.commentCount) || 0), 0);
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const wakeListHtml = beacons.map((beacon) => {
+    const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const commentCount = Math.max(0, Number(beacon && beacon.commentCount) || 0);
+    const commentLabel = `${commentCount} comment${commentCount === 1 ? "" : "s"}`;
+    const issueDataAttr = issueNumber === null ? "" : ` data-amendment-wake-issue="${issueNumber}"`;
+    const subtitle = [
+      issueNumber === null ? "Issue unknown" : `Issue #${issueNumber}`,
+      beacon.visitor || "Unknown visitor",
+      beacon.region || "Unknown region",
+      commentLabel
+    ].join(" · ");
+    return `
+      <button type="button" class="amendment-wake-item${isActive ? " is-active" : ""}"${issueDataAttr}>
+        <strong>${escapeHtml(beacon.title || "Untitled beacon")}</strong>
+        <span>${escapeHtml(subtitle)}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.amendmentWake.innerHTML = `
+    <p class="amendment-wake-line">Amendment Wake highlights beacon issues that have visible public revision discussion.</p>
+    <p class="amendment-wake-line">Tracking ${beacons.length} amended beacon(s) and ${totalComments} public comment(s).</p>
+    <div class="amendment-wake-actions">
+      <button type="button" class="amendment-wake-action" data-amendment-wake-action="center">Center on wake</button>
+      <button type="button" class="amendment-wake-action" data-amendment-wake-action="jump-most">Jump to most amended</button>
+    </div>
+    <div class="amendment-wake-meta">
+      <span class="amendment-wake-pill">Amended beacons: ${beacons.length}</span>
+      <span class="amendment-wake-pill">Public comments: ${totalComments}</span>
+    </div>
+    <p class="amendment-wake-subtitle">Active amendments</p>
+    <div class="amendment-wake-list">
+      ${wakeListHtml}
+    </div>
+  `;
+}
+
 function renderTracePassageOverlay() {
   if (!el.tracePassageLayer) return;
   const sequence = getTracePassageBeacons();
@@ -5521,6 +5713,7 @@ function normalizeDriftSignalIssue(issue) {
   const berth = computeDriftSignalBerth(issue && issue.number);
   const title = stripBeaconPrefix(issue && issue.title) || "Untitled beacon";
   const body = String((issue && issue.body) || "");
+  const commentCount = Math.max(0, Number(issue && issue.comments) || 0);
   return {
     ...berth,
     title: title.slice(0, 80),
@@ -5533,6 +5726,8 @@ function normalizeDriftSignalIssue(issue) {
     issueUrl: issue && issue.html_url,
     issueNumber: issue && issue.number,
     createdAt: issue && issue.created_at,
+    updatedAt: issue && issue.updated_at,
+    commentCount,
     isDriftSignal: true,
     driftReason: "Missing x/y coordinates"
   };
@@ -5626,7 +5821,9 @@ function normalizeBeaconIssues(items) {
         ...parsed,
         issueUrl: issue.html_url,
         issueNumber: issue.number,
-        createdAt: issue.created_at
+        createdAt: issue.created_at,
+        updatedAt: issue.updated_at,
+        commentCount: Math.max(0, Number(issue && issue.comments) || 0)
       };
     })
     .filter(Boolean);
@@ -5750,6 +5947,7 @@ function initInteractions() {
   state.tracePassageEnabled = !el.toggleTracePassage || el.toggleTracePassage.checked;
   state.witnessThreadsEnabled = !el.toggleWitnessThreads || el.toggleWitnessThreads.checked;
   state.returnRoutesEnabled = !el.toggleReturnRoutes || el.toggleReturnRoutes.checked;
+  state.amendmentWakeEnabled = !el.toggleAmendmentWake || el.toggleAmendmentWake.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -5782,6 +5980,8 @@ function initInteractions() {
   renderWitnessThreadsPanel();
   renderReturnRoutesOverlay();
   renderReturnRoutesPanel();
+  renderAmendmentWakeOverlay();
+  renderAmendmentWakePanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -6011,6 +6211,14 @@ function initInteractions() {
       state.returnRoutesEnabled = el.toggleReturnRoutes.checked;
       renderReturnRoutesOverlay();
       renderReturnRoutesPanel();
+    });
+  }
+
+  if (el.toggleAmendmentWake) {
+    el.toggleAmendmentWake.addEventListener("change", () => {
+      state.amendmentWakeEnabled = el.toggleAmendmentWake.checked;
+      renderAmendmentWakeOverlay();
+      renderAmendmentWakePanel();
     });
   }
 
@@ -6369,6 +6577,34 @@ function initInteractions() {
     });
   }
 
+  if (el.amendmentWake) {
+    el.amendmentWake.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-amendment-wake-action], [data-amendment-wake-issue]")
+        : null;
+      if (!actionNode) return;
+
+      const issueValue = actionNode.getAttribute("data-amendment-wake-issue");
+      const issueNumber = issueValue === null ? null : parseIssueNumber(issueValue);
+      if (issueValue !== null && issueNumber !== null) {
+        const beacon = getAmendmentWakeBeacons().find((entry) => parseIssueNumber(entry.issueNumber) === issueNumber);
+        if (!beacon) return;
+        activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-amendment-wake-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnAmendmentWake();
+        return;
+      }
+      if (action === "jump-most") {
+        jumpToMostAmendedBeacon();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -6605,6 +6841,8 @@ function initInteractions() {
   renderWitnessThreadsPanel();
   renderReturnRoutesOverlay();
   renderReturnRoutesPanel();
+  renderAmendmentWakeOverlay();
+  renderAmendmentWakePanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -6645,6 +6883,8 @@ async function initBeacons() {
     renderWitnessThreadsPanel();
     renderReturnRoutesOverlay();
     renderReturnRoutesPanel();
+    renderAmendmentWakeOverlay();
+    renderAmendmentWakePanel();
     renderTracePassageOverlay();
     renderTracePassagePanel();
     const driftCount = getDriftSignals().length;
@@ -6670,6 +6910,8 @@ async function initBeacons() {
     renderWitnessThreadsPanel();
     renderReturnRoutesOverlay();
     renderReturnRoutesPanel();
+    renderAmendmentWakeOverlay();
+    renderAmendmentWakePanel();
     renderTracePassageOverlay();
     renderTracePassagePanel();
     setStatus(
@@ -6708,6 +6950,8 @@ function init() {
   renderWitnessThreadsPanel();
   renderReturnRoutesOverlay();
   renderReturnRoutesPanel();
+  renderAmendmentWakeOverlay();
+  renderAmendmentWakePanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

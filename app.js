@@ -553,6 +553,7 @@ const state = {
   triangulationEnabled: true,
   approachRadarEnabled: true,
   beaconSoundingsEnabled: true,
+  tracePassageEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -622,6 +623,7 @@ const el = {
   toggleTriangulation: document.getElementById("toggleTriangulation"),
   toggleApproachRadar: document.getElementById("toggleApproachRadar"),
   toggleBeaconSoundings: document.getElementById("toggleBeaconSoundings"),
+  toggleTracePassage: document.getElementById("toggleTracePassage"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -639,6 +641,7 @@ const el = {
   approachRadarLayer: document.getElementById("approachRadarLayer"),
   beaconSoundingsLayer: document.getElementById("beaconSoundingsLayer"),
   driftSignalLayer: document.getElementById("driftSignalLayer"),
+  tracePassageLayer: document.getElementById("tracePassageLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -654,6 +657,7 @@ const el = {
   approachRadar: document.getElementById("approachRadar"),
   beaconSoundings: document.getElementById("beaconSoundings"),
   driftSignals: document.getElementById("driftSignals"),
+  tracePassage: document.getElementById("tracePassage"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -1533,6 +1537,38 @@ function getDriftSignals() {
   return (Array.isArray(state.beacons) ? state.beacons : []).filter((beacon) => beacon && beacon.isDriftSignal);
 }
 
+function centerViewportOnTracePassage() {
+  const beacons = getTracePassageBeacons();
+  if (beacons.length === 0) return;
+  const coords = beacons
+    .map((beacon) => ({ x: Number(beacon.x), y: Number(beacon.y) }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToNewestTracePassage() {
+  const beacons = getTracePassageBeacons();
+  if (beacons.length === 0) return;
+  const newest = beacons[beacons.length - 1];
+  if (!newest) return;
+  activateMarker({ ...newest, type: "beacon" }, { focus: true, updateHash: true });
+}
+
 function centerViewportOnDriftSignals() {
   const driftSignals = getDriftSignals();
   if (driftSignals.length === 0) return;
@@ -2292,6 +2328,44 @@ function formatShortTimestamp(value) {
   });
 }
 
+function compareTracePassage(a, b) {
+  const aCreatedAt = parseCreatedAt(a && a.createdAt);
+  const bCreatedAt = parseCreatedAt(b && b.createdAt);
+  if (aCreatedAt !== null || bCreatedAt !== null) {
+    if (aCreatedAt !== null && bCreatedAt !== null && aCreatedAt !== bCreatedAt) return aCreatedAt - bCreatedAt;
+    if (aCreatedAt !== null) return -1;
+    if (bCreatedAt !== null) return 1;
+  }
+
+  const aIssue = parseIssueNumber(a && a.issueNumber);
+  const bIssue = parseIssueNumber(b && b.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return aIssue - bIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+
+  return String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+}
+
+function getTracePassageBeacons() {
+  return [...(Array.isArray(state.beacons) ? state.beacons : [])]
+    .filter((beacon) => beacon && parseCreatedAt(beacon.createdAt) !== null)
+    .sort(compareTracePassage);
+}
+
+function formatTracePassageSpan(ms) {
+  const span = Number(ms);
+  if (!Number.isFinite(span) || span <= 0) return "0 min";
+  const compact = (value) => String(value.toFixed(1)).replace(/\.0$/, "");
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (span < 90 * minute) return `${Math.round(span / minute)} min`;
+  if (span < 36 * hour) return `${compact(span / hour)} hr`;
+  return `${compact(span / day)} days`;
+}
+
 function publicBeaconLabel(count) {
   return `${count} public beacon${count === 1 ? "" : "s"}`;
 }
@@ -2708,6 +2782,8 @@ function setActiveTrace(marker) {
   renderPermalinkPanel();
   renderDriftSignalOverlay();
   renderDriftSignalsPanel();
+  renderTracePassageOverlay();
+  renderTracePassagePanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();
@@ -2758,6 +2834,7 @@ function renderBeacons() {
     addMarker(el.beaconLayer, { ...b, type: "beacon" }, { className });
   });
   renderDriftSignalOverlay();
+  renderTracePassageOverlay();
 }
 
 function renderRelayMarkers() {
@@ -4084,6 +4161,168 @@ function renderDriftSignalsPanel() {
   `;
 }
 
+function renderTracePassageOverlay() {
+  if (!el.tracePassageLayer) return;
+  const sequence = getTracePassageBeacons();
+  if (!state.tracePassageEnabled || sequence.length === 0) {
+    el.tracePassageLayer.style.display = "none";
+    el.tracePassageLayer.replaceChildren();
+    return;
+  }
+
+  const positioned = sequence
+    .map((beacon, index) => {
+      const x = Number(beacon && beacon.x);
+      const y = Number(beacon && beacon.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return {
+        beacon,
+        index,
+        worldX: (x / 100) * MAP_W,
+        worldY: (y / 100) * MAP_H
+      };
+    })
+    .filter(Boolean);
+
+  if (positioned.length === 0) {
+    el.tracePassageLayer.style.display = "none";
+    el.tracePassageLayer.replaceChildren();
+    return;
+  }
+
+  el.tracePassageLayer.style.display = "block";
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "trace-passage-overlay" });
+
+  if (positioned.length >= 2) {
+    const points = positioned
+      .map((entry) => `${entry.worldX.toFixed(1)},${entry.worldY.toFixed(1)}`)
+      .join(" ");
+    group.appendChild(createSvgNode("polyline", { class: "trace-passage-path-glow", points }));
+    group.appendChild(createSvgNode("polyline", { class: "trace-passage-path", points }));
+  }
+
+  const lastIndex = positioned.length - 1;
+  positioned.forEach((entry, index) => {
+    const issueNumber = parseIssueNumber(entry.beacon && entry.beacon.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const node = createSvgNode("g", {
+      class: `trace-passage-node${isActive ? " is-active" : ""}`,
+      transform: `translate(${entry.worldX.toFixed(1)} ${entry.worldY.toFixed(1)})`
+    });
+    node.appendChild(createSvgNode("circle", { class: "trace-passage-node-glow", r: "11.5" }));
+    node.appendChild(createSvgNode("circle", { class: "trace-passage-node-ring", r: "8.1" }));
+    node.appendChild(createSvgNode("circle", { class: "trace-passage-node-dot", r: "3.3" }));
+    node.appendChild(createSvgNode("circle", { class: "trace-passage-node-active-ring", r: "12.8" }));
+    const sequenceLabel = createSvgNode("text", { class: "trace-passage-node-number", x: "0", y: "1" });
+    sequenceLabel.textContent = String(index + 1);
+    node.appendChild(sequenceLabel);
+    group.appendChild(node);
+
+    const endpoint = index === 0 ? "Origin" : (index === lastIndex ? "Newest" : "");
+    if (endpoint) {
+      const endpointLabel = createSvgNode("text", {
+        class: `trace-passage-endpoint-label trace-passage-endpoint-${endpoint.toLowerCase()}`,
+        x: (entry.worldX + 10.5).toFixed(1),
+        y: (entry.worldY - 10.5).toFixed(1)
+      });
+      endpointLabel.textContent = endpoint;
+      group.appendChild(endpointLabel);
+    }
+  });
+
+  el.tracePassageLayer.replaceChildren(group);
+}
+
+function renderTracePassagePanel() {
+  if (!el.tracePassage) return;
+  if (!state.tracePassageEnabled) {
+    el.tracePassage.innerHTML = `
+      <p>Trace Passage is hidden. Re-enable it in Controls to map public-beacon arrival order.</p>
+      <p>Trace Passage links public beacons and drift signals by arrival time.</p>
+    `;
+    return;
+  }
+
+  const sequence = getTracePassageBeacons();
+  if (sequence.length === 0) {
+    el.tracePassage.innerHTML = "<p class=\"small\">Trace Passage will appear once public beacons load.</p>";
+    return;
+  }
+
+  const oldest = sequence[0];
+  const newest = sequence[sequence.length - 1];
+  const oldestTime = formatShortTimestamp(oldest && oldest.createdAt);
+  const newestTime = formatShortTimestamp(newest && newest.createdAt);
+  const oldestIssue = parseIssueNumber(oldest && oldest.issueNumber);
+  const newestIssue = parseIssueNumber(newest && newest.issueNumber);
+  const oldestLabel = `${oldestIssue === null ? "issue unknown" : `issue #${oldestIssue}`}${oldestTime ? ` · ${oldestTime}` : ""}`;
+  const newestLabel = `${newestIssue === null ? "issue unknown" : `issue #${newestIssue}`}${newestTime ? ` · ${newestTime}` : ""}`;
+  const oldestTs = parseCreatedAt(oldest && oldest.createdAt);
+  const newestTs = parseCreatedAt(newest && newest.createdAt);
+  const spanMs = oldestTs === null || newestTs === null ? 0 : Math.max(0, newestTs - oldestTs);
+  const regionCount = new Set(sequence.map((beacon) => String(beacon.region || "Unknown region"))).size;
+  const driftCount = sequence.filter((beacon) => beacon && beacon.isDriftSignal).length;
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const listHtml = `
+    <div class="trace-passage-list">
+      ${sequence.map((beacon, index) => {
+        const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+        const timestamp = formatShortTimestamp(beacon && beacon.createdAt);
+        const isActive = issueNumber !== null && issueNumber === activeIssue;
+        const secondary = [
+          escapeHtml(beacon && beacon.visitor ? beacon.visitor : "Unknown"),
+          issueNumber === null ? "Issue unknown" : `issue #${issueNumber}`,
+          escapeHtml(beacon && beacon.region ? beacon.region : "Unknown region"),
+          timestamp ? escapeHtml(timestamp) : "",
+          beacon && beacon.isDriftSignal ? "Drift signal" : ""
+        ].filter(Boolean).join(" · ");
+        return `
+          <button type="button" class="trace-passage-item${isActive ? " is-active" : ""}" data-trace-passage-issue="${issueNumber === null ? "" : issueNumber}">
+            <strong>${index + 1}. ${escapeHtml(beacon && beacon.title ? beacon.title : "Untitled trace")}</strong>
+            <span>${secondary}</span>
+          </button>
+        `;
+      }).join("")}
+    </div>
+  `;
+  const actionsHtml = `
+    <div class="trace-passage-actions">
+      <button type="button" class="trace-passage-action" data-trace-passage-action="center-passage">Center on passage</button>
+      <button type="button" class="trace-passage-action" data-trace-passage-action="jump-newest">Jump to newest trace</button>
+    </div>
+  `;
+  const metaHtml = `
+    <div class="trace-passage-meta">
+      <span class="trace-passage-pill">Total traces: ${sequence.length}</span>
+      <span class="trace-passage-pill">Regions crossed: ${regionCount}</span>
+      <span class="trace-passage-pill">Drift signals in sequence: ${driftCount}</span>
+    </div>
+  `;
+
+  if (sequence.length === 1) {
+    el.tracePassage.innerHTML = `
+      <p class="trace-passage-line">Only one public arrival exists so far, so no route is drawn yet.</p>
+      <p class="trace-passage-line">The route waits for a second arrival to extend beyond the origin.</p>
+      ${actionsHtml}
+      ${metaHtml}
+      <p class="small trace-passage-subtitle">Arrival order</p>
+      ${listHtml}
+    `;
+    return;
+  }
+
+  el.tracePassage.innerHTML = `
+    <p class="trace-passage-line">Trace Passage links public beacons in order of arrival so the map shows how the public record accumulated over time.</p>
+    <p class="trace-passage-line">Oldest trace: ${escapeHtml(oldest && oldest.title ? oldest.title : "Untitled trace")} (${escapeHtml(oldestLabel)}) · newest trace: ${escapeHtml(newest && newest.title ? newest.title : "Untitled trace")} (${escapeHtml(newestLabel)}).</p>
+    <p class="trace-passage-line">Trace Passage tracks ${sequence.length} total trace(s), crosses ${regionCount} region(s), and spans ${formatTracePassageSpan(spanMs)}.</p>
+    ${actionsHtml}
+    ${metaHtml}
+    <p class="small trace-passage-subtitle">Arrival order</p>
+    ${listHtml}
+  `;
+}
+
 function rankNearbySkiffAnchors(limit = SURVEY_SKIFF_NEARBY_ANCHOR_MAX) {
   if (!state.surveySkiffCoord) return [];
   const sx = Number(state.surveySkiffCoord.x);
@@ -4885,6 +5124,7 @@ function initInteractions() {
   state.triangulationEnabled = !el.toggleTriangulation || el.toggleTriangulation.checked;
   state.approachRadarEnabled = !el.toggleApproachRadar || el.toggleApproachRadar.checked;
   state.beaconSoundingsEnabled = !el.toggleBeaconSoundings || el.toggleBeaconSoundings.checked;
+  state.tracePassageEnabled = !el.toggleTracePassage || el.toggleTracePassage.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -4913,6 +5153,8 @@ function initInteractions() {
   renderBeaconSoundingPanel();
   renderDriftSignalOverlay();
   renderDriftSignalsPanel();
+  renderTracePassageOverlay();
+  renderTracePassagePanel();
   renderRelayMarkers();
   renderCurrentMarkers();
   renderTransitLockMarkers();
@@ -5116,6 +5358,14 @@ function initInteractions() {
         updateBeaconSounding({ seedLogIfEmpty: true });
       }
       refreshBeaconSoundingViews();
+    });
+  }
+
+  if (el.toggleTracePassage) {
+    el.toggleTracePassage.addEventListener("change", () => {
+      state.tracePassageEnabled = el.toggleTracePassage.checked;
+      renderTracePassageOverlay();
+      renderTracePassagePanel();
     });
   }
 
@@ -5393,6 +5643,33 @@ function initInteractions() {
     });
   }
 
+  if (el.tracePassage) {
+    el.tracePassage.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-trace-passage-action], [data-trace-passage-issue]")
+        : null;
+      if (!actionNode) return;
+
+      const issueNumber = parseIssueNumber(actionNode.getAttribute("data-trace-passage-issue"));
+      if (issueNumber !== null) {
+        const beacon = getTracePassageBeacons().find((entry) => parseIssueNumber(entry.issueNumber) === issueNumber);
+        if (!beacon) return;
+        activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-trace-passage-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-passage") {
+        centerViewportOnTracePassage();
+        return;
+      }
+      if (action === "jump-newest") {
+        jumpToNewestTracePassage();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -5625,6 +5902,8 @@ function initInteractions() {
   renderBeaconSoundingPanel();
   renderDriftSignalOverlay();
   renderDriftSignalsPanel();
+  renderTracePassageOverlay();
+  renderTracePassagePanel();
   renderRelayMarkers();
   renderSignalRelaysPanel();
   renderCurrentMarkers();
@@ -5659,6 +5938,8 @@ async function initBeacons() {
     refreshBeaconSoundingViews();
     renderDriftSignalOverlay();
     renderDriftSignalsPanel();
+    renderTracePassageOverlay();
+    renderTracePassagePanel();
     const driftCount = getDriftSignals().length;
     if (driftCount > 0) {
       setStatus(
@@ -5678,6 +5959,8 @@ async function initBeacons() {
     refreshBeaconSoundingViews();
     renderDriftSignalOverlay();
     renderDriftSignalsPanel();
+    renderTracePassageOverlay();
+    renderTracePassagePanel();
     setStatus(
       "Visitor beacons are temporarily unavailable (GitHub API limit or network issue). Landmarks remain explorable.",
       true
@@ -5710,6 +5993,8 @@ function init() {
   renderBeaconSoundingPanel();
   renderDriftSignalOverlay();
   renderDriftSignalsPanel();
+  renderTracePassageOverlay();
+  renderTracePassagePanel();
   renderSignalRelaysPanel();
   renderDriftCurrentsPanel();
   renderTransitLocksPanel();

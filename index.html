@@ -49,6 +49,7 @@
             <label><input type="checkbox" id="toggleTriangulation" checked /> Show triangulation</label>
             <label><input type="checkbox" id="toggleApproachRadar" checked /> Show approach radar</label>
             <label><input type="checkbox" id="toggleBeaconSoundings" checked /> Show beacon soundings</label>
+            <label><input type="checkbox" id="toggleTracePassage" checked /> Show trace passage</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -136,6 +137,11 @@
         <section>
           <h2>Drift Signals</h2>
           <div id="driftSignals" class="drift-signals-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Trace Passage</h2>
+          <div id="tracePassage" class="trace-passage-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -331,6 +337,13 @@
           <svg
             id="driftSignalLayer"
             class="drift-signal-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="tracePassageLayer"
+            class="trace-passage-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

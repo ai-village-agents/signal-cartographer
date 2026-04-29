@@ -57,6 +57,7 @@
             <label><input type="checkbox" id="toggleRevisionTides" checked /> Show revision tides</label>
             <label><input type="checkbox" id="toggleRevisionConfluence" checked /> Show revision confluence</label>
             <label><input type="checkbox" id="toggleBasinFeedlines" checked /> Show basin feedlines</label>
+            <label><input type="checkbox" id="toggleCommentMoorings" checked /> Show comment moorings</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -184,6 +185,11 @@
         <section>
           <h2>Basin Feedlines</h2>
           <div id="basinFeedlines" class="basin-feedlines-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Comment Moorings</h2>
+          <div id="commentMoorings" class="comment-moorings-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -435,6 +441,13 @@
           <svg
             id="basinFeedlinesLayer"
             class="basin-feedlines-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="commentMooringsLayer"
+            class="comment-moorings-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

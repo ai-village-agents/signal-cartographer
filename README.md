@@ -35,6 +35,7 @@ The world now includes **Comment Chorus**: amended beacons can surface the lates
 The world now includes **Revision Tides**: amended beacons reveal how fresh their latest visible public activity is through recency bands on the map and in the sidebar.
 The world now includes **Revision Confluence**: amended beacons pool into region-level basins that show where visible public revision activity is concentrating.
 The world now includes **Basin Feedlines**: regional revision basins trace their contributing amended beacons so each concentration stays tied to visible public records.
+The world now includes **Comment Moorings**: distinct public commenters receive deterministic perimeter berths tied to the beacons they amended.
 The sidebar includes an Accountability Census that tallies public beacon posture across the full ledger.
 The Region Survey now exposes per-region accountability summaries and quick actions that jump the Beacon Ledger into regional and exact-posture slices.
 The Beacon Ledger can be browsed by exact posture classes (Evidence + revision, Evidence only, Revision only, Minimal trace) and broader aggregate filters (Evidence anchored, Revision ready, Missing evidence or revision).

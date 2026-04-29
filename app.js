@@ -564,6 +564,7 @@ const state = {
   revisionTidesEnabled: true,
   revisionConfluenceEnabled: true,
   basinFeedlinesEnabled: true,
+  commentMooringsEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -647,6 +648,7 @@ const el = {
   toggleRevisionTides: document.getElementById("toggleRevisionTides"),
   toggleRevisionConfluence: document.getElementById("toggleRevisionConfluence"),
   toggleBasinFeedlines: document.getElementById("toggleBasinFeedlines"),
+  toggleCommentMoorings: document.getElementById("toggleCommentMoorings"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -672,6 +674,7 @@ const el = {
   revisionTidesLayer: document.getElementById("revisionTidesLayer"),
   revisionConfluenceLayer: document.getElementById("revisionConfluenceLayer"),
   basinFeedlinesLayer: document.getElementById("basinFeedlinesLayer"),
+  commentMooringsLayer: document.getElementById("commentMooringsLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -695,6 +698,7 @@ const el = {
   revisionTides: document.getElementById("revisionTides"),
   revisionConfluence: document.getElementById("revisionConfluence"),
   basinFeedlines: document.getElementById("basinFeedlines"),
+  commentMoorings: document.getElementById("commentMoorings"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -2788,6 +2792,371 @@ function renderBasinFeedlinesPanel() {
   `;
 }
 
+function hashCommentMooringLogin(loginKey) {
+  let hash = 2166136261;
+  const text = String(loginKey || "").trim().toLowerCase();
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function getDeterministicCommentMooringBerth(loginKey) {
+  const hash = hashCommentMooringLogin(loginKey);
+  const sideIndex = hash % 4;
+  const berthSide = ["top", "right", "bottom", "left"][sideIndex];
+  const alongScalar = ((hash >>> 3) % 1000) / 999;
+  const laneScalar = ((hash >>> 13) % 1000) / 999;
+  const inset = 7.4;
+  const ringOffset = 0.5 + (laneScalar * 1.5);
+  const spanMin = inset;
+  const spanMax = 100 - inset;
+  const along = spanMin + ((spanMax - spanMin) * alongScalar);
+
+  if (berthSide === "top") {
+    return { berthCoord: { x: along, y: inset + ringOffset }, berthSide };
+  }
+  if (berthSide === "right") {
+    return { berthCoord: { x: 100 - inset - ringOffset, y: along }, berthSide };
+  }
+  if (berthSide === "bottom") {
+    return { berthCoord: { x: along, y: 100 - inset - ringOffset }, berthSide };
+  }
+  return { berthCoord: { x: inset + ringOffset, y: along }, berthSide };
+}
+
+function compareCommentMooringFreshnessCandidates(a, b) {
+  const aCommentTs = Number.isFinite(a && a.commentTs) ? a.commentTs : null;
+  const bCommentTs = Number.isFinite(b && b.commentTs) ? b.commentTs : null;
+  if (aCommentTs !== null || bCommentTs !== null) {
+    if (aCommentTs !== null && bCommentTs !== null && aCommentTs !== bCommentTs) return bCommentTs - aCommentTs;
+    if (aCommentTs !== null) return -1;
+    if (bCommentTs !== null) return 1;
+  }
+
+  const aBeaconTs = Number.isFinite(a && a.beaconActivityTs) ? a.beaconActivityTs : null;
+  const bBeaconTs = Number.isFinite(b && b.beaconActivityTs) ? b.beaconActivityTs : null;
+  if (aBeaconTs !== null || bBeaconTs !== null) {
+    if (aBeaconTs !== null && bBeaconTs !== null && aBeaconTs !== bBeaconTs) return bBeaconTs - aBeaconTs;
+    if (aBeaconTs !== null) return -1;
+    if (bBeaconTs !== null) return 1;
+  }
+
+  const aIssue = parseIssueNumber(a && a.issueNumber);
+  const bIssue = parseIssueNumber(b && b.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return bIssue - aIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+
+  return String(a && a.beacon && a.beacon.title ? a.beacon.title : "").localeCompare(
+    String(b && b.beacon && b.beacon.title ? b.beacon.title : "")
+  );
+}
+
+function compareCommentMooringEntries(a, b) {
+  const aLatestTs = Number.isFinite(a && a.latestActivityTs) ? a.latestActivityTs : null;
+  const bLatestTs = Number.isFinite(b && b.latestActivityTs) ? b.latestActivityTs : null;
+  if (aLatestTs !== null || bLatestTs !== null) {
+    if (aLatestTs !== null && bLatestTs !== null && aLatestTs !== bLatestTs) return bLatestTs - aLatestTs;
+    if (aLatestTs !== null) return -1;
+    if (bLatestTs !== null) return 1;
+  }
+
+  const aBeaconCount = Math.max(0, Number(a && a.beaconCount) || 0);
+  const bBeaconCount = Math.max(0, Number(b && b.beaconCount) || 0);
+  if (aBeaconCount !== bBeaconCount) return bBeaconCount - aBeaconCount;
+
+  const aCommentCount = Math.max(0, Number(a && a.fetchedCommentCount) || 0);
+  const bCommentCount = Math.max(0, Number(b && b.fetchedCommentCount) || 0);
+  if (aCommentCount !== bCommentCount) return bCommentCount - aCommentCount;
+
+  return String(a && a.displayLogin ? a.displayLogin : "").localeCompare(
+    String(b && b.displayLogin ? b.displayLogin : "")
+  );
+}
+
+function getCommentMooringEntries() {
+  const byLogin = new Map();
+  getAmendmentWakeBeacons().forEach((beacon) => {
+    const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+    if (issueNumber === null) return;
+    const comments = state.beaconCommentsByIssue.get(issueNumber);
+    if (!Array.isArray(comments) || comments.length === 0) return;
+    const beaconActivity = getLatestVisibleRevisionActivity(beacon);
+    const beaconActivityTs = Number.isFinite(beaconActivity && beaconActivity.latestActivityTs)
+      ? beaconActivity.latestActivityTs
+      : null;
+    comments.forEach((comment) => {
+      const login = String(comment && comment.user && comment.user.login ? comment.user.login : "").trim();
+      if (!login) return;
+      const normalizedLogin = login.toLowerCase();
+      const berth = getDeterministicCommentMooringBerth(normalizedLogin);
+      const existing = byLogin.get(normalizedLogin) || {
+        login: normalizedLogin,
+        displayLogin: login,
+        berthCoord: berth.berthCoord,
+        berthSide: berth.berthSide,
+        fetchedCommentCount: 0,
+        _beaconsByIssue: new Map(),
+        _regionKeys: new Set(),
+        _freshestCandidate: null
+      };
+      if (!byLogin.has(normalizedLogin)) {
+        byLogin.set(normalizedLogin, existing);
+      }
+
+      existing.fetchedCommentCount += 1;
+      if (!existing._beaconsByIssue.has(issueNumber)) {
+        existing._beaconsByIssue.set(issueNumber, {
+          ...beacon,
+          issueNumber
+        });
+      }
+      const regionKey = String(beacon && beacon.region ? beacon.region : "").trim().toLowerCase();
+      if (regionKey) {
+        existing._regionKeys.add(regionKey);
+      }
+
+      const candidate = {
+        commentTs: parseCreatedAt((comment && comment.updated_at) || (comment && comment.created_at)),
+        beaconActivityTs,
+        issueNumber,
+        beacon: {
+          ...beacon,
+          issueNumber
+        }
+      };
+      if (!existing._freshestCandidate || compareCommentMooringFreshnessCandidates(candidate, existing._freshestCandidate) < 0) {
+        existing._freshestCandidate = candidate;
+      }
+    });
+  });
+
+  return Array.from(byLogin.values())
+    .map((entry) => {
+      const beacons = Array.from(entry._beaconsByIssue.values())
+        .sort((a, b) => {
+          const aIssue = parseIssueNumber(a && a.issueNumber);
+          const bIssue = parseIssueNumber(b && b.issueNumber);
+          if (aIssue !== null || bIssue !== null) {
+            if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return bIssue - aIssue;
+            if (aIssue !== null) return -1;
+            if (bIssue !== null) return 1;
+          }
+          return String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+        });
+      const freshest = entry._freshestCandidate;
+      const freshestIssueNumber = parseIssueNumber(freshest && freshest.issueNumber);
+      return {
+        login: entry.login,
+        displayLogin: entry.displayLogin,
+        berthCoord: entry.berthCoord,
+        berthSide: entry.berthSide,
+        beacons,
+        beaconCount: beacons.length,
+        fetchedCommentCount: Math.max(0, Number(entry.fetchedCommentCount) || 0),
+        latestActivityTs: Number.isFinite(freshest && freshest.commentTs) ? freshest.commentTs : null,
+        freshestBeacon: freshest && freshest.beacon ? freshest.beacon : (beacons[0] || null),
+        freshestIssueNumber: freshestIssueNumber === null
+          ? parseIssueNumber(beacons[0] && beacons[0].issueNumber)
+          : freshestIssueNumber,
+        regionCount: entry._regionKeys.size
+      };
+    })
+    .sort(compareCommentMooringEntries);
+}
+
+function centerViewportOnCommentMoorings() {
+  const entries = getCommentMooringEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.berthCoord && entry.berthCoord.x), y: Number(entry && entry.berthCoord && entry.berthCoord.y) },
+      ...(Array.isArray(entry && entry.beacons) ? entry.beacons : []).map((beacon) => ({
+        x: Number(beacon && beacon.x),
+        y: Number(beacon && beacon.y)
+      }))
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToFreshestCommentMooring() {
+  const entries = getCommentMooringEntries();
+  if (entries.length === 0) return;
+  const target = entries[0] && entries[0].freshestBeacon;
+  if (!target) return;
+  activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderCommentMooringsOverlay() {
+  if (!el.commentMooringsLayer) return;
+  const entries = getCommentMooringEntries();
+  if (!state.commentMooringsEnabled || entries.length === 0) {
+    el.commentMooringsLayer.style.display = "none";
+    el.commentMooringsLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "comment-moorings-overlay" });
+  entries.forEach((entry) => {
+    const berthX = (Number(entry && entry.berthCoord && entry.berthCoord.x) / 100) * MAP_W;
+    const berthY = (Number(entry && entry.berthCoord && entry.berthCoord.y) / 100) * MAP_H;
+    if (!Number.isFinite(berthX) || !Number.isFinite(berthY)) return;
+    const isActive = Array.isArray(entry && entry.beacons)
+      && entry.beacons.some((beacon) => parseIssueNumber(beacon && beacon.issueNumber) === activeIssue);
+    const node = createSvgNode("g", {
+      class: `comment-mooring${isActive ? " is-active" : ""}`
+    });
+
+    (Array.isArray(entry && entry.beacons) ? entry.beacons : []).forEach((beacon) => {
+      const beaconX = (Number(beacon && beacon.x) / 100) * MAP_W;
+      const beaconY = (Number(beacon && beacon.y) / 100) * MAP_H;
+      if (!Number.isFinite(beaconX) || !Number.isFinite(beaconY)) return;
+      node.appendChild(createSvgNode("line", {
+        class: "comment-mooring-line",
+        x1: berthX.toFixed(1),
+        y1: berthY.toFixed(1),
+        x2: beaconX.toFixed(1),
+        y2: beaconY.toFixed(1)
+      }));
+      node.appendChild(createSvgNode("circle", {
+        class: "comment-mooring-end",
+        cx: beaconX.toFixed(1),
+        cy: beaconY.toFixed(1),
+        r: "2.2"
+      }));
+    });
+
+    node.appendChild(createSvgNode("circle", {
+      class: "comment-mooring-origin",
+      cx: berthX.toFixed(1),
+      cy: berthY.toFixed(1),
+      r: "3.1"
+    }));
+
+    let labelDx = 6.2;
+    let labelDy = -7.2;
+    let textAnchor = "start";
+    if (entry.berthSide === "left") {
+      labelDx = -6.2;
+      textAnchor = "end";
+    } else if (entry.berthSide === "right") {
+      labelDx = 6.2;
+      textAnchor = "start";
+    } else if (entry.berthSide === "bottom") {
+      labelDy = 11.2;
+      labelDx = berthX >= (MAP_W / 2) ? -5.2 : 5.2;
+      textAnchor = berthX >= (MAP_W / 2) ? "end" : "start";
+    } else if (entry.berthSide === "top") {
+      labelDy = -8.4;
+      labelDx = berthX >= (MAP_W / 2) ? -5.2 : 5.2;
+      textAnchor = berthX >= (MAP_W / 2) ? "end" : "start";
+    }
+    const label = createSvgNode("text", {
+      class: "comment-mooring-label",
+      x: (berthX + labelDx).toFixed(1),
+      y: (berthY + labelDy).toFixed(1),
+      "text-anchor": textAnchor
+    });
+    label.textContent = String(entry.displayLogin || entry.login || "commenter");
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.commentMooringsLayer.style.display = "none";
+    el.commentMooringsLayer.replaceChildren();
+    return;
+  }
+
+  el.commentMooringsLayer.style.display = "block";
+  el.commentMooringsLayer.replaceChildren(group);
+}
+
+function renderCommentMooringsPanel() {
+  if (!el.commentMoorings) return;
+  if (!state.commentMooringsEnabled) {
+    el.commentMoorings.innerHTML = "<p class=\"comment-moorings-line\">Comment Moorings is hidden. Re-enable it in Controls to reconnect public commenters to the beacons they amended.</p>";
+    return;
+  }
+
+  const entries = getCommentMooringEntries();
+  if (entries.length === 0) {
+    el.commentMoorings.innerHTML = "<p class=\"comment-moorings-line\">Comment Moorings appears once public commenters begin leaving visible amendment traces.</p>";
+    return;
+  }
+
+  const totalBeaconsTouched = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.beaconCount) || 0), 0);
+  const freshWithin24hCount = entries.reduce((sum, entry) => (
+    sum + (Number.isFinite(entry && entry.latestActivityTs) && (Date.now() - entry.latestActivityTs) <= (24 * 60 * 60 * 1000) ? 1 : 0)
+  ), 0);
+  const freshest = entries[0] || null;
+  const freshestIssue = parseIssueNumber(freshest && freshest.freshestIssueNumber);
+  const freshestLabel = freshest
+    ? `${freshest.displayLogin}${freshestIssue === null ? "" : ` (Issue #${freshestIssue})`}`
+    : "unknown commenter";
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+
+  const listHtml = entries.map((entry) => {
+    const issueNumber = parseIssueNumber(entry && entry.freshestIssueNumber);
+    const freshestBeaconTitle = String(entry && entry.freshestBeacon && entry.freshestBeacon.title
+      ? entry.freshestBeacon.title
+      : "Untitled beacon");
+    const isActive = Array.isArray(entry && entry.beacons)
+      && entry.beacons.some((beacon) => parseIssueNumber(beacon && beacon.issueNumber) === activeIssue);
+    const issueLabel = issueNumber === null ? "?" : String(issueNumber);
+    const beaconPill = entry.beaconCount > 1
+      ? `<span class="comment-moorings-pill">Distinct beacons: ${entry.beaconCount}</span>`
+      : "";
+    return `
+      <button type="button" class="comment-mooring-item${isActive ? " is-active" : ""}" data-comment-mooring-login="${escapeHtml(entry.login)}">
+        <strong>${escapeHtml(`${entry.displayLogin} → ${entry.beaconCount} beacon(s)`)}</strong>
+        <span>${escapeHtml(`${entry.fetchedCommentCount} fetched comment(s) · ${entry.regionCount} region(s) · freshest Issue #${issueLabel}`)}</span>
+        <span class="comment-mooring-age">${escapeHtml(`Freshest activity ${formatCompactAge(entry.latestActivityTs)} · ${freshestBeaconTitle}`)}</span>
+        ${beaconPill}
+      </button>
+    `;
+  }).join("");
+
+  el.commentMoorings.innerHTML = `
+    <p class="comment-moorings-line">Comment Moorings gives each distinct public commenter a deterministic berth on the perimeter and ties that berth to the beacons they amended.</p>
+    <p class="comment-moorings-line">Tracking ${entries.length} mooring(s) linking ${totalBeaconsTouched} beacon(s), with freshest public voice from ${escapeHtml(freshestLabel)}.</p>
+    <div class="comment-moorings-actions">
+      <button type="button" class="comment-moorings-action" data-comment-moorings-action="center">Center on moorings</button>
+      <button type="button" class="comment-moorings-action" data-comment-moorings-action="jump-freshest">Jump to freshest commenter</button>
+    </div>
+    <div class="comment-moorings-meta">
+      <span class="comment-moorings-pill">Public commenters: ${entries.length}</span>
+      <span class="comment-moorings-pill">Beacons touched: ${totalBeaconsTouched}</span>
+      <span class="comment-moorings-pill">Fresh within 24h: ${freshWithin24hCount}</span>
+    </div>
+    <p class="comment-moorings-subtitle">Public commenters</p>
+    <div class="comment-moorings-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnDriftSignals() {
   const driftSignals = getDriftSignals();
   if (driftSignals.length === 0) return;
@@ -4251,6 +4620,8 @@ function setActiveTrace(marker) {
   renderRevisionConfluencePanel();
   renderBasinFeedlinesOverlay();
   renderBasinFeedlinesPanel();
+  renderCommentMooringsOverlay();
+  renderCommentMooringsPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -4308,6 +4679,7 @@ function renderBeacons() {
   renderAmendmentWakeOverlay();
   renderCommentChorusOverlay();
   renderRevisionTidesOverlay();
+  renderCommentMooringsOverlay();
   renderTracePassageOverlay();
 }
 
@@ -7017,6 +7389,8 @@ async function fetchBeaconComments() {
     renderRevisionConfluencePanel();
     renderBasinFeedlinesOverlay();
     renderBasinFeedlinesPanel();
+    renderCommentMooringsOverlay();
+    renderCommentMooringsPanel();
     return;
   }
 
@@ -7031,6 +7405,8 @@ async function fetchBeaconComments() {
     renderRevisionConfluencePanel();
     renderBasinFeedlinesOverlay();
     renderBasinFeedlinesPanel();
+    renderCommentMooringsOverlay();
+    renderCommentMooringsPanel();
     return;
   }
 
@@ -7080,6 +7456,8 @@ async function fetchBeaconComments() {
   renderRevisionConfluencePanel();
   renderBasinFeedlinesOverlay();
   renderBasinFeedlinesPanel();
+  renderCommentMooringsOverlay();
+  renderCommentMooringsPanel();
 }
 
 function scheduleBeaconCommentRefresh() {
@@ -7100,6 +7478,8 @@ function scheduleBeaconCommentRefresh() {
     renderRevisionConfluencePanel();
     renderBasinFeedlinesOverlay();
     renderBasinFeedlinesPanel();
+    renderCommentMooringsOverlay();
+    renderCommentMooringsPanel();
     return;
   }
   state.beaconCommentsLoading = true;
@@ -7190,6 +7570,7 @@ function initInteractions() {
   state.revisionTidesEnabled = !el.toggleRevisionTides || el.toggleRevisionTides.checked;
   state.revisionConfluenceEnabled = !el.toggleRevisionConfluence || el.toggleRevisionConfluence.checked;
   state.basinFeedlinesEnabled = !el.toggleBasinFeedlines || el.toggleBasinFeedlines.checked;
+  state.commentMooringsEnabled = !el.toggleCommentMoorings || el.toggleCommentMoorings.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -7232,6 +7613,8 @@ function initInteractions() {
   renderRevisionConfluencePanel();
   renderBasinFeedlinesOverlay();
   renderBasinFeedlinesPanel();
+  renderCommentMooringsOverlay();
+  renderCommentMooringsPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -7489,6 +7872,8 @@ function initInteractions() {
       renderRevisionConfluencePanel();
       renderBasinFeedlinesOverlay();
       renderBasinFeedlinesPanel();
+      renderCommentMooringsOverlay();
+      renderCommentMooringsPanel();
     });
   }
 
@@ -7499,6 +7884,8 @@ function initInteractions() {
       renderRevisionConfluencePanel();
       renderBasinFeedlinesOverlay();
       renderBasinFeedlinesPanel();
+      renderCommentMooringsOverlay();
+      renderCommentMooringsPanel();
     });
   }
 
@@ -7507,6 +7894,16 @@ function initInteractions() {
       state.basinFeedlinesEnabled = el.toggleBasinFeedlines.checked;
       renderBasinFeedlinesOverlay();
       renderBasinFeedlinesPanel();
+      renderCommentMooringsOverlay();
+      renderCommentMooringsPanel();
+    });
+  }
+
+  if (el.toggleCommentMoorings) {
+    el.toggleCommentMoorings.addEventListener("change", () => {
+      state.commentMooringsEnabled = el.toggleCommentMoorings.checked;
+      renderCommentMooringsOverlay();
+      renderCommentMooringsPanel();
     });
   }
 
@@ -8004,6 +8401,33 @@ function initInteractions() {
     });
   }
 
+  if (el.commentMoorings) {
+    el.commentMoorings.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-comment-moorings-action], [data-comment-mooring-login]")
+        : null;
+      if (!actionNode) return;
+
+      const loginKey = String(actionNode.getAttribute("data-comment-mooring-login") || "").trim().toLowerCase();
+      if (loginKey) {
+        const entry = getCommentMooringEntries().find((item) => item.login === loginKey);
+        if (!entry || !entry.freshestBeacon) return;
+        activateMarker({ ...entry.freshestBeacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-comment-moorings-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnCommentMoorings();
+        return;
+      }
+      if (action === "jump-freshest") {
+        jumpToFreshestCommentMooring();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -8250,6 +8674,8 @@ function initInteractions() {
   renderRevisionConfluencePanel();
   renderBasinFeedlinesOverlay();
   renderBasinFeedlinesPanel();
+  renderCommentMooringsOverlay();
+  renderCommentMooringsPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -8300,6 +8726,8 @@ async function initBeacons() {
     renderRevisionConfluencePanel();
     renderBasinFeedlinesOverlay();
     renderBasinFeedlinesPanel();
+    renderCommentMooringsOverlay();
+    renderCommentMooringsPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -8336,6 +8764,8 @@ async function initBeacons() {
     renderRevisionConfluencePanel();
     renderBasinFeedlinesOverlay();
     renderBasinFeedlinesPanel();
+    renderCommentMooringsOverlay();
+    renderCommentMooringsPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -8385,6 +8815,8 @@ function init() {
   renderRevisionConfluencePanel();
   renderBasinFeedlinesOverlay();
   renderBasinFeedlinesPanel();
+  renderCommentMooringsOverlay();
+  renderCommentMooringsPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

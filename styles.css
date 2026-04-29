@@ -1909,6 +1909,105 @@ body {
   box-shadow: 0 0 16px rgba(136, 216, 255, 0.25);
 }
 
+.comment-moorings-panel {
+  border: 1px solid rgba(197, 233, 255, 0.56);
+  background: rgba(11, 38, 58, 0.88);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.comment-moorings-line {
+  margin: 0;
+  line-height: 1.34;
+  color: #e6f6ff;
+}
+
+.comment-moorings-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.comment-moorings-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(188, 234, 255, 0.66);
+  background: rgba(28, 86, 121, 0.88);
+  color: #eef9ff;
+  font-size: 0.78rem;
+}
+
+.comment-moorings-action:hover,
+.comment-moorings-action:focus-visible {
+  border-color: rgba(225, 246, 255, 0.96);
+  background: rgba(40, 108, 149, 0.94);
+  box-shadow: 0 0 14px rgba(160, 225, 255, 0.3);
+}
+
+.comment-moorings-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.comment-moorings-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(197, 236, 255, 0.62);
+  background: rgba(39, 111, 152, 0.5);
+  color: #eff9ff;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.comment-moorings-subtitle {
+  margin: 0;
+  color: #d7efff;
+}
+
+.comment-moorings-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.comment-mooring-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgba(180, 228, 255, 0.58);
+  background: rgba(24, 78, 111, 0.86);
+  color: #ecf8ff;
+}
+
+.comment-mooring-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.comment-mooring-item span {
+  font-size: 0.74rem;
+  color: rgba(228, 246, 255, 0.94);
+  line-height: 1.28;
+}
+
+.comment-mooring-age {
+  color: rgba(208, 241, 255, 0.96);
+}
+
+.comment-mooring-item:hover,
+.comment-mooring-item:focus-visible,
+.comment-mooring-item.is-active {
+  border-color: rgba(222, 246, 255, 0.98);
+  background: rgba(34, 103, 142, 0.95);
+  box-shadow: 0 0 16px rgba(146, 218, 255, 0.28);
+}
+
 .relay-panel {
   border: 1px solid rgba(182, 240, 255, 0.34);
   background: rgba(8, 28, 41, 0.84);
@@ -2545,6 +2644,7 @@ button:hover {
 .revision-tides-layer,
 .revision-confluence-layer,
 .basin-feedlines-layer,
+.comment-moorings-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -2675,6 +2775,14 @@ button:hover {
 }
 
 .basin-feedlines-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.comment-moorings-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -3962,6 +4070,62 @@ button:hover {
 .basin-feedline.is-active .basin-feedline-pulse {
   stroke: rgba(217, 248, 255, 0.92);
   fill: rgba(170, 233, 255, 0.2);
+}
+
+.comment-mooring-line {
+  fill: none;
+  stroke: rgba(184, 234, 255, 0.52);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 5 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.comment-mooring-origin {
+  fill: rgba(139, 212, 255, 0.28);
+  stroke: rgba(211, 244, 255, 0.94);
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+}
+
+.comment-mooring-end {
+  fill: rgba(233, 250, 255, 0.96);
+  stroke: rgba(201, 242, 255, 0.9);
+  stroke-width: 0.9;
+  vector-effect: non-scaling-stroke;
+}
+
+.comment-mooring-label {
+  fill: rgba(234, 249, 255, 0.98);
+  font-size: 10px;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+  letter-spacing: 0.01em;
+  paint-order: stroke;
+  stroke: rgba(8, 35, 49, 0.96);
+  stroke-width: 2.4px;
+}
+
+.comment-mooring.is-active .comment-mooring-line {
+  stroke: rgba(227, 247, 255, 0.94);
+  stroke-width: 1.9;
+  filter: drop-shadow(0 0 7px rgba(156, 223, 255, 0.45));
+}
+
+.comment-mooring.is-active .comment-mooring-origin {
+  stroke: rgba(234, 249, 255, 0.98);
+  fill: rgba(170, 228, 255, 0.34);
+  filter: drop-shadow(0 0 8px rgba(161, 228, 255, 0.5));
+}
+
+.comment-mooring.is-active .comment-mooring-end {
+  stroke: rgba(235, 250, 255, 0.98);
+  fill: rgba(242, 252, 255, 1);
+  filter: drop-shadow(0 0 6px rgba(173, 235, 255, 0.58));
+}
+
+.comment-mooring.is-active .comment-mooring-label {
+  fill: rgba(243, 252, 255, 1);
+  stroke: rgba(10, 41, 57, 0.98);
 }
 
 .survey-grid-current-label {

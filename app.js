@@ -561,6 +561,7 @@ const state = {
   returnRoutesEnabled: true,
   amendmentWakeEnabled: true,
   commentChorusEnabled: true,
+  revisionTidesEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -641,6 +642,7 @@ const el = {
   toggleReturnRoutes: document.getElementById("toggleReturnRoutes"),
   toggleAmendmentWake: document.getElementById("toggleAmendmentWake"),
   toggleCommentChorus: document.getElementById("toggleCommentChorus"),
+  toggleRevisionTides: document.getElementById("toggleRevisionTides"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -663,6 +665,7 @@ const el = {
   returnRoutesLayer: document.getElementById("returnRoutesLayer"),
   amendmentWakeLayer: document.getElementById("amendmentWakeLayer"),
   commentChorusLayer: document.getElementById("commentChorusLayer"),
+  revisionTidesLayer: document.getElementById("revisionTidesLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -683,6 +686,7 @@ const el = {
   returnRoutes: document.getElementById("returnRoutes"),
   amendmentWake: document.getElementById("amendmentWake"),
   commentChorus: document.getElementById("commentChorus"),
+  revisionTides: document.getElementById("revisionTides"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -1982,6 +1986,254 @@ function renderCommentChorusPanel() {
     </div>
     <p class="comment-chorus-subtitle">Latest public echoes</p>
     <div class="comment-chorus-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
+function getRevisionTideBand(activityTs) {
+  if (!Number.isFinite(activityTs)) {
+    return {
+      bandKey: "archived",
+      bandLabel: "Archived",
+      ageMs: null
+    };
+  }
+  const ageMs = Math.max(0, Date.now() - activityTs);
+  if (ageMs <= 6 * 60 * 60 * 1000) {
+    return {
+      bandKey: "fresh",
+      bandLabel: "Fresh",
+      ageMs
+    };
+  }
+  if (ageMs <= 48 * 60 * 60 * 1000) {
+    return {
+      bandKey: "settling",
+      bandLabel: "Settling",
+      ageMs
+    };
+  }
+  return {
+    bandKey: "archived",
+    bandLabel: "Archived",
+    ageMs
+  };
+}
+
+function formatCompactAge(activityTs) {
+  if (!Number.isFinite(activityTs)) return "time unknown";
+  const ageMs = Math.max(0, Date.now() - activityTs);
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  if (ageMs < minuteMs) return "<1 min ago";
+  if (ageMs < hourMs) return `${Math.floor(ageMs / minuteMs)} min ago`;
+  if (ageMs < dayMs) return `${(ageMs / hourMs).toFixed(1)} hr ago`;
+  if (ageMs < 7 * dayMs) return `${(ageMs / dayMs).toFixed(1)} d ago`;
+  return `${Math.round(ageMs / dayMs)} d ago`;
+}
+
+function compareRevisionTides(a, b) {
+  const aLatestTs = Number.isFinite(a && a.latestActivityTs) ? a.latestActivityTs : null;
+  const bLatestTs = Number.isFinite(b && b.latestActivityTs) ? b.latestActivityTs : null;
+  if (aLatestTs !== null || bLatestTs !== null) {
+    if (aLatestTs !== null && bLatestTs !== null && aLatestTs !== bLatestTs) return bLatestTs - aLatestTs;
+    if (aLatestTs !== null) return -1;
+    if (bLatestTs !== null) return 1;
+  }
+
+  const aCommentCount = Math.max(0, Number(a && a.commentCount) || 0);
+  const bCommentCount = Math.max(0, Number(b && b.commentCount) || 0);
+  if (aCommentCount !== bCommentCount) return bCommentCount - aCommentCount;
+
+  const aIssue = parseIssueNumber(a && a.issueNumber);
+  const bIssue = parseIssueNumber(b && b.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return bIssue - aIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+  return String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+}
+
+function getRevisionTidesBeacons() {
+  return getAmendmentWakeBeacons()
+    .map((beacon) => {
+      const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+      const latestComment = issueNumber === null ? null : getLatestFetchedBeaconComment(issueNumber);
+      const commentTs = parseCreatedAt(latestComment && ((latestComment.updated_at) || (latestComment.created_at)));
+      const issueTs = parseCreatedAt((beacon && beacon.updatedAt) || (beacon && beacon.createdAt));
+      const latestActivityTs = commentTs !== null ? commentTs : issueTs;
+      const activitySource = commentTs !== null ? "Latest public comment" : "Issue update";
+      const band = getRevisionTideBand(latestActivityTs);
+      return {
+        ...beacon,
+        issueNumber: issueNumber === null ? beacon && beacon.issueNumber : issueNumber,
+        latestActivityTs,
+        activitySource,
+        bandKey: band.bandKey,
+        bandLabel: band.bandLabel,
+        ageMs: band.ageMs,
+        fetchedCommentTiming: commentTs !== null
+      };
+    })
+    .sort(compareRevisionTides);
+}
+
+function centerViewportOnRevisionTides() {
+  const beacons = getRevisionTidesBeacons();
+  if (beacons.length === 0) return;
+  const coords = beacons
+    .map((beacon) => ({ x: Number(beacon && beacon.x), y: Number(beacon && beacon.y) }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToFreshestRevisionTide() {
+  const beacons = getRevisionTidesBeacons();
+  if (beacons.length === 0) return;
+  const target = beacons[0];
+  if (!target) return;
+  activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderRevisionTidesOverlay() {
+  if (!el.revisionTidesLayer) return;
+  const beacons = getRevisionTidesBeacons();
+  if (!state.revisionTidesEnabled || beacons.length === 0) {
+    el.revisionTidesLayer.style.display = "none";
+    el.revisionTidesLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "revision-tides-overlay" });
+  beacons.forEach((beacon) => {
+    const worldX = (Number(beacon && beacon.x) / 100) * MAP_W;
+    const worldY = (Number(beacon && beacon.y) / 100) * MAP_H;
+    if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) return;
+    const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const bandKey = beacon.bandKey || "archived";
+    const bandLetter = bandKey === "fresh" ? "F" : (bandKey === "settling" ? "S" : "A");
+    const node = createSvgNode("g", {
+      class: `revision-tide-node ${bandKey}${isActive ? " is-active" : ""}`,
+      transform: `translate(${worldX.toFixed(1)} ${worldY.toFixed(1)})`
+    });
+    [8.2, 12.2, 16.6].forEach((radius) => {
+      node.appendChild(createSvgNode("circle", {
+        class: "revision-tide-ring",
+        r: radius.toFixed(1)
+      }));
+    });
+    node.appendChild(createSvgNode("line", {
+      class: "revision-tide-stroke",
+      x1: "5.2",
+      y1: "0",
+      x2: "23.8",
+      y2: "0"
+    }));
+    node.appendChild(createSvgNode("rect", {
+      class: "revision-tide-chip",
+      x: "24.2",
+      y: "-5.4",
+      width: "11.4",
+      height: "10.8",
+      rx: "2.3"
+    }));
+    const chipLetter = createSvgNode("text", {
+      class: "revision-tide-chip-letter",
+      x: "29.9",
+      y: "2.1"
+    });
+    chipLetter.textContent = bandLetter;
+    node.appendChild(chipLetter);
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-tide-active-ring",
+      r: "20.6"
+    }));
+    group.appendChild(node);
+  });
+
+  el.revisionTidesLayer.style.display = "block";
+  el.revisionTidesLayer.replaceChildren(group);
+}
+
+function renderRevisionTidesPanel() {
+  if (!el.revisionTides) return;
+  if (!state.revisionTidesEnabled) {
+    el.revisionTides.innerHTML = "<p class=\"revision-tides-line\">Revision Tides is hidden. Re-enable it in Controls to surface recency bands again.</p>";
+    return;
+  }
+
+  const beacons = getRevisionTidesBeacons();
+  if (beacons.length === 0) {
+    el.revisionTides.innerHTML = `
+      <p class="revision-tides-line">Revision Tides shows how recently amended beacons were touched by visible public activity.</p>
+      <p class="revision-tides-line">Revision Tides appears once beacon issues gather visible amendment activity.</p>
+    `;
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const fetchedCommentTimingCount = beacons.reduce((sum, beacon) => sum + (beacon.fetchedCommentTiming ? 1 : 0), 0);
+  const freshWithin24hCount = beacons.reduce((sum, beacon) => {
+    const ageMs = Number(beacon && beacon.ageMs);
+    return sum + (Number.isFinite(ageMs) && ageMs <= (24 * 60 * 60 * 1000) ? 1 : 0);
+  }, 0);
+  const freshest = beacons[0];
+  const freshestAge = formatCompactAge(freshest && freshest.latestActivityTs);
+
+  const listHtml = beacons.map((beacon) => {
+    const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const issueDataAttr = issueNumber === null ? "" : ` data-revision-tide-issue="${issueNumber}"`;
+    const subtitle = [
+      issueNumber === null ? "Issue unknown" : `Issue #${issueNumber}`,
+      beacon.visitor || "Unknown visitor",
+      beacon.region || "Unknown region",
+      beacon.activitySource || "Issue update",
+      beacon.bandLabel || "Archived"
+    ].join(" · ");
+    return `
+      <button type="button" class="revision-tides-item${isActive ? " is-active" : ""}"${issueDataAttr}>
+        <strong>${escapeHtml(beacon.title || "Untitled beacon")}</strong>
+        <span>${escapeHtml(subtitle)}</span>
+        <span class="revision-tides-age">${escapeHtml(formatCompactAge(beacon.latestActivityTs))}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.revisionTides.innerHTML = `
+    <p class="revision-tides-line">Revision Tides shows how recently amended beacons were touched by visible public activity.</p>
+    <p class="revision-tides-line">Tracking ${beacons.length} tide beacon(s), ${fetchedCommentTimingCount} with fetched public comment timing, and freshest activity ${escapeHtml(freshestAge)}.</p>
+    <div class="revision-tides-actions">
+      <button type="button" class="revision-tides-action" data-revision-tides-action="center">Center on tides</button>
+      <button type="button" class="revision-tides-action" data-revision-tides-action="jump-freshest">Jump to freshest tide</button>
+    </div>
+    <div class="revision-tides-meta">
+      <span class="revision-tides-pill">Tide beacons: ${beacons.length}</span>
+      <span class="revision-tides-pill">Fetched comment timing: ${fetchedCommentTimingCount}</span>
+      <span class="revision-tides-pill">Fresh within 24h: ${freshWithin24hCount}</span>
+    </div>
+    <p class="revision-tides-subtitle">Latest visible activity</p>
+    <div class="revision-tides-list">
       ${listHtml}
     </div>
   `;
@@ -3444,6 +3696,8 @@ function setActiveTrace(marker) {
   renderAmendmentWakePanel();
   renderCommentChorusOverlay();
   renderCommentChorusPanel();
+  renderRevisionTidesOverlay();
+  renderRevisionTidesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -3500,6 +3754,7 @@ function renderBeacons() {
   renderReturnRoutesOverlay();
   renderAmendmentWakeOverlay();
   renderCommentChorusOverlay();
+  renderRevisionTidesOverlay();
   renderTracePassageOverlay();
 }
 
@@ -6203,6 +6458,8 @@ async function fetchBeaconComments() {
     state.beaconCommentsError = "";
     renderCommentChorusOverlay();
     renderCommentChorusPanel();
+    renderRevisionTidesOverlay();
+    renderRevisionTidesPanel();
     return;
   }
 
@@ -6211,6 +6468,8 @@ async function fetchBeaconComments() {
     state.beaconCommentsError = "";
     renderCommentChorusOverlay();
     renderCommentChorusPanel();
+    renderRevisionTidesOverlay();
+    renderRevisionTidesPanel();
     return;
   }
 
@@ -6254,6 +6513,8 @@ async function fetchBeaconComments() {
   }
   renderCommentChorusOverlay();
   renderCommentChorusPanel();
+  renderRevisionTidesOverlay();
+  renderRevisionTidesPanel();
 }
 
 function scheduleBeaconCommentRefresh() {
@@ -6268,6 +6529,8 @@ function scheduleBeaconCommentRefresh() {
     state.beaconCommentsError = "";
     renderCommentChorusOverlay();
     renderCommentChorusPanel();
+    renderRevisionTidesOverlay();
+    renderRevisionTidesPanel();
     return;
   }
   state.beaconCommentsLoading = true;
@@ -6355,6 +6618,7 @@ function initInteractions() {
   state.returnRoutesEnabled = !el.toggleReturnRoutes || el.toggleReturnRoutes.checked;
   state.amendmentWakeEnabled = !el.toggleAmendmentWake || el.toggleAmendmentWake.checked;
   state.commentChorusEnabled = !el.toggleCommentChorus || el.toggleCommentChorus.checked;
+  state.revisionTidesEnabled = !el.toggleRevisionTides || el.toggleRevisionTides.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -6391,6 +6655,8 @@ function initInteractions() {
   renderAmendmentWakePanel();
   renderCommentChorusOverlay();
   renderCommentChorusPanel();
+  renderRevisionTidesOverlay();
+  renderRevisionTidesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -6636,6 +6902,14 @@ function initInteractions() {
       state.commentChorusEnabled = el.toggleCommentChorus.checked;
       renderCommentChorusOverlay();
       renderCommentChorusPanel();
+    });
+  }
+
+  if (el.toggleRevisionTides) {
+    el.toggleRevisionTides.addEventListener("change", () => {
+      state.revisionTidesEnabled = el.toggleRevisionTides.checked;
+      renderRevisionTidesOverlay();
+      renderRevisionTidesPanel();
     });
   }
 
@@ -7050,6 +7324,34 @@ function initInteractions() {
     });
   }
 
+  if (el.revisionTides) {
+    el.revisionTides.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-revision-tides-action], [data-revision-tide-issue]")
+        : null;
+      if (!actionNode) return;
+
+      const issueValue = actionNode.getAttribute("data-revision-tide-issue");
+      const issueNumber = issueValue === null ? null : parseIssueNumber(issueValue);
+      if (issueValue !== null && issueNumber !== null) {
+        const beacon = getRevisionTidesBeacons().find((entry) => parseIssueNumber(entry.issueNumber) === issueNumber);
+        if (!beacon) return;
+        activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-revision-tides-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnRevisionTides();
+        return;
+      }
+      if (action === "jump-freshest") {
+        jumpToFreshestRevisionTide();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -7290,6 +7592,8 @@ function initInteractions() {
   renderAmendmentWakePanel();
   renderCommentChorusOverlay();
   renderCommentChorusPanel();
+  renderRevisionTidesOverlay();
+  renderRevisionTidesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -7334,6 +7638,8 @@ async function initBeacons() {
     renderAmendmentWakePanel();
     renderCommentChorusOverlay();
     renderCommentChorusPanel();
+    renderRevisionTidesOverlay();
+    renderRevisionTidesPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -7364,6 +7670,8 @@ async function initBeacons() {
     renderAmendmentWakePanel();
     renderCommentChorusOverlay();
     renderCommentChorusPanel();
+    renderRevisionTidesOverlay();
+    renderRevisionTidesPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -7407,6 +7715,8 @@ function init() {
   renderAmendmentWakePanel();
   renderCommentChorusOverlay();
   renderCommentChorusPanel();
+  renderRevisionTidesOverlay();
+  renderRevisionTidesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

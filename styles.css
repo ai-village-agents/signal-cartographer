@@ -1612,6 +1612,105 @@ body {
   color: rgba(242, 248, 255, 0.9);
 }
 
+.revision-tides-panel {
+  border: 1px solid rgba(131, 244, 230, 0.52);
+  background: rgba(8, 53, 62, 0.84);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.revision-tides-line {
+  margin: 0;
+  line-height: 1.34;
+  color: #ddfffb;
+}
+
+.revision-tides-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.revision-tides-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(114, 237, 239, 0.66);
+  background: rgba(14, 108, 119, 0.78);
+  color: #e9ffff;
+  font-size: 0.78rem;
+}
+
+.revision-tides-action:hover,
+.revision-tides-action:focus-visible {
+  border-color: rgba(187, 255, 248, 0.94);
+  background: rgba(23, 132, 143, 0.9);
+  box-shadow: 0 0 14px rgba(124, 252, 240, 0.28);
+}
+
+.revision-tides-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.revision-tides-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(145, 246, 238, 0.62);
+  background: rgba(22, 121, 133, 0.46);
+  color: #e9fffd;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.revision-tides-subtitle {
+  margin: 0;
+  color: #cbf9f3;
+}
+
+.revision-tides-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.revision-tides-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgba(132, 235, 231, 0.56);
+  background: rgba(14, 93, 106, 0.84);
+  color: #e8fffd;
+}
+
+.revision-tides-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.revision-tides-item span {
+  font-size: 0.74rem;
+  color: rgba(225, 255, 250, 0.93);
+  line-height: 1.28;
+}
+
+.revision-tides-age {
+  color: rgba(197, 248, 242, 0.94);
+}
+
+.revision-tides-item:hover,
+.revision-tides-item:focus-visible,
+.revision-tides-item.is-active {
+  border-color: rgba(198, 255, 250, 0.96);
+  background: rgba(20, 122, 137, 0.94);
+  box-shadow: 0 0 16px rgba(118, 250, 241, 0.25);
+}
+
 .relay-panel {
   border: 1px solid rgba(182, 240, 255, 0.34);
   background: rgba(8, 28, 41, 0.84);
@@ -2245,6 +2344,7 @@ button:hover {
 .return-routes-layer,
 .amendment-wake-layer,
 .comment-chorus-layer,
+.revision-tides-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -2351,6 +2451,14 @@ button:hover {
 }
 
 .comment-chorus-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.revision-tides-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -3453,6 +3561,92 @@ button:hover {
 .comment-chorus-count.is-active {
   fill: rgba(245, 252, 255, 0.99);
   stroke: rgba(28, 38, 72, 0.96);
+}
+
+.revision-tide-ring {
+  fill: none;
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+}
+
+.revision-tide-node.fresh .revision-tide-ring {
+  stroke: rgba(141, 255, 239, 0.9);
+}
+
+.revision-tide-node.settling .revision-tide-ring {
+  stroke: rgba(123, 235, 255, 0.66);
+}
+
+.revision-tide-node.archived .revision-tide-ring {
+  stroke: rgba(129, 191, 208, 0.42);
+}
+
+.revision-tide-stroke {
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+}
+
+.revision-tide-node.fresh .revision-tide-stroke {
+  stroke: rgba(170, 255, 246, 0.96);
+}
+
+.revision-tide-node.settling .revision-tide-stroke {
+  stroke: rgba(149, 243, 255, 0.82);
+}
+
+.revision-tide-node.archived .revision-tide-stroke {
+  stroke: rgba(147, 199, 212, 0.62);
+}
+
+.revision-tide-chip {
+  stroke-width: 0.9;
+  vector-effect: non-scaling-stroke;
+}
+
+.revision-tide-node.fresh .revision-tide-chip {
+  fill: rgba(22, 112, 95, 0.92);
+  stroke: rgba(163, 255, 238, 0.94);
+}
+
+.revision-tide-node.settling .revision-tide-chip {
+  fill: rgba(22, 88, 106, 0.9);
+  stroke: rgba(153, 237, 255, 0.88);
+}
+
+.revision-tide-node.archived .revision-tide-chip {
+  fill: rgba(27, 62, 78, 0.88);
+  stroke: rgba(164, 204, 219, 0.72);
+}
+
+.revision-tide-chip-letter {
+  fill: rgba(237, 255, 251, 0.97);
+  font-size: 7.4px;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+  font-weight: 700;
+  text-anchor: middle;
+  letter-spacing: 0.02em;
+  paint-order: stroke;
+  stroke: rgba(9, 40, 47, 0.95);
+  stroke-width: 1.6px;
+}
+
+.revision-tide-active-ring {
+  fill: none;
+  opacity: 0;
+  stroke: rgba(188, 255, 247, 0.44);
+  stroke-width: 2.1;
+  vector-effect: non-scaling-stroke;
+}
+
+.revision-tide-node.is-active .revision-tide-ring {
+  stroke-width: 1.5;
+}
+
+.revision-tide-node.is-active .revision-tide-active-ring {
+  opacity: 1;
+  stroke: rgba(208, 255, 249, 0.96);
+  filter: drop-shadow(0 0 9px rgba(142, 255, 244, 0.64));
 }
 
 .survey-grid-current-label {

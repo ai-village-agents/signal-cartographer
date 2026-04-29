@@ -565,6 +565,7 @@ const state = {
   revisionConfluenceEnabled: true,
   basinFeedlinesEnabled: true,
   commentMooringsEnabled: true,
+  revisionAlmanacEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -649,6 +650,7 @@ const el = {
   toggleRevisionConfluence: document.getElementById("toggleRevisionConfluence"),
   toggleBasinFeedlines: document.getElementById("toggleBasinFeedlines"),
   toggleCommentMoorings: document.getElementById("toggleCommentMoorings"),
+  toggleRevisionAlmanac: document.getElementById("toggleRevisionAlmanac"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -675,6 +677,7 @@ const el = {
   revisionConfluenceLayer: document.getElementById("revisionConfluenceLayer"),
   basinFeedlinesLayer: document.getElementById("basinFeedlinesLayer"),
   commentMooringsLayer: document.getElementById("commentMooringsLayer"),
+  revisionAlmanacLayer: document.getElementById("revisionAlmanacLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -699,6 +702,7 @@ const el = {
   revisionConfluence: document.getElementById("revisionConfluence"),
   basinFeedlines: document.getElementById("basinFeedlines"),
   commentMoorings: document.getElementById("commentMoorings"),
+  revisionAlmanac: document.getElementById("revisionAlmanac"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -3157,6 +3161,230 @@ function renderCommentMooringsPanel() {
   `;
 }
 
+function compareRevisionAlmanacEntries(a, b) {
+  const aLatestTs = Number.isFinite(a && a.latestActivityTs) ? a.latestActivityTs : null;
+  const bLatestTs = Number.isFinite(b && b.latestActivityTs) ? b.latestActivityTs : null;
+  if (aLatestTs !== null || bLatestTs !== null) {
+    if (aLatestTs !== null && bLatestTs !== null && aLatestTs !== bLatestTs) return bLatestTs - aLatestTs;
+    if (aLatestTs !== null) return -1;
+    if (bLatestTs !== null) return 1;
+  }
+
+  const aPublic = Math.max(0, Number(a && a.publicCommentCount) || 0);
+  const bPublic = Math.max(0, Number(b && b.publicCommentCount) || 0);
+  if (aPublic !== bPublic) return bPublic - aPublic;
+
+  const aIssue = parseIssueNumber(a && a.issueNumber);
+  const bIssue = parseIssueNumber(b && b.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return bIssue - aIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+
+  return String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+}
+
+function getRevisionAlmanacEntries() {
+  const sorted = getAmendmentWakeBeacons()
+    .map((beacon) => {
+      const activity = getLatestVisibleRevisionActivity(beacon);
+      const issueNumber = activity.issueNumber === null
+        ? parseIssueNumber(beacon && beacon.issueNumber)
+        : activity.issueNumber;
+      const latestActivityTs = Number.isFinite(activity && activity.latestActivityTs)
+        ? activity.latestActivityTs
+        : null;
+      const fetchedComments = Array.isArray(activity && activity.fetchedComments) ? activity.fetchedComments : [];
+      const distinctCommenters = new Set(
+        fetchedComments
+          .map((comment) => String(comment && comment.user && comment.user.login ? comment.user.login : "").trim().toLowerCase())
+          .filter(Boolean)
+      ).size;
+      return {
+        rank: 0,
+        beacon: {
+          ...beacon,
+          issueNumber: issueNumber === null ? beacon && beacon.issueNumber : issueNumber
+        },
+        issueNumber,
+        title: String(beacon && beacon.title ? beacon.title : "Untitled beacon"),
+        visitor: String(beacon && beacon.visitor ? beacon.visitor : ""),
+        region: String(beacon && beacon.region ? beacon.region : ""),
+        latestActivityTs,
+        freshestActivityLabel: formatCompactAge(latestActivityTs),
+        activitySource: activity && activity.activitySource ? activity.activitySource : "Visible activity",
+        fetchedCommentTiming: Boolean(activity && activity.fetchedCommentTiming),
+        publicCommentCount: Math.max(0, Number(beacon && beacon.commentCount) || 0),
+        fetchedCommentCount: Math.max(0, Number(activity && activity.fetchedCommentCount) || 0),
+        distinctCommenters
+      };
+    })
+    .sort(compareRevisionAlmanacEntries);
+
+  return sorted.map((entry, index) => ({
+    ...entry,
+    rank: index + 1
+  }));
+}
+
+function centerViewportOnRevisionAlmanac() {
+  const entries = getRevisionAlmanacEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .map((entry) => ({ x: Number(entry && entry.beacon && entry.beacon.x), y: Number(entry && entry.beacon && entry.beacon.y) }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToFreshestRevisionAlmanacEntry() {
+  const entries = getRevisionAlmanacEntries();
+  if (entries.length === 0) return;
+  const target = entries[0] && entries[0].beacon;
+  if (!target) return;
+  activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderRevisionAlmanacOverlay() {
+  if (!el.revisionAlmanacLayer) return;
+  const entries = getRevisionAlmanacEntries();
+  if (!state.revisionAlmanacEnabled || entries.length === 0) {
+    el.revisionAlmanacLayer.style.display = "none";
+    el.revisionAlmanacLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "revision-almanac-overlay" });
+  entries.forEach((entry) => {
+    const beaconX = (Number(entry && entry.beacon && entry.beacon.x) / 100) * MAP_W;
+    const beaconY = (Number(entry && entry.beacon && entry.beacon.y) / 100) * MAP_H;
+    if (!Number.isFinite(beaconX) || !Number.isFinite(beaconY)) return;
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const angle = ((issueNumber === null ? entry.rank : issueNumber) % 12) * (Math.PI / 6);
+    const distance = 13.5 + ((entry.rank - 1) % 3) * 3;
+    const badgeX = beaconX + Math.cos(angle) * distance;
+    const badgeY = beaconY - Math.sin(angle) * distance;
+    const node = createSvgNode("g", {
+      class: `revision-almanac-node${isActive ? " is-active" : ""}`
+    });
+    node.appendChild(createSvgNode("line", {
+      class: "revision-almanac-tether",
+      x1: beaconX.toFixed(1),
+      y1: beaconY.toFixed(1),
+      x2: badgeX.toFixed(1),
+      y2: badgeY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-almanac-badge",
+      cx: badgeX.toFixed(1),
+      cy: badgeY.toFixed(1),
+      r: "8.2"
+    }));
+    const label = createSvgNode("text", {
+      class: "revision-almanac-badge-text",
+      x: badgeX.toFixed(1),
+      y: (badgeY + 0.4).toFixed(1)
+    });
+    label.textContent = String(entry.rank);
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.revisionAlmanacLayer.style.display = "none";
+    el.revisionAlmanacLayer.replaceChildren();
+    return;
+  }
+
+  el.revisionAlmanacLayer.style.display = "block";
+  el.revisionAlmanacLayer.replaceChildren(group);
+}
+
+function renderRevisionAlmanacPanel() {
+  if (!el.revisionAlmanac) return;
+  if (!state.revisionAlmanacEnabled) {
+    el.revisionAlmanac.innerHTML = "<p class=\"revision-almanac-line\">Revision Almanac is hidden. Re-enable it in Controls to restore the numbered chronology of visible revision activity.</p>";
+    return;
+  }
+
+  const entries = getRevisionAlmanacEntries();
+  if (entries.length === 0) {
+    el.revisionAlmanac.innerHTML = "<p class=\"revision-almanac-line\">Revision Almanac appears once beacon issues begin accumulating visible amendment activity.</p>";
+    return;
+  }
+
+  const freshest = entries[0];
+  const freshestLabel = freshest && freshest.freshestActivityLabel ? freshest.freshestActivityLabel : "time unknown";
+  const freshWithin24hCount = entries.reduce((sum, entry) => (
+    sum + (Number.isFinite(entry.latestActivityTs) && (Date.now() - entry.latestActivityTs) <= (24 * 60 * 60 * 1000) ? 1 : 0)
+  ), 0);
+  const fetchedCommentTimingCount = entries.reduce((sum, entry) => sum + (entry.fetchedCommentTiming ? 1 : 0), 0);
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+
+  const listHtml = entries.map((entry) => {
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const visitorLabel = entry && entry.visitor ? entry.visitor : "Unknown visitor";
+    const regionLabel = entry && entry.region ? entry.region : "Unplaced region";
+    const activitySourceLabel = entry && entry.activitySource ? entry.activitySource : "Visible activity";
+    const lineOne = `${entry.rank}. Issue #${issueNumber === null ? "?" : issueNumber} · ${entry.title || "Untitled beacon"}`;
+    const lineTwo = `${visitorLabel} · ${regionLabel} · ${activitySourceLabel}`;
+    const pills = [];
+    if (Number.isFinite(entry.publicCommentCount)) {
+      pills.push(`<span class="revision-almanac-pill">Public comments: ${Math.max(0, Number(entry.publicCommentCount) || 0)}</span>`);
+    }
+    if (Number.isFinite(entry.fetchedCommentCount) && Math.max(0, Number(entry.fetchedCommentCount) || 0) > 0) {
+      pills.push(`<span class="revision-almanac-pill">Fetched comments: ${Math.max(0, Number(entry.fetchedCommentCount) || 0)}</span>`);
+    }
+    if (Number.isFinite(entry.distinctCommenters) && Math.max(0, Number(entry.distinctCommenters) || 0) > 0) {
+      pills.push(`<span class="revision-almanac-pill">Distinct commenters: ${Math.max(0, Number(entry.distinctCommenters) || 0)}</span>`);
+    }
+    return `
+      <button type="button" class="revision-almanac-item${isActive ? " is-active" : ""}" data-revision-almanac-issue="${issueNumber === null ? "" : issueNumber}">
+        <strong>${escapeHtml(lineOne)}</strong>
+        <span>${escapeHtml(lineTwo)}</span>
+        <span class="revision-almanac-age">${escapeHtml(`Latest visible activity ${formatCompactAge(entry.latestActivityTs)}`)}</span>
+        <span class="revision-almanac-meta">${pills.join("")}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.revisionAlmanac.innerHTML = `
+    <p class="revision-almanac-line">Revision Almanac turns amended beacons into a numbered chronology so the freshest visible revision activity stays legible at a glance.</p>
+    <p class="revision-almanac-line">Logging ${entries.length} almanac entr${entries.length === 1 ? "y" : "ies"}, with freshest visible activity at ${escapeHtml(freshestLabel)}.</p>
+    <div class="revision-almanac-actions">
+      <button type="button" class="revision-almanac-action" data-revision-almanac-action="center">Center on almanac</button>
+      <button type="button" class="revision-almanac-action" data-revision-almanac-action="jump-freshest">Jump to freshest entry</button>
+    </div>
+    <div class="revision-almanac-meta">
+      <span class="revision-almanac-pill">Entries: ${entries.length}</span>
+      <span class="revision-almanac-pill">Fresh within 24h: ${freshWithin24hCount}</span>
+      <span class="revision-almanac-pill">Fetched comment timing: ${fetchedCommentTimingCount}</span>
+    </div>
+    <p class="revision-almanac-subtitle">Freshness order</p>
+    <div class="revision-almanac-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnDriftSignals() {
   const driftSignals = getDriftSignals();
   if (driftSignals.length === 0) return;
@@ -4622,6 +4850,8 @@ function setActiveTrace(marker) {
   renderBasinFeedlinesPanel();
   renderCommentMooringsOverlay();
   renderCommentMooringsPanel();
+  renderRevisionAlmanacOverlay();
+  renderRevisionAlmanacPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -4680,6 +4910,7 @@ function renderBeacons() {
   renderCommentChorusOverlay();
   renderRevisionTidesOverlay();
   renderCommentMooringsOverlay();
+  renderRevisionAlmanacOverlay();
   renderTracePassageOverlay();
 }
 
@@ -7391,6 +7622,8 @@ async function fetchBeaconComments() {
     renderBasinFeedlinesPanel();
     renderCommentMooringsOverlay();
     renderCommentMooringsPanel();
+    renderRevisionAlmanacOverlay();
+    renderRevisionAlmanacPanel();
     return;
   }
 
@@ -7407,6 +7640,8 @@ async function fetchBeaconComments() {
     renderBasinFeedlinesPanel();
     renderCommentMooringsOverlay();
     renderCommentMooringsPanel();
+    renderRevisionAlmanacOverlay();
+    renderRevisionAlmanacPanel();
     return;
   }
 
@@ -7458,6 +7693,8 @@ async function fetchBeaconComments() {
   renderBasinFeedlinesPanel();
   renderCommentMooringsOverlay();
   renderCommentMooringsPanel();
+  renderRevisionAlmanacOverlay();
+  renderRevisionAlmanacPanel();
 }
 
 function scheduleBeaconCommentRefresh() {
@@ -7480,6 +7717,8 @@ function scheduleBeaconCommentRefresh() {
     renderBasinFeedlinesPanel();
     renderCommentMooringsOverlay();
     renderCommentMooringsPanel();
+    renderRevisionAlmanacOverlay();
+    renderRevisionAlmanacPanel();
     return;
   }
   state.beaconCommentsLoading = true;
@@ -7571,6 +7810,7 @@ function initInteractions() {
   state.revisionConfluenceEnabled = !el.toggleRevisionConfluence || el.toggleRevisionConfluence.checked;
   state.basinFeedlinesEnabled = !el.toggleBasinFeedlines || el.toggleBasinFeedlines.checked;
   state.commentMooringsEnabled = !el.toggleCommentMoorings || el.toggleCommentMoorings.checked;
+  state.revisionAlmanacEnabled = !el.toggleRevisionAlmanac || el.toggleRevisionAlmanac.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -7615,6 +7855,8 @@ function initInteractions() {
   renderBasinFeedlinesPanel();
   renderCommentMooringsOverlay();
   renderCommentMooringsPanel();
+  renderRevisionAlmanacOverlay();
+  renderRevisionAlmanacPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -7874,6 +8116,8 @@ function initInteractions() {
       renderBasinFeedlinesPanel();
       renderCommentMooringsOverlay();
       renderCommentMooringsPanel();
+      renderRevisionAlmanacOverlay();
+      renderRevisionAlmanacPanel();
     });
   }
 
@@ -7886,6 +8130,8 @@ function initInteractions() {
       renderBasinFeedlinesPanel();
       renderCommentMooringsOverlay();
       renderCommentMooringsPanel();
+      renderRevisionAlmanacOverlay();
+      renderRevisionAlmanacPanel();
     });
   }
 
@@ -7896,6 +8142,8 @@ function initInteractions() {
       renderBasinFeedlinesPanel();
       renderCommentMooringsOverlay();
       renderCommentMooringsPanel();
+      renderRevisionAlmanacOverlay();
+      renderRevisionAlmanacPanel();
     });
   }
 
@@ -7904,6 +8152,16 @@ function initInteractions() {
       state.commentMooringsEnabled = el.toggleCommentMoorings.checked;
       renderCommentMooringsOverlay();
       renderCommentMooringsPanel();
+      renderRevisionAlmanacOverlay();
+      renderRevisionAlmanacPanel();
+    });
+  }
+
+  if (el.toggleRevisionAlmanac) {
+    el.toggleRevisionAlmanac.addEventListener("change", () => {
+      state.revisionAlmanacEnabled = el.toggleRevisionAlmanac.checked;
+      renderRevisionAlmanacOverlay();
+      renderRevisionAlmanacPanel();
     });
   }
 
@@ -8428,6 +8686,34 @@ function initInteractions() {
     });
   }
 
+  if (el.revisionAlmanac) {
+    el.revisionAlmanac.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-revision-almanac-action], [data-revision-almanac-issue]")
+        : null;
+      if (!actionNode) return;
+
+      const issueValue = actionNode.getAttribute("data-revision-almanac-issue");
+      const issueNumber = issueValue === null ? null : parseIssueNumber(issueValue);
+      if (issueValue !== null && issueNumber !== null) {
+        const entry = getRevisionAlmanacEntries().find((item) => parseIssueNumber(item.issueNumber) === issueNumber);
+        if (!entry || !entry.beacon) return;
+        activateMarker({ ...entry.beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-revision-almanac-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnRevisionAlmanac();
+        return;
+      }
+      if (action === "jump-freshest") {
+        jumpToFreshestRevisionAlmanacEntry();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -8676,6 +8962,8 @@ function initInteractions() {
   renderBasinFeedlinesPanel();
   renderCommentMooringsOverlay();
   renderCommentMooringsPanel();
+  renderRevisionAlmanacOverlay();
+  renderRevisionAlmanacPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -8728,6 +9016,8 @@ async function initBeacons() {
     renderBasinFeedlinesPanel();
     renderCommentMooringsOverlay();
     renderCommentMooringsPanel();
+    renderRevisionAlmanacOverlay();
+    renderRevisionAlmanacPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -8766,6 +9056,8 @@ async function initBeacons() {
     renderBasinFeedlinesPanel();
     renderCommentMooringsOverlay();
     renderCommentMooringsPanel();
+    renderRevisionAlmanacOverlay();
+    renderRevisionAlmanacPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -8817,6 +9109,8 @@ function init() {
   renderBasinFeedlinesPanel();
   renderCommentMooringsOverlay();
   renderCommentMooringsPanel();
+  renderRevisionAlmanacOverlay();
+  renderRevisionAlmanacPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

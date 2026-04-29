@@ -554,6 +554,7 @@ const state = {
   approachRadarEnabled: true,
   beaconSoundingsEnabled: true,
   tracePassageEnabled: true,
+  witnessThreadsEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -624,6 +625,7 @@ const el = {
   toggleApproachRadar: document.getElementById("toggleApproachRadar"),
   toggleBeaconSoundings: document.getElementById("toggleBeaconSoundings"),
   toggleTracePassage: document.getElementById("toggleTracePassage"),
+  toggleWitnessThreads: document.getElementById("toggleWitnessThreads"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -642,6 +644,7 @@ const el = {
   beaconSoundingsLayer: document.getElementById("beaconSoundingsLayer"),
   driftSignalLayer: document.getElementById("driftSignalLayer"),
   tracePassageLayer: document.getElementById("tracePassageLayer"),
+  witnessThreadsLayer: document.getElementById("witnessThreadsLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -658,6 +661,7 @@ const el = {
   beaconSoundings: document.getElementById("beaconSoundings"),
   driftSignals: document.getElementById("driftSignals"),
   tracePassage: document.getElementById("tracePassage"),
+  witnessThreads: document.getElementById("witnessThreads"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -1569,6 +1573,48 @@ function jumpToNewestTracePassage() {
   activateMarker({ ...newest, type: "beacon" }, { focus: true, updateHash: true });
 }
 
+function centerViewportOnWitnessThreads() {
+  const witnessThreads = getWitnessThreads().threads;
+  if (witnessThreads.length === 0) return;
+  const coords = witnessThreads
+    .flatMap((thread) => thread.beacons)
+    .map((beacon) => ({ x: Number(beacon.x), y: Number(beacon.y) }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToLongestWitnessThread() {
+  const witnessThreads = getWitnessThreads().threads;
+  if (witnessThreads.length === 0) return;
+  const longestCount = witnessThreads.reduce(
+    (maxCount, thread) => Math.max(maxCount, thread.beacons.length),
+    0
+  );
+  const targetThread = witnessThreads
+    .filter((thread) => thread.beacons.length === longestCount)
+    .sort((a, b) => (
+      compareWitnessThreadBeacons(b.newestBeacon, a.newestBeacon) ||
+      String(a.displayName || "").localeCompare(String(b.displayName || ""))
+    ))[0];
+  if (!targetThread || !targetThread.newestBeacon) return;
+  activateMarker({ ...targetThread.newestBeacon, type: "beacon" }, { focus: true, updateHash: true });
+}
+
 function centerViewportOnDriftSignals() {
   const driftSignals = getDriftSignals();
   if (driftSignals.length === 0) return;
@@ -2348,6 +2394,98 @@ function compareTracePassage(a, b) {
   return String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
 }
 
+function compareWitnessThreadBeacons(a, b) {
+  const aCreatedAt = parseCreatedAt(a && a.createdAt);
+  const bCreatedAt = parseCreatedAt(b && b.createdAt);
+  if (aCreatedAt !== null || bCreatedAt !== null) {
+    if (aCreatedAt !== null && bCreatedAt !== null && aCreatedAt !== bCreatedAt) return aCreatedAt - bCreatedAt;
+    if (aCreatedAt !== null) return -1;
+    if (bCreatedAt !== null) return 1;
+  }
+
+  const aIssue = parseIssueNumber(a && a.issueNumber);
+  const bIssue = parseIssueNumber(b && b.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return aIssue - bIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+
+  return String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+}
+
+function getWitnessThreads() {
+  const grouped = new Map();
+  (Array.isArray(state.beacons) ? state.beacons : []).forEach((beacon) => {
+    const originalVisitor = String(beacon && beacon.visitor ? beacon.visitor : "").trim();
+    if (!originalVisitor) return;
+    const normalizedVisitor = originalVisitor.toLowerCase();
+    if (!grouped.has(normalizedVisitor)) {
+      grouped.set(normalizedVisitor, {
+        key: normalizedVisitor,
+        displayName: originalVisitor,
+        beacons: []
+      });
+    }
+    const entry = grouped.get(normalizedVisitor);
+    if (!entry) return;
+    if (!entry.displayName && originalVisitor) {
+      entry.displayName = originalVisitor;
+    }
+    entry.beacons.push(beacon);
+  });
+
+  const visitorGroups = [...grouped.values()].map((entry) => {
+    const beacons = [...entry.beacons].sort(compareWitnessThreadBeacons);
+    const firstBeacon = beacons[0] || null;
+    const newestBeacon = beacons[beacons.length - 1] || null;
+    const firstTs = parseCreatedAt(firstBeacon && firstBeacon.createdAt);
+    const newestTs = parseCreatedAt(newestBeacon && newestBeacon.createdAt);
+    const spanMs = firstTs === null || newestTs === null ? 0 : Math.max(0, newestTs - firstTs);
+    const regions = new Set(beacons.map((beacon) => String(beacon && beacon.region ? beacon.region : "Unknown region"))).size;
+    return {
+      displayName: entry.displayName || entry.key,
+      key: entry.key,
+      beacons,
+      regions,
+      firstBeacon,
+      newestBeacon,
+      spanMs
+    };
+  });
+
+  const getEarliestTs = (thread) => parseCreatedAt(thread && thread.firstBeacon && thread.firstBeacon.createdAt);
+  const byName = (a, b) => String(a && a.displayName ? a.displayName : "").localeCompare(String(b && b.displayName ? b.displayName : ""));
+  const byEarliestTs = (a, b) => {
+    const aTs = getEarliestTs(a);
+    const bTs = getEarliestTs(b);
+    if (aTs !== null || bTs !== null) {
+      if (aTs !== null && bTs !== null && aTs !== bTs) return aTs - bTs;
+      if (aTs !== null) return -1;
+      if (bTs !== null) return 1;
+    }
+    return byName(a, b);
+  };
+
+  const threads = visitorGroups
+    .filter((thread) => thread.beacons.length >= 2)
+    .sort((a, b) => (
+      b.beacons.length - a.beacons.length ||
+      byEarliestTs(a, b) ||
+      byName(a, b)
+    ));
+  const soloVisitors = visitorGroups
+    .filter((thread) => thread.beacons.length === 1)
+    .sort((a, b) => byEarliestTs(a, b) || byName(a, b));
+  const totalThreadedBeacons = threads.reduce((count, thread) => count + thread.beacons.length, 0);
+
+  return {
+    threads,
+    soloVisitors,
+    totalThreadedBeacons
+  };
+}
+
 function getTracePassageBeacons() {
   return [...(Array.isArray(state.beacons) ? state.beacons : [])]
     .filter((beacon) => beacon && parseCreatedAt(beacon.createdAt) !== null)
@@ -2364,6 +2502,10 @@ function formatTracePassageSpan(ms) {
   if (span < 90 * minute) return `${Math.round(span / minute)} min`;
   if (span < 36 * hour) return `${compact(span / hour)} hr`;
   return `${compact(span / day)} days`;
+}
+
+function formatWitnessThreadSpan(ms) {
+  return formatTracePassageSpan(ms);
 }
 
 function publicBeaconLabel(count) {
@@ -2782,6 +2924,8 @@ function setActiveTrace(marker) {
   renderPermalinkPanel();
   renderDriftSignalOverlay();
   renderDriftSignalsPanel();
+  renderWitnessThreadsOverlay();
+  renderWitnessThreadsPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -2834,6 +2978,7 @@ function renderBeacons() {
     addMarker(el.beaconLayer, { ...b, type: "beacon" }, { className });
   });
   renderDriftSignalOverlay();
+  renderWitnessThreadsOverlay();
   renderTracePassageOverlay();
 }
 
@@ -4161,6 +4306,159 @@ function renderDriftSignalsPanel() {
   `;
 }
 
+function renderWitnessThreadsOverlay() {
+  if (!el.witnessThreadsLayer) return;
+  const witnessThreads = getWitnessThreads().threads;
+  if (!state.witnessThreadsEnabled || witnessThreads.length === 0) {
+    el.witnessThreadsLayer.style.display = "none";
+    el.witnessThreadsLayer.replaceChildren();
+    return;
+  }
+
+  const drawableThreads = witnessThreads
+    .map((thread) => {
+      const positioned = thread.beacons
+        .map((beacon) => {
+          const x = Number(beacon && beacon.x);
+          const y = Number(beacon && beacon.y);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+          return {
+            beacon,
+            worldX: (x / 100) * MAP_W,
+            worldY: (y / 100) * MAP_H
+          };
+        })
+        .filter(Boolean);
+      return positioned.length === 0 ? null : { thread, positioned };
+    })
+    .filter(Boolean);
+
+  if (drawableThreads.length === 0) {
+    el.witnessThreadsLayer.style.display = "none";
+    el.witnessThreadsLayer.replaceChildren();
+    return;
+  }
+
+  el.witnessThreadsLayer.style.display = "block";
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "witness-threads-overlay" });
+
+  drawableThreads.forEach(({ positioned }) => {
+    if (positioned.length >= 2) {
+      const points = positioned
+        .map((entry) => `${entry.worldX.toFixed(1)},${entry.worldY.toFixed(1)}`)
+        .join(" ");
+      group.appendChild(createSvgNode("polyline", { class: "witness-thread-path-glow", points }));
+      group.appendChild(createSvgNode("polyline", { class: "witness-thread-path", points }));
+    }
+
+    const newestEntry = positioned[positioned.length - 1];
+    positioned.forEach((entry) => {
+      const issueNumber = parseIssueNumber(entry.beacon && entry.beacon.issueNumber);
+      const isActive = issueNumber !== null && issueNumber === activeIssue;
+      const node = createSvgNode("g", {
+        class: `witness-thread-node${isActive ? " is-active" : ""}`,
+        transform: `translate(${entry.worldX.toFixed(1)} ${entry.worldY.toFixed(1)})`
+      });
+      node.appendChild(createSvgNode("circle", { class: "witness-thread-node-glow", r: "11.2" }));
+      node.appendChild(createSvgNode("circle", { class: "witness-thread-node-ring", r: "7.6" }));
+      node.appendChild(createSvgNode("circle", { class: "witness-thread-node-dot", r: "3.1" }));
+      node.appendChild(createSvgNode("circle", { class: "witness-thread-node-active-ring", r: "14.1" }));
+      group.appendChild(node);
+    });
+
+    if (newestEntry) {
+      const latestLabel = createSvgNode("text", {
+        class: "witness-thread-latest-label",
+        x: (newestEntry.worldX + 9.8).toFixed(1),
+        y: (newestEntry.worldY - 10.1).toFixed(1)
+      });
+      latestLabel.textContent = "Latest";
+      group.appendChild(latestLabel);
+    }
+  });
+
+  el.witnessThreadsLayer.replaceChildren(group);
+}
+
+function renderWitnessThreadsPanel() {
+  if (!el.witnessThreads) return;
+  if (!state.witnessThreadsEnabled) {
+    el.witnessThreads.innerHTML = "<p>Witness Threads is hidden. Re-enable it in Controls to reconnect returning visitors.</p>";
+    return;
+  }
+
+  const witnessData = getWitnessThreads();
+  const threads = witnessData.threads;
+  const soloVisitors = witnessData.soloVisitors;
+  const totalThreadedBeacons = witnessData.totalThreadedBeacons;
+
+  if (threads.length === 0) {
+    const soloLine = soloVisitors.length > 0
+      ? `<p class="witness-threads-line">Solo visitors currently on record: ${soloVisitors.length}.</p>`
+      : "";
+    el.witnessThreads.innerHTML = `
+      <p class="witness-threads-line">No returning visitors are linked yet.</p>
+      <p class="witness-threads-line">Witness Threads will appear once a visitor leaves a second public trace.</p>
+      ${soloLine}
+    `;
+    return;
+  }
+
+  const activeVisitorKey = String(state.activeTrace && state.activeTrace.visitor ? state.activeTrace.visitor : "").trim().toLowerCase();
+  const threadsHtml = threads.map((thread) => {
+    const oldestIssue = parseIssueNumber(thread.firstBeacon && thread.firstBeacon.issueNumber);
+    const newestIssue = parseIssueNumber(thread.newestBeacon && thread.newestBeacon.issueNumber);
+    const isActive = activeVisitorKey && activeVisitorKey === thread.key;
+    const issueLine = [
+      `Trace count ${thread.beacons.length}`,
+      `Regions ${thread.regions}`,
+      `Oldest ${oldestIssue === null ? "issue unknown" : `issue #${oldestIssue}`}`,
+      `Newest ${newestIssue === null ? "issue unknown" : `issue #${newestIssue}`}`,
+      `Span ${formatWitnessThreadSpan(thread.spanMs)}`
+    ].join(" · ");
+    return `
+      <button type="button" class="witness-threads-item${isActive ? " is-active" : ""}" data-witness-thread-visitor="${escapeHtml(thread.key)}">
+        <strong>${escapeHtml(thread.displayName)}</strong>
+        <span>${escapeHtml(issueLine)}</span>
+      </button>
+    `;
+  }).join("");
+
+  const soloHtml = soloVisitors.length > 0
+    ? `
+      <div class="witness-threads-solo-arrivals">
+        <p class="witness-threads-solo-title">Solo arrivals</p>
+        <ul>
+          ${soloVisitors.slice(0, 5).map((visitor) => {
+            const issueNumber = parseIssueNumber(visitor.firstBeacon && visitor.firstBeacon.issueNumber);
+            return `<li>${escapeHtml(visitor.displayName)} · ${escapeHtml(issueNumber === null ? "issue unknown" : `issue #${issueNumber}`)}</li>`;
+          }).join("")}
+        </ul>
+      </div>
+    `
+    : "";
+
+  el.witnessThreads.innerHTML = `
+    <p class="witness-threads-line">Witness Threads links repeated public traces from the same visitor into durable trails.</p>
+    <p class="witness-threads-line">Tracking ${threads.length} active thread(s), ${totalThreadedBeacons} threaded trace(s), and ${soloVisitors.length} solo visitor(s).</p>
+    <div class="witness-threads-actions">
+      <button type="button" class="witness-threads-action" data-witness-thread-action="center-threads">Center on threads</button>
+      <button type="button" class="witness-threads-action" data-witness-thread-action="jump-longest">Jump to longest thread</button>
+    </div>
+    <div class="witness-threads-meta">
+      <span class="witness-threads-pill">Active threads: ${threads.length}</span>
+      <span class="witness-threads-pill">Threaded traces: ${totalThreadedBeacons}</span>
+      <span class="witness-threads-pill">Solo visitors: ${soloVisitors.length}</span>
+    </div>
+    <p class="witness-threads-subtitle">Returning visitors</p>
+    <div class="witness-threads-list">
+      ${threadsHtml}
+    </div>
+    ${soloHtml}
+  `;
+}
+
 function renderTracePassageOverlay() {
   if (!el.tracePassageLayer) return;
   const sequence = getTracePassageBeacons();
@@ -5125,6 +5423,7 @@ function initInteractions() {
   state.approachRadarEnabled = !el.toggleApproachRadar || el.toggleApproachRadar.checked;
   state.beaconSoundingsEnabled = !el.toggleBeaconSoundings || el.toggleBeaconSoundings.checked;
   state.tracePassageEnabled = !el.toggleTracePassage || el.toggleTracePassage.checked;
+  state.witnessThreadsEnabled = !el.toggleWitnessThreads || el.toggleWitnessThreads.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -5153,6 +5452,8 @@ function initInteractions() {
   renderBeaconSoundingPanel();
   renderDriftSignalOverlay();
   renderDriftSignalsPanel();
+  renderWitnessThreadsOverlay();
+  renderWitnessThreadsPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -5366,6 +5667,14 @@ function initInteractions() {
       state.tracePassageEnabled = el.toggleTracePassage.checked;
       renderTracePassageOverlay();
       renderTracePassagePanel();
+    });
+  }
+
+  if (el.toggleWitnessThreads) {
+    el.toggleWitnessThreads.addEventListener("change", () => {
+      state.witnessThreadsEnabled = el.toggleWitnessThreads.checked;
+      renderWitnessThreadsOverlay();
+      renderWitnessThreadsPanel();
     });
   }
 
@@ -5670,6 +5979,33 @@ function initInteractions() {
     });
   }
 
+  if (el.witnessThreads) {
+    el.witnessThreads.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-witness-thread-action], [data-witness-thread-visitor]")
+        : null;
+      if (!actionNode) return;
+
+      const visitorKey = String(actionNode.getAttribute("data-witness-thread-visitor") || "").trim().toLowerCase();
+      if (visitorKey) {
+        const thread = getWitnessThreads().threads.find((entry) => entry.key === visitorKey);
+        if (!thread || !thread.newestBeacon) return;
+        activateMarker({ ...thread.newestBeacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-witness-thread-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-threads") {
+        centerViewportOnWitnessThreads();
+        return;
+      }
+      if (action === "jump-longest") {
+        jumpToLongestWitnessThread();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -5902,6 +6238,8 @@ function initInteractions() {
   renderBeaconSoundingPanel();
   renderDriftSignalOverlay();
   renderDriftSignalsPanel();
+  renderWitnessThreadsOverlay();
+  renderWitnessThreadsPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -5938,6 +6276,8 @@ async function initBeacons() {
     refreshBeaconSoundingViews();
     renderDriftSignalOverlay();
     renderDriftSignalsPanel();
+    renderWitnessThreadsOverlay();
+    renderWitnessThreadsPanel();
     renderTracePassageOverlay();
     renderTracePassagePanel();
     const driftCount = getDriftSignals().length;
@@ -5959,6 +6299,8 @@ async function initBeacons() {
     refreshBeaconSoundingViews();
     renderDriftSignalOverlay();
     renderDriftSignalsPanel();
+    renderWitnessThreadsOverlay();
+    renderWitnessThreadsPanel();
     renderTracePassageOverlay();
     renderTracePassagePanel();
     setStatus(
@@ -5993,6 +6335,8 @@ function init() {
   renderBeaconSoundingPanel();
   renderDriftSignalOverlay();
   renderDriftSignalsPanel();
+  renderWitnessThreadsOverlay();
+  renderWitnessThreadsPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

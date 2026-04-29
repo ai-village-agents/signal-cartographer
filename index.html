@@ -50,6 +50,7 @@
             <label><input type="checkbox" id="toggleApproachRadar" checked /> Show approach radar</label>
             <label><input type="checkbox" id="toggleBeaconSoundings" checked /> Show beacon soundings</label>
             <label><input type="checkbox" id="toggleTracePassage" checked /> Show trace passage</label>
+            <label><input type="checkbox" id="toggleWitnessThreads" checked /> Show witness threads</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -142,6 +143,11 @@
         <section>
           <h2>Trace Passage</h2>
           <div id="tracePassage" class="trace-passage-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Witness Threads</h2>
+          <div id="witnessThreads" class="witness-threads-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -344,6 +350,13 @@
           <svg
             id="tracePassageLayer"
             class="trace-passage-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="witnessThreadsLayer"
+            class="witness-threads-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

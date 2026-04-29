@@ -9,6 +9,9 @@ const LEDGER_POSTURE_DEFAULT = "All postures";
 const LEDGER_QUERY_PARAM_REGION = "ledgerRegion";
 const LEDGER_QUERY_PARAM_POSTURE = "ledgerPosture";
 const LEDGER_QUERY_PARAM_SEARCH = "ledgerSearch";
+const COMMENT_CHORUS_FETCH_LIMIT = 12;
+const COMMENT_CHORUS_COMMENT_PAGE_LIMIT = 2;
+const COMMENT_CHORUS_REFRESH_DELAY_MS = 140;
 const SURVEY_POSTURE_ACTION_SEPARATOR = "::";
 const SURVEY_POSTURE_ACTIONS = [
   {
@@ -557,6 +560,7 @@ const state = {
   witnessThreadsEnabled: true,
   returnRoutesEnabled: true,
   amendmentWakeEnabled: true,
+  commentChorusEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -577,6 +581,12 @@ const state = {
   currentEntryLog: [],
   chartedTransitLockIds: new Set(),
   transitJumpLog: [],
+  beaconCommentsByIssue: new Map(),
+  beaconCommentMetaByIssue: new Map(),
+  beaconCommentsLoading: false,
+  beaconCommentsLoadingIssues: new Set(),
+  beaconCommentsError: "",
+  beaconCommentRefreshTimerId: null,
   sweepPointerActive: false,
   sweepCoord: null,
   discoveredEchoIds: new Set(),
@@ -630,6 +640,7 @@ const el = {
   toggleWitnessThreads: document.getElementById("toggleWitnessThreads"),
   toggleReturnRoutes: document.getElementById("toggleReturnRoutes"),
   toggleAmendmentWake: document.getElementById("toggleAmendmentWake"),
+  toggleCommentChorus: document.getElementById("toggleCommentChorus"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -651,6 +662,7 @@ const el = {
   witnessThreadsLayer: document.getElementById("witnessThreadsLayer"),
   returnRoutesLayer: document.getElementById("returnRoutesLayer"),
   amendmentWakeLayer: document.getElementById("amendmentWakeLayer"),
+  commentChorusLayer: document.getElementById("commentChorusLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -670,6 +682,7 @@ const el = {
   witnessThreads: document.getElementById("witnessThreads"),
   returnRoutes: document.getElementById("returnRoutes"),
   amendmentWake: document.getElementById("amendmentWake"),
+  commentChorus: document.getElementById("commentChorus"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -1716,6 +1729,262 @@ function jumpToMostAmendedBeacon() {
   const target = beacons[0];
   if (!target) return;
   activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function compareCommentChorusBeacons(a, b) {
+  const aLatestTs = parseCreatedAt(a && a.latestComment && ((a.latestComment.updated_at) || (a.latestComment.created_at)));
+  const bLatestTs = parseCreatedAt(b && b.latestComment && ((b.latestComment.updated_at) || (b.latestComment.created_at)));
+  if (aLatestTs !== null || bLatestTs !== null) {
+    if (aLatestTs !== null && bLatestTs !== null && aLatestTs !== bLatestTs) return bLatestTs - aLatestTs;
+    if (aLatestTs !== null) return -1;
+    if (bLatestTs !== null) return 1;
+  }
+
+  const aCount = Math.max(0, Number(a && a.fetchedCommentCount) || 0);
+  const bCount = Math.max(0, Number(b && b.fetchedCommentCount) || 0);
+  if (aCount !== bCount) return bCount - aCount;
+
+  const aIssue = parseIssueNumber(a && a.issueNumber);
+  const bIssue = parseIssueNumber(b && b.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return bIssue - aIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+
+  return String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+}
+
+function getLatestFetchedBeaconComment(issueNumber) {
+  const parsedIssue = parseIssueNumber(issueNumber);
+  if (parsedIssue === null) return null;
+  const comments = state.beaconCommentsByIssue.get(parsedIssue);
+  if (!Array.isArray(comments) || comments.length === 0) return null;
+  return [...comments]
+    .sort((a, b) => {
+      const aTs = parseCreatedAt((a && a.updated_at) || (a && a.created_at));
+      const bTs = parseCreatedAt((b && b.updated_at) || (b && b.created_at));
+      if (aTs !== null || bTs !== null) {
+        if (aTs !== null && bTs !== null && aTs !== bTs) return bTs - aTs;
+        if (aTs !== null) return -1;
+        if (bTs !== null) return 1;
+      }
+      const aId = Number(a && a.id);
+      const bId = Number(b && b.id);
+      if (Number.isFinite(aId) || Number.isFinite(bId)) {
+        if (Number.isFinite(aId) && Number.isFinite(bId) && aId !== bId) return bId - aId;
+        if (Number.isFinite(aId)) return -1;
+        if (Number.isFinite(bId)) return 1;
+      }
+      return 0;
+    })[0];
+}
+
+function getCommentChorusBeacons() {
+  return getAmendmentWakeBeacons()
+    .map((beacon) => {
+      const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+      if (issueNumber === null) return null;
+      const comments = state.beaconCommentsByIssue.get(issueNumber);
+      if (!Array.isArray(comments) || comments.length === 0) return null;
+      const latestComment = getLatestFetchedBeaconComment(issueNumber);
+      if (!latestComment) return null;
+      return {
+        ...beacon,
+        issueNumber,
+        comments,
+        fetchedCommentCount: comments.length,
+        latestComment
+      };
+    })
+    .filter(Boolean)
+    .sort(compareCommentChorusBeacons);
+}
+
+function centerViewportOnCommentChorus() {
+  const beacons = getCommentChorusBeacons();
+  if (beacons.length === 0) return;
+  const coords = beacons
+    .map((beacon) => ({ x: Number(beacon && beacon.x), y: Number(beacon && beacon.y) }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToLatestCommentChorusBeacon() {
+  const beacons = getCommentChorusBeacons();
+  if (beacons.length === 0) return;
+  const target = beacons[0];
+  if (!target) return;
+  activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderCommentChorusOverlay() {
+  if (!el.commentChorusLayer) return;
+  const beacons = getCommentChorusBeacons();
+  if (!state.commentChorusEnabled || beacons.length === 0) {
+    el.commentChorusLayer.style.display = "none";
+    el.commentChorusLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "comment-chorus-overlay" });
+  beacons.forEach((beacon) => {
+    const worldX = (Number(beacon.x) / 100) * MAP_W;
+    const worldY = (Number(beacon.y) / 100) * MAP_H;
+    if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) return;
+    const fetchedCount = Math.max(0, Number(beacon.fetchedCommentCount) || 0);
+    const orbitRadius = 9.2 + Math.min(8.2, fetchedCount * 1.1);
+    const isActive = parseIssueNumber(beacon.issueNumber) === activeIssue;
+    const node = createSvgNode("g", {
+      class: `comment-chorus-node${isActive ? " is-active" : ""}`,
+      transform: `translate(${worldX.toFixed(1)} ${worldY.toFixed(1)})`
+    });
+    node.appendChild(createSvgNode("circle", {
+      class: "comment-chorus-orbit",
+      r: orbitRadius.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "comment-chorus-active-ring",
+      r: (orbitRadius + 4.4).toFixed(1)
+    }));
+
+    const satellites = [...(Array.isArray(beacon.comments) ? beacon.comments : [])]
+      .sort((a, b) => {
+        const aTs = parseCreatedAt((a && a.updated_at) || (a && a.created_at));
+        const bTs = parseCreatedAt((b && b.updated_at) || (b && b.created_at));
+        if (aTs !== null || bTs !== null) {
+          if (aTs !== null && bTs !== null && aTs !== bTs) return bTs - aTs;
+          if (aTs !== null) return -1;
+          if (bTs !== null) return 1;
+        }
+        return 0;
+      })
+      .slice(0, 4);
+    satellites.forEach((comment, index) => {
+      const baseId = Number(comment && comment.id);
+      const idOffset = Number.isFinite(baseId) ? (baseId % 360) : (index * 47);
+      const angle = ((idOffset + (index * 87)) % 360) * (Math.PI / 180);
+      const orbitOffset = orbitRadius + 4.1 + (index % 2) * 2.2;
+      const pipX = Math.cos(angle) * orbitOffset;
+      const pipY = Math.sin(angle) * orbitOffset;
+      node.appendChild(createSvgNode("circle", {
+        class: "comment-chorus-satellite",
+        cx: pipX.toFixed(1),
+        cy: pipY.toFixed(1),
+        r: (1.7 + (index === 0 ? 0.45 : 0)).toFixed(1)
+      }));
+    });
+    group.appendChild(node);
+
+    const label = createSvgNode("text", {
+      class: `comment-chorus-count${isActive ? " is-active" : ""}`,
+      x: (worldX + orbitRadius + 6.8).toFixed(1),
+      y: (worldY - Math.max(8.1, orbitRadius * 0.4)).toFixed(1)
+    });
+    label.textContent = String(fetchedCount);
+    group.appendChild(label);
+  });
+
+  el.commentChorusLayer.style.display = "block";
+  el.commentChorusLayer.replaceChildren(group);
+}
+
+function renderCommentChorusPanel() {
+  if (!el.commentChorus) return;
+  if (!state.commentChorusEnabled) {
+    el.commentChorus.innerHTML = "<p>Comment Chorus is hidden. Re-enable it in Controls to hear public comment echoes again.</p>";
+    return;
+  }
+
+  const isLoading = state.beaconCommentsLoading || state.beaconCommentsLoadingIssues.size > 0;
+  const beacons = getCommentChorusBeacons();
+  if (isLoading && beacons.length === 0) {
+    el.commentChorus.innerHTML = "<p class=\"comment-chorus-line\">Loading public comment echoes from GitHub...</p>";
+    return;
+  }
+
+  if (beacons.length === 0) {
+    const errorLine = state.beaconCommentsError
+      ? `<p class="comment-chorus-line">${escapeHtml(state.beaconCommentsError)}</p>`
+      : "";
+    el.commentChorus.innerHTML = `
+      ${errorLine}
+      <p class="comment-chorus-line">Comment Chorus appears once beacon issues gather visible public comments.</p>
+    `;
+    return;
+  }
+
+  const totalComments = beacons.reduce((sum, beacon) => sum + Math.max(0, Number(beacon.fetchedCommentCount) || 0), 0);
+  const distinctCommenters = new Set(
+    beacons.flatMap((beacon) => (Array.isArray(beacon.comments) ? beacon.comments : []))
+      .map((comment) => String(comment && comment.user && comment.user.login ? comment.user.login : "").trim().toLowerCase())
+      .filter(Boolean)
+  ).size;
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+
+  const listHtml = beacons.map((beacon) => {
+    const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+    const latest = beacon.latestComment || null;
+    const latestCommenter = String(latest && latest.user && latest.user.login ? latest.user.login : "Unknown");
+    const latestExcerpt = String(latest && latest.excerpt ? latest.excerpt : "[No public comment body]");
+    const subtitle = [
+      issueNumber === null ? "Issue unknown" : `Issue #${issueNumber}`,
+      beacon.visitor || "Unknown visitor",
+      beacon.region || "Unknown region",
+      `Latest commenter: ${latestCommenter}`
+    ].join(" · ");
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const issueDataAttr = issueNumber === null ? "" : ` data-comment-chorus-issue="${issueNumber}"`;
+    return `
+      <button type="button" class="comment-chorus-item${isActive ? " is-active" : ""}"${issueDataAttr}>
+        <strong>${escapeHtml(beacon.title || "Untitled beacon")}</strong>
+        <span>${escapeHtml(subtitle)}</span>
+        <span class="comment-chorus-excerpt">${escapeHtml(latestExcerpt)}</span>
+      </button>
+    `;
+  }).join("");
+
+  const loadingLine = isLoading
+    ? "<p class=\"comment-chorus-line\">Loading public comment echoes from GitHub...</p>"
+    : "";
+  const errorLine = state.beaconCommentsError
+    ? `<p class="comment-chorus-line">${escapeHtml(state.beaconCommentsError)}</p>`
+    : "";
+  el.commentChorus.innerHTML = `
+    <p class="comment-chorus-line">Comment Chorus surfaces the latest public voices orbiting amended beacons.</p>
+    <p class="comment-chorus-line">Tracking ${beacons.length} chorus beacon(s), ${totalComments} fetched public comment(s), and ${distinctCommenters} distinct commenter(s).</p>
+    ${loadingLine}
+    ${errorLine}
+    <div class="comment-chorus-actions">
+      <button type="button" class="comment-chorus-action" data-comment-chorus-action="center">Center on chorus</button>
+      <button type="button" class="comment-chorus-action" data-comment-chorus-action="jump-latest">Jump to latest comment</button>
+    </div>
+    <div class="comment-chorus-meta">
+      <span class="comment-chorus-pill">Chorus beacons: ${beacons.length}</span>
+      <span class="comment-chorus-pill">Fetched comments: ${totalComments}</span>
+      <span class="comment-chorus-pill">Distinct commenters: ${distinctCommenters}</span>
+    </div>
+    <p class="comment-chorus-subtitle">Latest public echoes</p>
+    <div class="comment-chorus-list">
+      ${listHtml}
+    </div>
+  `;
 }
 
 function centerViewportOnDriftSignals() {
@@ -3173,6 +3442,8 @@ function setActiveTrace(marker) {
   renderReturnRoutesPanel();
   renderAmendmentWakeOverlay();
   renderAmendmentWakePanel();
+  renderCommentChorusOverlay();
+  renderCommentChorusPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -3228,6 +3499,7 @@ function renderBeacons() {
   renderWitnessThreadsOverlay();
   renderReturnRoutesOverlay();
   renderAmendmentWakeOverlay();
+  renderCommentChorusOverlay();
   renderTracePassageOverlay();
 }
 
@@ -5709,6 +5981,30 @@ function toPlainExcerpt(text) {
   return cleaned.length > 280 ? `${cleaned.slice(0, 280).trimEnd()}...` : cleaned;
 }
 
+function toCompactCommentExcerpt(text, maxLength = 120) {
+  const excerpt = toPlainExcerpt(text);
+  if (!excerpt) return "[No public comment body]";
+  const compact = String(excerpt).trim();
+  if (!compact) return "[No public comment body]";
+  return compact.length > maxLength ? `${compact.slice(0, maxLength).trimEnd()}...` : compact;
+}
+
+function normalizeBeaconComment(comment) {
+  const body = String(comment && comment.body ? comment.body : "");
+  const login = String(comment && comment.user && comment.user.login ? comment.user.login : "Unknown");
+  return {
+    id: comment && comment.id,
+    body,
+    excerpt: toCompactCommentExcerpt(body),
+    html_url: comment && comment.html_url ? String(comment.html_url) : "",
+    created_at: comment && comment.created_at ? String(comment.created_at) : "",
+    updated_at: comment && comment.updated_at ? String(comment.updated_at) : "",
+    user: {
+      login
+    }
+  };
+}
+
 function normalizeDriftSignalIssue(issue) {
   const berth = computeDriftSignalBerth(issue && issue.number);
   const title = stripBeaconPrefix(issue && issue.title) || "Untitled beacon";
@@ -5873,6 +6169,116 @@ async function fetchBeaconIssues() {
   return normalizeBeaconIssues(Array.from(mergedIssues.values()));
 }
 
+async function fetchBeaconComments() {
+  const getBeaconCommentFetchQueue = () => {
+    const amendedBeacons = getAmendmentWakeBeacons()
+      .filter((beacon) => Math.max(0, Number(beacon && beacon.commentCount) || 0) > 0)
+      .slice(0, COMMENT_CHORUS_FETCH_LIMIT);
+    if (amendedBeacons.length === 0) return [];
+    return amendedBeacons
+      .map((beacon) => ({
+        beacon,
+        issueNumber: parseIssueNumber(beacon && beacon.issueNumber)
+      }))
+      .filter((entry) => entry.issueNumber !== null)
+      .filter((entry) => {
+        const cached = state.beaconCommentsByIssue.get(entry.issueNumber);
+        const cachedCount = Array.isArray(cached) ? cached.length : 0;
+        const neededCount = Math.max(0, Number(entry.beacon && entry.beacon.commentCount) || 0);
+        if (!Array.isArray(cached) || cachedCount < neededCount) return true;
+        const issueUpdatedAt = parseCreatedAt(entry.beacon && ((entry.beacon.updatedAt) || (entry.beacon.createdAt)));
+        const cacheMeta = state.beaconCommentMetaByIssue.get(entry.issueNumber);
+        const fetchedIssueUpdatedAt = parseCreatedAt(cacheMeta && cacheMeta.issueUpdatedAt);
+        if (issueUpdatedAt !== null && fetchedIssueUpdatedAt !== null && issueUpdatedAt > fetchedIssueUpdatedAt) {
+          return true;
+        }
+        return false;
+      })
+      .slice(0, COMMENT_CHORUS_FETCH_LIMIT);
+  };
+  const queue = getBeaconCommentFetchQueue();
+  if (queue.length === 0 && getAmendmentWakeBeacons().length === 0) {
+    state.beaconCommentsLoading = false;
+    state.beaconCommentsLoadingIssues = new Set();
+    state.beaconCommentsError = "";
+    renderCommentChorusOverlay();
+    renderCommentChorusPanel();
+    return;
+  }
+
+  if (queue.length === 0) {
+    state.beaconCommentsLoading = false;
+    state.beaconCommentsError = "";
+    renderCommentChorusOverlay();
+    renderCommentChorusPanel();
+    return;
+  }
+
+  state.beaconCommentsLoading = true;
+  state.beaconCommentsError = "";
+  const nextLoadingIssues = new Set(state.beaconCommentsLoadingIssues);
+  queue.forEach((entry) => nextLoadingIssues.add(entry.issueNumber));
+  state.beaconCommentsLoadingIssues = nextLoadingIssues;
+  renderCommentChorusPanel();
+
+  let hadError = false;
+  for (const entry of queue) {
+    let mergedComments = [];
+    try {
+      for (let page = 1; page <= COMMENT_CHORUS_COMMENT_PAGE_LIMIT; page += 1) {
+        const url = `https://api.github.com/repos/${OWNER}/${REPO}/issues/${entry.issueNumber}/comments?per_page=100&page=${page}`;
+        const items = await fetchJson(url);
+        if (!Array.isArray(items) || items.length === 0) break;
+        mergedComments = mergedComments.concat(items);
+        if (items.length < 100) break;
+      }
+      const normalized = mergedComments.map(normalizeBeaconComment);
+      state.beaconCommentsByIssue.set(entry.issueNumber, normalized);
+      state.beaconCommentMetaByIssue.set(entry.issueNumber, {
+        fetchedAt: Date.now(),
+        issueUpdatedAt: String((entry.beacon && entry.beacon.updatedAt) || (entry.beacon && entry.beacon.createdAt) || "")
+      });
+    } catch (err) {
+      hadError = true;
+      console.error(err);
+    } finally {
+      const loadingSet = new Set(state.beaconCommentsLoadingIssues);
+      loadingSet.delete(entry.issueNumber);
+      state.beaconCommentsLoadingIssues = loadingSet;
+    }
+  }
+
+  state.beaconCommentsLoading = state.beaconCommentsLoadingIssues.size > 0;
+  if (hadError) {
+    state.beaconCommentsError = "Some public comment echoes could not be loaded from GitHub.";
+  }
+  renderCommentChorusOverlay();
+  renderCommentChorusPanel();
+}
+
+function scheduleBeaconCommentRefresh() {
+  if (state.beaconCommentRefreshTimerId) {
+    window.clearTimeout(state.beaconCommentRefreshTimerId);
+    state.beaconCommentRefreshTimerId = null;
+  }
+  const amendedBeacons = getAmendmentWakeBeacons();
+  if (amendedBeacons.length === 0) {
+    state.beaconCommentsLoading = false;
+    state.beaconCommentsLoadingIssues = new Set();
+    state.beaconCommentsError = "";
+    renderCommentChorusOverlay();
+    renderCommentChorusPanel();
+    return;
+  }
+  state.beaconCommentsLoading = true;
+  state.beaconCommentsError = "";
+  renderCommentChorusPanel();
+  state.beaconCommentRefreshTimerId = window.setTimeout(() => {
+    state.beaconCommentRefreshTimerId = null;
+    fetchBeaconComments();
+  }, COMMENT_CHORUS_REFRESH_DELAY_MS);
+}
+
 function setStatus(message, isError = false) {
   el.statusMsg.textContent = message;
   el.statusMsg.style.color = isError ? "var(--danger)" : "var(--muted)";
@@ -5948,6 +6354,7 @@ function initInteractions() {
   state.witnessThreadsEnabled = !el.toggleWitnessThreads || el.toggleWitnessThreads.checked;
   state.returnRoutesEnabled = !el.toggleReturnRoutes || el.toggleReturnRoutes.checked;
   state.amendmentWakeEnabled = !el.toggleAmendmentWake || el.toggleAmendmentWake.checked;
+  state.commentChorusEnabled = !el.toggleCommentChorus || el.toggleCommentChorus.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -5982,6 +6389,8 @@ function initInteractions() {
   renderReturnRoutesPanel();
   renderAmendmentWakeOverlay();
   renderAmendmentWakePanel();
+  renderCommentChorusOverlay();
+  renderCommentChorusPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -6219,6 +6628,14 @@ function initInteractions() {
       state.amendmentWakeEnabled = el.toggleAmendmentWake.checked;
       renderAmendmentWakeOverlay();
       renderAmendmentWakePanel();
+    });
+  }
+
+  if (el.toggleCommentChorus) {
+    el.toggleCommentChorus.addEventListener("change", () => {
+      state.commentChorusEnabled = el.toggleCommentChorus.checked;
+      renderCommentChorusOverlay();
+      renderCommentChorusPanel();
     });
   }
 
@@ -6605,6 +7022,34 @@ function initInteractions() {
     });
   }
 
+  if (el.commentChorus) {
+    el.commentChorus.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-comment-chorus-action], [data-comment-chorus-issue]")
+        : null;
+      if (!actionNode) return;
+
+      const issueValue = actionNode.getAttribute("data-comment-chorus-issue");
+      const issueNumber = issueValue === null ? null : parseIssueNumber(issueValue);
+      if (issueValue !== null && issueNumber !== null) {
+        const beacon = getCommentChorusBeacons().find((entry) => parseIssueNumber(entry.issueNumber) === issueNumber);
+        if (!beacon) return;
+        activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-comment-chorus-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnCommentChorus();
+        return;
+      }
+      if (action === "jump-latest") {
+        jumpToLatestCommentChorusBeacon();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -6843,6 +7288,8 @@ function initInteractions() {
   renderReturnRoutesPanel();
   renderAmendmentWakeOverlay();
   renderAmendmentWakePanel();
+  renderCommentChorusOverlay();
+  renderCommentChorusPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -6885,6 +7332,9 @@ async function initBeacons() {
     renderReturnRoutesPanel();
     renderAmendmentWakeOverlay();
     renderAmendmentWakePanel();
+    renderCommentChorusOverlay();
+    renderCommentChorusPanel();
+    scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
     const driftCount = getDriftSignals().length;
@@ -6912,6 +7362,9 @@ async function initBeacons() {
     renderReturnRoutesPanel();
     renderAmendmentWakeOverlay();
     renderAmendmentWakePanel();
+    renderCommentChorusOverlay();
+    renderCommentChorusPanel();
+    scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
     setStatus(
@@ -6952,6 +7405,8 @@ function init() {
   renderReturnRoutesPanel();
   renderAmendmentWakeOverlay();
   renderAmendmentWakePanel();
+  renderCommentChorusOverlay();
+  renderCommentChorusPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

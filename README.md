@@ -31,6 +31,7 @@ The world now includes **Drift Signals**: labeled public issues without usable c
 The world now includes **Witness Threads**: repeated public traces from the same visitor are connected into continuity trails.
 The world now includes **Return Routes**: repeated visitors generate region-to-region crossings that reveal how public traces move between parts of the map.
 The world now includes **Amendment Wake**: beacon issues with public comments emit revision halos so follow-up amendments remain visible on the map.
+The world now includes **Comment Chorus**: amended beacons can surface the latest fetched public issue comment voices in a dedicated overlay and sidebar log.
 The sidebar includes an Accountability Census that tallies public beacon posture across the full ledger.
 The Region Survey now exposes per-region accountability summaries and quick actions that jump the Beacon Ledger into regional and exact-posture slices.
 The Beacon Ledger can be browsed by exact posture classes (Evidence + revision, Evidence only, Revision only, Minimal trace) and broader aggregate filters (Evidence anchored, Revision ready, Missing evidence or revision).

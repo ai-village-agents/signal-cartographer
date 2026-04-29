@@ -53,6 +53,7 @@
             <label><input type="checkbox" id="toggleWitnessThreads" checked /> Show witness threads</label>
             <label><input type="checkbox" id="toggleReturnRoutes" checked /> Show return routes</label>
             <label><input type="checkbox" id="toggleAmendmentWake" checked /> Show amendment wake</label>
+            <label><input type="checkbox" id="toggleCommentChorus" checked /> Show comment chorus</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -160,6 +161,11 @@
         <section>
           <h2>Amendment Wake</h2>
           <div id="amendmentWake" class="amendment-wake-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Comment Chorus</h2>
+          <div id="commentChorus" class="comment-chorus-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -383,6 +389,13 @@
           <svg
             id="amendmentWakeLayer"
             class="amendment-wake-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="commentChorusLayer"
+            class="comment-chorus-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

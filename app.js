@@ -566,6 +566,7 @@ const state = {
   basinFeedlinesEnabled: true,
   commentMooringsEnabled: true,
   revisionAlmanacEnabled: true,
+  revisionCausewayEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -651,6 +652,7 @@ const el = {
   toggleBasinFeedlines: document.getElementById("toggleBasinFeedlines"),
   toggleCommentMoorings: document.getElementById("toggleCommentMoorings"),
   toggleRevisionAlmanac: document.getElementById("toggleRevisionAlmanac"),
+  toggleRevisionCauseway: document.getElementById("toggleRevisionCauseway"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -678,6 +680,7 @@ const el = {
   basinFeedlinesLayer: document.getElementById("basinFeedlinesLayer"),
   commentMooringsLayer: document.getElementById("commentMooringsLayer"),
   revisionAlmanacLayer: document.getElementById("revisionAlmanacLayer"),
+  revisionCausewayLayer: document.getElementById("revisionCausewayLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -703,6 +706,7 @@ const el = {
   basinFeedlines: document.getElementById("basinFeedlines"),
   commentMoorings: document.getElementById("commentMoorings"),
   revisionAlmanac: document.getElementById("revisionAlmanac"),
+  revisionCauseway: document.getElementById("revisionCauseway"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -3228,6 +3232,193 @@ function getRevisionAlmanacEntries() {
   }));
 }
 
+function getRevisionCausewayRoute() {
+  return getRevisionAlmanacEntries().map((entry) => ({
+    ...entry
+  }));
+}
+
+function centerViewportOnRevisionCauseway() {
+  const route = getRevisionCausewayRoute();
+  if (route.length === 0) return;
+  const coords = route
+    .map((entry) => ({ x: Number(entry && entry.beacon && entry.beacon.x), y: Number(entry && entry.beacon && entry.beacon.y) }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToFreshestRevisionCausewayWaypoint() {
+  const route = getRevisionCausewayRoute();
+  if (route.length === 0) return;
+  const target = route[0] && route[0].beacon;
+  if (!target) return;
+  activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderRevisionCausewayOverlay() {
+  if (!el.revisionCausewayLayer) return;
+  const route = getRevisionCausewayRoute();
+  if (!state.revisionCausewayEnabled || route.length === 0) {
+    el.revisionCausewayLayer.style.display = "none";
+    el.revisionCausewayLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const coordinates = route.map((entry) => {
+    const x = (Number(entry && entry.beacon && entry.beacon.x) / 100) * MAP_W;
+    const y = (Number(entry && entry.beacon && entry.beacon.y) / 100) * MAP_H;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { entry, x, y };
+  }).filter(Boolean);
+  if (coordinates.length === 0) {
+    el.revisionCausewayLayer.style.display = "none";
+    el.revisionCausewayLayer.replaceChildren();
+    return;
+  }
+
+  const group = createSvgNode("g", { class: "revision-causeway-overlay" });
+  if (coordinates.length >= 2) {
+    const points = coordinates.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+    group.appendChild(createSvgNode("polyline", {
+      class: "revision-causeway-path-glow",
+      points
+    }));
+    group.appendChild(createSvgNode("polyline", {
+      class: "revision-causeway-path",
+      points
+    }));
+  }
+
+  coordinates.forEach((point) => {
+    const issueNumber = parseIssueNumber(point && point.entry && point.entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const badgeAngle = ((issueNumber === null ? point.entry.rank : issueNumber) % 14) * (Math.PI / 7);
+    const badgeDistance = 14.5 + ((point.entry.rank - 1) % 3) * 2.8;
+    const badgeX = point.x + Math.cos(badgeAngle) * badgeDistance;
+    const badgeY = point.y - Math.sin(badgeAngle) * badgeDistance;
+    const node = createSvgNode("g", { class: `revision-causeway-node${isActive ? " is-active" : ""}` });
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-causeway-node-halo",
+      cx: point.x.toFixed(1),
+      cy: point.y.toFixed(1),
+      r: "8.5"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-causeway-node-core",
+      cx: point.x.toFixed(1),
+      cy: point.y.toFixed(1),
+      r: "4.2"
+    }));
+    node.appendChild(createSvgNode("line", {
+      class: "revision-causeway-tether",
+      x1: point.x.toFixed(1),
+      y1: point.y.toFixed(1),
+      x2: badgeX.toFixed(1),
+      y2: badgeY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-causeway-badge",
+      cx: badgeX.toFixed(1),
+      cy: badgeY.toFixed(1),
+      r: "8.1"
+    }));
+    const label = createSvgNode("text", {
+      class: "revision-causeway-badge-text",
+      x: badgeX.toFixed(1),
+      y: (badgeY + 0.4).toFixed(1)
+    });
+    label.textContent = String(point.entry.rank);
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  el.revisionCausewayLayer.style.display = "block";
+  el.revisionCausewayLayer.replaceChildren(group);
+}
+
+function renderRevisionCausewayPanel() {
+  if (!el.revisionCauseway) return;
+  if (!state.revisionCausewayEnabled) {
+    el.revisionCauseway.innerHTML = "<p class=\"revision-causeway-line\">Revision Causeway is hidden. Re-enable it in Controls to restore the freshness route across amended beacons.</p>";
+    return;
+  }
+
+  const route = getRevisionCausewayRoute();
+  if (route.length === 0) {
+    el.revisionCauseway.innerHTML = "<p class=\"revision-causeway-line\">Revision Causeway appears once amended beacons begin forming a visible revision route.</p>";
+    return;
+  }
+
+  const freshest = route[0];
+  const freshestLabel = freshest && freshest.freshestActivityLabel ? freshest.freshestActivityLabel : "time unknown";
+  const crossings = Math.max(route.length - 1, 0);
+  const freshWithin24hCount = route.reduce((sum, entry) => (
+    sum + (Number.isFinite(entry.latestActivityTs) && (Date.now() - entry.latestActivityTs) <= (24 * 60 * 60 * 1000) ? 1 : 0)
+  ), 0);
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const listHtml = route.map((entry) => {
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const visitorLabel = entry && entry.visitor ? entry.visitor : "Unknown visitor";
+    const regionLabel = entry && entry.region ? entry.region : "Unplaced region";
+    const activitySourceLabel = entry && entry.activitySource ? entry.activitySource : "Visible activity";
+    const lineOne = `${entry.rank}. Issue #${issueNumber === null ? "?" : issueNumber} · ${entry.title || "Untitled beacon"}`;
+    const lineTwo = `${visitorLabel} · ${regionLabel} · ${activitySourceLabel}`;
+    const pills = [];
+    if (Number.isFinite(entry.publicCommentCount)) {
+      pills.push(`<span class="revision-causeway-pill">Public comments: ${Math.max(0, Number(entry.publicCommentCount) || 0)}</span>`);
+    }
+    if (Number.isFinite(entry.fetchedCommentCount) && Math.max(0, Number(entry.fetchedCommentCount) || 0) > 0) {
+      pills.push(`<span class="revision-causeway-pill">Fetched comments: ${Math.max(0, Number(entry.fetchedCommentCount) || 0)}</span>`);
+    }
+    if (Number.isFinite(entry.distinctCommenters) && Math.max(0, Number(entry.distinctCommenters) || 0) > 0) {
+      pills.push(`<span class="revision-causeway-pill">Distinct commenters: ${Math.max(0, Number(entry.distinctCommenters) || 0)}</span>`);
+    }
+    return `
+      <button type="button" class="revision-causeway-item${isActive ? " is-active" : ""}" data-revision-causeway-issue="${issueNumber === null ? "" : issueNumber}">
+        <strong>${escapeHtml(lineOne)}</strong>
+        <span>${escapeHtml(lineTwo)}</span>
+        <span class="revision-causeway-age">${escapeHtml(`Latest visible activity ${formatCompactAge(entry.latestActivityTs)}`)}</span>
+        <span class="revision-causeway-meta">${pills.join("")}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.revisionCauseway.innerHTML = `
+    <p class="revision-causeway-line">Revision Causeway connects amended beacons into a visible route so freshness order can be followed across the map.</p>
+    <p class="revision-causeway-line">Tracing ${route.length} waypoint(s) across ${crossings} crossing(s), with freshest visible activity at ${escapeHtml(freshestLabel)}.</p>
+    <div class="revision-causeway-actions">
+      <button type="button" class="revision-causeway-action" data-revision-causeway-action="center">Center on causeway</button>
+      <button type="button" class="revision-causeway-action" data-revision-causeway-action="jump-freshest">Jump to freshest waypoint</button>
+    </div>
+    <div class="revision-causeway-meta">
+      <span class="revision-causeway-pill">Waypoints: ${route.length}</span>
+      <span class="revision-causeway-pill">Crossings: ${crossings}</span>
+      <span class="revision-causeway-pill">Fresh within 24h: ${freshWithin24hCount}</span>
+    </div>
+    <p class="revision-causeway-subtitle">Chronology route</p>
+    <div class="revision-causeway-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnRevisionAlmanac() {
   const entries = getRevisionAlmanacEntries();
   if (entries.length === 0) return;
@@ -4852,6 +5043,8 @@ function setActiveTrace(marker) {
   renderCommentMooringsPanel();
   renderRevisionAlmanacOverlay();
   renderRevisionAlmanacPanel();
+  renderRevisionCausewayOverlay();
+  renderRevisionCausewayPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -4911,6 +5104,7 @@ function renderBeacons() {
   renderRevisionTidesOverlay();
   renderCommentMooringsOverlay();
   renderRevisionAlmanacOverlay();
+  renderRevisionCausewayOverlay();
   renderTracePassageOverlay();
 }
 
@@ -7624,6 +7818,8 @@ async function fetchBeaconComments() {
     renderCommentMooringsPanel();
     renderRevisionAlmanacOverlay();
     renderRevisionAlmanacPanel();
+    renderRevisionCausewayOverlay();
+    renderRevisionCausewayPanel();
     return;
   }
 
@@ -7642,6 +7838,8 @@ async function fetchBeaconComments() {
     renderCommentMooringsPanel();
     renderRevisionAlmanacOverlay();
     renderRevisionAlmanacPanel();
+    renderRevisionCausewayOverlay();
+    renderRevisionCausewayPanel();
     return;
   }
 
@@ -7695,6 +7893,8 @@ async function fetchBeaconComments() {
   renderCommentMooringsPanel();
   renderRevisionAlmanacOverlay();
   renderRevisionAlmanacPanel();
+  renderRevisionCausewayOverlay();
+  renderRevisionCausewayPanel();
 }
 
 function scheduleBeaconCommentRefresh() {
@@ -7719,6 +7919,8 @@ function scheduleBeaconCommentRefresh() {
     renderCommentMooringsPanel();
     renderRevisionAlmanacOverlay();
     renderRevisionAlmanacPanel();
+    renderRevisionCausewayOverlay();
+    renderRevisionCausewayPanel();
     return;
   }
   state.beaconCommentsLoading = true;
@@ -7811,6 +8013,7 @@ function initInteractions() {
   state.basinFeedlinesEnabled = !el.toggleBasinFeedlines || el.toggleBasinFeedlines.checked;
   state.commentMooringsEnabled = !el.toggleCommentMoorings || el.toggleCommentMoorings.checked;
   state.revisionAlmanacEnabled = !el.toggleRevisionAlmanac || el.toggleRevisionAlmanac.checked;
+  state.revisionCausewayEnabled = !el.toggleRevisionCauseway || el.toggleRevisionCauseway.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -7857,6 +8060,8 @@ function initInteractions() {
   renderCommentMooringsPanel();
   renderRevisionAlmanacOverlay();
   renderRevisionAlmanacPanel();
+  renderRevisionCausewayOverlay();
+  renderRevisionCausewayPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -8118,6 +8323,8 @@ function initInteractions() {
       renderCommentMooringsPanel();
       renderRevisionAlmanacOverlay();
       renderRevisionAlmanacPanel();
+      renderRevisionCausewayOverlay();
+      renderRevisionCausewayPanel();
     });
   }
 
@@ -8132,6 +8339,8 @@ function initInteractions() {
       renderCommentMooringsPanel();
       renderRevisionAlmanacOverlay();
       renderRevisionAlmanacPanel();
+      renderRevisionCausewayOverlay();
+      renderRevisionCausewayPanel();
     });
   }
 
@@ -8144,6 +8353,8 @@ function initInteractions() {
       renderCommentMooringsPanel();
       renderRevisionAlmanacOverlay();
       renderRevisionAlmanacPanel();
+      renderRevisionCausewayOverlay();
+      renderRevisionCausewayPanel();
     });
   }
 
@@ -8154,6 +8365,8 @@ function initInteractions() {
       renderCommentMooringsPanel();
       renderRevisionAlmanacOverlay();
       renderRevisionAlmanacPanel();
+      renderRevisionCausewayOverlay();
+      renderRevisionCausewayPanel();
     });
   }
 
@@ -8162,6 +8375,16 @@ function initInteractions() {
       state.revisionAlmanacEnabled = el.toggleRevisionAlmanac.checked;
       renderRevisionAlmanacOverlay();
       renderRevisionAlmanacPanel();
+      renderRevisionCausewayOverlay();
+      renderRevisionCausewayPanel();
+    });
+  }
+
+  if (el.toggleRevisionCauseway) {
+    el.toggleRevisionCauseway.addEventListener("change", () => {
+      state.revisionCausewayEnabled = el.toggleRevisionCauseway.checked;
+      renderRevisionCausewayOverlay();
+      renderRevisionCausewayPanel();
     });
   }
 
@@ -8714,6 +8937,34 @@ function initInteractions() {
     });
   }
 
+  if (el.revisionCauseway) {
+    el.revisionCauseway.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-revision-causeway-action], [data-revision-causeway-issue]")
+        : null;
+      if (!actionNode) return;
+
+      const issueValue = actionNode.getAttribute("data-revision-causeway-issue");
+      const issueNumber = issueValue === null ? null : parseIssueNumber(issueValue);
+      if (issueValue !== null && issueNumber !== null) {
+        const entry = getRevisionCausewayRoute().find((item) => parseIssueNumber(item.issueNumber) === issueNumber);
+        if (!entry || !entry.beacon) return;
+        activateMarker({ ...entry.beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-revision-causeway-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnRevisionCauseway();
+        return;
+      }
+      if (action === "jump-freshest") {
+        jumpToFreshestRevisionCausewayWaypoint();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -8964,6 +9215,8 @@ function initInteractions() {
   renderCommentMooringsPanel();
   renderRevisionAlmanacOverlay();
   renderRevisionAlmanacPanel();
+  renderRevisionCausewayOverlay();
+  renderRevisionCausewayPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -9018,6 +9271,8 @@ async function initBeacons() {
     renderCommentMooringsPanel();
     renderRevisionAlmanacOverlay();
     renderRevisionAlmanacPanel();
+    renderRevisionCausewayOverlay();
+    renderRevisionCausewayPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -9058,6 +9313,8 @@ async function initBeacons() {
     renderCommentMooringsPanel();
     renderRevisionAlmanacOverlay();
     renderRevisionAlmanacPanel();
+    renderRevisionCausewayOverlay();
+    renderRevisionCausewayPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -9111,6 +9368,8 @@ function init() {
   renderCommentMooringsPanel();
   renderRevisionAlmanacOverlay();
   renderRevisionAlmanacPanel();
+  renderRevisionCausewayOverlay();
+  renderRevisionCausewayPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

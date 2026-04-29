@@ -1810,6 +1810,105 @@ body {
   box-shadow: 0 0 16px rgba(136, 218, 255, 0.25);
 }
 
+.basin-feedlines-panel {
+  border: 1px solid rgba(164, 229, 255, 0.54);
+  background: rgba(10, 39, 67, 0.86);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.basin-feedlines-line {
+  margin: 0;
+  line-height: 1.34;
+  color: #e2f5ff;
+}
+
+.basin-feedlines-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.basin-feedlines-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(154, 223, 255, 0.66);
+  background: rgba(21, 84, 129, 0.84);
+  color: #ebf9ff;
+  font-size: 0.78rem;
+}
+
+.basin-feedlines-action:hover,
+.basin-feedlines-action:focus-visible {
+  border-color: rgba(219, 244, 255, 0.96);
+  background: rgba(31, 106, 160, 0.92);
+  box-shadow: 0 0 14px rgba(142, 220, 255, 0.28);
+}
+
+.basin-feedlines-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.basin-feedlines-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(176, 232, 255, 0.6);
+  background: rgba(30, 101, 152, 0.48);
+  color: #ecf8ff;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.basin-feedlines-subtitle {
+  margin: 0;
+  color: #d4efff;
+}
+
+.basin-feedlines-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.basin-feedline-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgba(163, 222, 255, 0.56);
+  background: rgba(18, 76, 120, 0.84);
+  color: #ebf8ff;
+}
+
+.basin-feedline-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.basin-feedline-item span {
+  font-size: 0.74rem;
+  color: rgba(224, 245, 255, 0.94);
+  line-height: 1.28;
+}
+
+.basin-feedline-age {
+  color: rgba(203, 240, 255, 0.96);
+}
+
+.basin-feedline-item:hover,
+.basin-feedline-item:focus-visible,
+.basin-feedline-item.is-active {
+  border-color: rgba(217, 245, 255, 0.96);
+  background: rgba(26, 102, 155, 0.94);
+  box-shadow: 0 0 16px rgba(136, 216, 255, 0.25);
+}
+
 .relay-panel {
   border: 1px solid rgba(182, 240, 255, 0.34);
   background: rgba(8, 28, 41, 0.84);
@@ -2445,6 +2544,7 @@ button:hover {
 .comment-chorus-layer,
 .revision-tides-layer,
 .revision-confluence-layer,
+.basin-feedlines-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -2567,6 +2667,14 @@ button:hover {
 }
 
 .revision-confluence-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.basin-feedlines-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -3802,6 +3910,58 @@ button:hover {
 
 .revision-confluence-basin.is-active .revision-confluence-ripple {
   stroke: rgba(185, 233, 255, 0.62);
+}
+
+.basin-feedline-stroke {
+  fill: none;
+  stroke: rgba(165, 229, 255, 0.58);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-dasharray: 6 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.basin-feedline-origin {
+  fill: rgba(124, 207, 255, 0.22);
+  stroke: rgba(193, 239, 255, 0.8);
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+}
+
+.basin-feedline-end {
+  fill: rgba(224, 248, 255, 0.95);
+  stroke: rgba(196, 242, 255, 0.96);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.basin-feedline-pulse {
+  fill: rgba(138, 219, 255, 0.14);
+  stroke: rgba(182, 237, 255, 0.56);
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+  animation: amendmentPulse 2.5s ease-in-out infinite;
+}
+
+.basin-feedline.is-active .basin-feedline-stroke {
+  stroke: rgba(224, 247, 255, 0.95);
+  stroke-width: 1.9;
+  filter: drop-shadow(0 0 8px rgba(157, 233, 255, 0.46));
+}
+
+.basin-feedline.is-active .basin-feedline-origin {
+  stroke: rgba(225, 247, 255, 0.96);
+  filter: drop-shadow(0 0 9px rgba(148, 223, 255, 0.44));
+}
+
+.basin-feedline.is-active .basin-feedline-end {
+  stroke: rgba(234, 251, 255, 0.99);
+  filter: drop-shadow(0 0 7px rgba(182, 241, 255, 0.66));
+}
+
+.basin-feedline.is-active .basin-feedline-pulse {
+  stroke: rgba(217, 248, 255, 0.92);
+  fill: rgba(170, 233, 255, 0.2);
 }
 
 .survey-grid-current-label {

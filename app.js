@@ -563,6 +563,7 @@ const state = {
   commentChorusEnabled: true,
   revisionTidesEnabled: true,
   revisionConfluenceEnabled: true,
+  basinFeedlinesEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -645,6 +646,7 @@ const el = {
   toggleCommentChorus: document.getElementById("toggleCommentChorus"),
   toggleRevisionTides: document.getElementById("toggleRevisionTides"),
   toggleRevisionConfluence: document.getElementById("toggleRevisionConfluence"),
+  toggleBasinFeedlines: document.getElementById("toggleBasinFeedlines"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -669,6 +671,7 @@ const el = {
   commentChorusLayer: document.getElementById("commentChorusLayer"),
   revisionTidesLayer: document.getElementById("revisionTidesLayer"),
   revisionConfluenceLayer: document.getElementById("revisionConfluenceLayer"),
+  basinFeedlinesLayer: document.getElementById("basinFeedlinesLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -691,6 +694,7 @@ const el = {
   commentChorus: document.getElementById("commentChorus"),
   revisionTides: document.getElementById("revisionTides"),
   revisionConfluence: document.getElementById("revisionConfluence"),
+  basinFeedlines: document.getElementById("basinFeedlines"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -2551,6 +2555,239 @@ function renderRevisionConfluencePanel() {
   `;
 }
 
+function compareBasinFeedlineEntries(a, b) {
+  const aLatestTs = Number.isFinite(a && a.latestActivityTs) ? a.latestActivityTs : null;
+  const bLatestTs = Number.isFinite(b && b.latestActivityTs) ? b.latestActivityTs : null;
+  if (aLatestTs !== null || bLatestTs !== null) {
+    if (aLatestTs !== null && bLatestTs !== null && aLatestTs !== bLatestTs) return bLatestTs - aLatestTs;
+    if (aLatestTs !== null) return -1;
+    if (bLatestTs !== null) return 1;
+  }
+
+  const aPublicCount = Math.max(0, Number(a && a.publicCommentCount) || 0);
+  const bPublicCount = Math.max(0, Number(b && b.publicCommentCount) || 0);
+  if (aPublicCount !== bPublicCount) return bPublicCount - aPublicCount;
+
+  const aIssue = parseIssueNumber(a && a.issueNumber);
+  const bIssue = parseIssueNumber(b && b.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return bIssue - aIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+
+  return String(a && a.beacon && a.beacon.title ? a.beacon.title : "").localeCompare(
+    String(b && b.beacon && b.beacon.title ? b.beacon.title : "")
+  );
+}
+
+function getBasinFeedlineEntries() {
+  return getAmendmentWakeBeacons()
+    .map((beacon) => {
+      const region = normalizeRevisionConfluenceRegionName(beacon && beacon.region);
+      const regionBound = REGION_BOUNDS.find((bound) => bound.region === region) || null;
+      const activity = getLatestVisibleRevisionActivity(beacon);
+      const issueNumber = activity.issueNumber;
+      const latestActivityTs = Number.isFinite(activity.latestActivityTs) ? activity.latestActivityTs : null;
+      const publicCommentCount = Math.max(0, Number(beacon && beacon.commentCount) || 0);
+      const fetchedCommentCount = Math.max(0, Number(activity && activity.fetchedCommentCount) || 0);
+      const distinctCommenters = new Set(
+        (Array.isArray(activity && activity.fetchedComments) ? activity.fetchedComments : [])
+          .map((comment) => String(comment && comment.user && comment.user.login ? comment.user.login : "").trim().toLowerCase())
+          .filter(Boolean)
+      ).size;
+      return {
+        region,
+        regionBound,
+        beacon: {
+          ...beacon,
+          issueNumber: issueNumber === null ? beacon && beacon.issueNumber : issueNumber
+        },
+        issueNumber,
+        latestActivityTs,
+        freshestActivityLabel: formatCompactAge(latestActivityTs),
+        activitySource: activity && activity.activitySource ? activity.activitySource : "Issue update",
+        publicCommentCount,
+        fetchedCommentCount,
+        distinctCommenters
+      };
+    })
+    .sort(compareBasinFeedlineEntries);
+}
+
+function centerViewportOnBasinFeedlines() {
+  const entries = getBasinFeedlineEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => {
+      const bound = entry.regionBound;
+      const beacon = entry.beacon;
+      const points = [];
+      if (bound) {
+        points.push({
+          x: Number(bound.left) + Number(bound.width) / 2,
+          y: Number(bound.top) + Number(bound.height) / 2
+        });
+      }
+      points.push({
+        x: Number(beacon && beacon.x),
+        y: Number(beacon && beacon.y)
+      });
+      return points;
+    })
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToFreshestBasinFeedline() {
+  const entries = getBasinFeedlineEntries();
+  if (entries.length === 0) return;
+  const target = entries[0] && entries[0].beacon;
+  if (!target) return;
+  activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderBasinFeedlinesOverlay() {
+  if (!el.basinFeedlinesLayer) return;
+  const entries = getBasinFeedlineEntries();
+  if (!state.basinFeedlinesEnabled || entries.length === 0) {
+    el.basinFeedlinesLayer.style.display = "none";
+    el.basinFeedlinesLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "basin-feedlines-overlay" });
+  entries.forEach((entry) => {
+    const bound = entry.regionBound;
+    const beaconX = Number(entry && entry.beacon && entry.beacon.x);
+    const beaconY = Number(entry && entry.beacon && entry.beacon.y);
+    if (!bound || !Number.isFinite(beaconX) || !Number.isFinite(beaconY)) return;
+    const basinCenterX = ((Number(bound.left) + Number(bound.width) / 2) / 100) * MAP_W;
+    const basinCenterY = ((Number(bound.top) + Number(bound.height) / 2) / 100) * MAP_H;
+    const beaconWorldX = (beaconX / 100) * MAP_W;
+    const beaconWorldY = (beaconY / 100) * MAP_H;
+    if (![basinCenterX, basinCenterY, beaconWorldX, beaconWorldY].every(Number.isFinite)) return;
+    const issueNumber = parseIssueNumber(entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const node = createSvgNode("g", {
+      class: `basin-feedline${isActive ? " is-active" : ""}`
+    });
+    node.appendChild(createSvgNode("line", {
+      class: "basin-feedline-stroke",
+      x1: basinCenterX.toFixed(1),
+      y1: basinCenterY.toFixed(1),
+      x2: beaconWorldX.toFixed(1),
+      y2: beaconWorldY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "basin-feedline-origin",
+      cx: basinCenterX.toFixed(1),
+      cy: basinCenterY.toFixed(1),
+      r: "3.4"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "basin-feedline-pulse",
+      cx: beaconWorldX.toFixed(1),
+      cy: beaconWorldY.toFixed(1),
+      r: "7.2"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "basin-feedline-end",
+      cx: beaconWorldX.toFixed(1),
+      cy: beaconWorldY.toFixed(1),
+      r: "2.8"
+    }));
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.basinFeedlinesLayer.style.display = "none";
+    el.basinFeedlinesLayer.replaceChildren();
+    return;
+  }
+
+  el.basinFeedlinesLayer.style.display = "block";
+  el.basinFeedlinesLayer.replaceChildren(group);
+}
+
+function renderBasinFeedlinesPanel() {
+  if (!el.basinFeedlines) return;
+  if (!state.basinFeedlinesEnabled) {
+    el.basinFeedlines.innerHTML = "<p class=\"basin-feedlines-line\">Basin Feedlines is hidden. Re-enable it in Controls to reconnect basins to their contributing beacons.</p>";
+    return;
+  }
+
+  const entries = getBasinFeedlineEntries();
+  if (entries.length === 0) {
+    el.basinFeedlines.innerHTML = "<p class=\"basin-feedlines-line\">Basin Feedlines appears once amended beacons begin feeding visible revision basins.</p>";
+    return;
+  }
+
+  const basinCount = new Set(entries.map((entry) => entry.region)).size;
+  const freshWithin24hCount = entries.reduce((sum, entry) => (
+    sum + (Number.isFinite(entry.latestActivityTs) && (Date.now() - entry.latestActivityTs) <= (24 * 60 * 60 * 1000) ? 1 : 0)
+  ), 0);
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const freshest = entries[0] || null;
+  const freshestIssue = parseIssueNumber(freshest && freshest.issueNumber);
+  const freshestLabel = freshest
+    ? `${freshest.region} / ${freshestIssue === null ? "issue unknown" : `Issue #${freshestIssue}`}`
+    : "unknown basin";
+
+  const listHtml = entries.map((entry) => {
+    const issueNumber = parseIssueNumber(entry.issueNumber);
+    const issueLabel = issueNumber === null ? "Issue unknown" : `Issue #${issueNumber}`;
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const title = String(entry && entry.beacon && entry.beacon.title ? entry.beacon.title : "Untitled beacon");
+    const visitor = String(entry && entry.beacon && entry.beacon.visitor ? entry.beacon.visitor : "Unknown visitor");
+    const commenterPill = entry.distinctCommenters > 0
+      ? `<span class="basin-feedlines-pill">Distinct commenters: ${entry.distinctCommenters}</span>`
+      : "";
+    return `
+      <button type="button" class="basin-feedline-item${isActive ? " is-active" : ""}" data-basin-feedline-issue="${issueNumber === null ? "" : issueNumber}">
+        <strong>${escapeHtml(`${entry.region} → ${issueLabel} · ${title}`)}</strong>
+        <span>${escapeHtml(`${visitor} · ${entry.publicCommentCount} public comment(s) · ${entry.fetchedCommentCount} fetched comment(s)`)}</span>
+        <span class="basin-feedline-age">${escapeHtml(`Freshest activity ${formatCompactAge(entry.latestActivityTs)} · ${entry.activitySource}`)}</span>
+        ${commenterPill}
+      </button>
+    `;
+  }).join("");
+
+  el.basinFeedlines.innerHTML = `
+    <p class="basin-feedlines-line">Basin Feedlines traces which amended beacons are feeding each revision basin so regional synthesis stays anchored to visible public records.</p>
+    <p class="basin-feedlines-line">Tracing ${entries.length} feedline(s) across ${basinCount} basin(s), with freshest input from ${escapeHtml(freshestLabel)}.</p>
+    <div class="basin-feedlines-actions">
+      <button type="button" class="basin-feedlines-action" data-basin-feedlines-action="center">Center on feedlines</button>
+      <button type="button" class="basin-feedlines-action" data-basin-feedlines-action="jump-freshest">Jump to freshest feeder</button>
+    </div>
+    <div class="basin-feedlines-meta">
+      <span class="basin-feedlines-pill">Feedlines: ${entries.length}</span>
+      <span class="basin-feedlines-pill">Basins reached: ${basinCount}</span>
+      <span class="basin-feedlines-pill">Fresh within 24h: ${freshWithin24hCount}</span>
+    </div>
+    <p class="basin-feedlines-subtitle">Feeding beacons</p>
+    <div class="basin-feedlines-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnDriftSignals() {
   const driftSignals = getDriftSignals();
   if (driftSignals.length === 0) return;
@@ -4012,6 +4249,8 @@ function setActiveTrace(marker) {
   renderRevisionTidesPanel();
   renderRevisionConfluenceOverlay();
   renderRevisionConfluencePanel();
+  renderBasinFeedlinesOverlay();
+  renderBasinFeedlinesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -6776,6 +7015,8 @@ async function fetchBeaconComments() {
     renderRevisionTidesPanel();
     renderRevisionConfluenceOverlay();
     renderRevisionConfluencePanel();
+    renderBasinFeedlinesOverlay();
+    renderBasinFeedlinesPanel();
     return;
   }
 
@@ -6788,6 +7029,8 @@ async function fetchBeaconComments() {
     renderRevisionTidesPanel();
     renderRevisionConfluenceOverlay();
     renderRevisionConfluencePanel();
+    renderBasinFeedlinesOverlay();
+    renderBasinFeedlinesPanel();
     return;
   }
 
@@ -6835,6 +7078,8 @@ async function fetchBeaconComments() {
   renderRevisionTidesPanel();
   renderRevisionConfluenceOverlay();
   renderRevisionConfluencePanel();
+  renderBasinFeedlinesOverlay();
+  renderBasinFeedlinesPanel();
 }
 
 function scheduleBeaconCommentRefresh() {
@@ -6853,6 +7098,8 @@ function scheduleBeaconCommentRefresh() {
     renderRevisionTidesPanel();
     renderRevisionConfluenceOverlay();
     renderRevisionConfluencePanel();
+    renderBasinFeedlinesOverlay();
+    renderBasinFeedlinesPanel();
     return;
   }
   state.beaconCommentsLoading = true;
@@ -6942,6 +7189,7 @@ function initInteractions() {
   state.commentChorusEnabled = !el.toggleCommentChorus || el.toggleCommentChorus.checked;
   state.revisionTidesEnabled = !el.toggleRevisionTides || el.toggleRevisionTides.checked;
   state.revisionConfluenceEnabled = !el.toggleRevisionConfluence || el.toggleRevisionConfluence.checked;
+  state.basinFeedlinesEnabled = !el.toggleBasinFeedlines || el.toggleBasinFeedlines.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -6982,6 +7230,8 @@ function initInteractions() {
   renderRevisionTidesPanel();
   renderRevisionConfluenceOverlay();
   renderRevisionConfluencePanel();
+  renderBasinFeedlinesOverlay();
+  renderBasinFeedlinesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -7237,6 +7487,8 @@ function initInteractions() {
       renderRevisionTidesPanel();
       renderRevisionConfluenceOverlay();
       renderRevisionConfluencePanel();
+      renderBasinFeedlinesOverlay();
+      renderBasinFeedlinesPanel();
     });
   }
 
@@ -7245,6 +7497,16 @@ function initInteractions() {
       state.revisionConfluenceEnabled = el.toggleRevisionConfluence.checked;
       renderRevisionConfluenceOverlay();
       renderRevisionConfluencePanel();
+      renderBasinFeedlinesOverlay();
+      renderBasinFeedlinesPanel();
+    });
+  }
+
+  if (el.toggleBasinFeedlines) {
+    el.toggleBasinFeedlines.addEventListener("change", () => {
+      state.basinFeedlinesEnabled = el.toggleBasinFeedlines.checked;
+      renderBasinFeedlinesOverlay();
+      renderBasinFeedlinesPanel();
     });
   }
 
@@ -7714,6 +7976,34 @@ function initInteractions() {
     });
   }
 
+  if (el.basinFeedlines) {
+    el.basinFeedlines.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-basin-feedlines-action], [data-basin-feedline-issue]")
+        : null;
+      if (!actionNode) return;
+
+      const issueValue = actionNode.getAttribute("data-basin-feedline-issue");
+      const issueNumber = issueValue === null ? null : parseIssueNumber(issueValue);
+      if (issueValue !== null && issueNumber !== null) {
+        const entry = getBasinFeedlineEntries().find((item) => parseIssueNumber(item.issueNumber) === issueNumber);
+        if (!entry || !entry.beacon) return;
+        activateMarker({ ...entry.beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-basin-feedlines-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnBasinFeedlines();
+        return;
+      }
+      if (action === "jump-freshest") {
+        jumpToFreshestBasinFeedline();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -7958,6 +8248,8 @@ function initInteractions() {
   renderRevisionTidesPanel();
   renderRevisionConfluenceOverlay();
   renderRevisionConfluencePanel();
+  renderBasinFeedlinesOverlay();
+  renderBasinFeedlinesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -8006,6 +8298,8 @@ async function initBeacons() {
     renderRevisionTidesPanel();
     renderRevisionConfluenceOverlay();
     renderRevisionConfluencePanel();
+    renderBasinFeedlinesOverlay();
+    renderBasinFeedlinesPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -8040,6 +8334,8 @@ async function initBeacons() {
     renderRevisionTidesPanel();
     renderRevisionConfluenceOverlay();
     renderRevisionConfluencePanel();
+    renderBasinFeedlinesOverlay();
+    renderBasinFeedlinesPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -8087,6 +8383,8 @@ function init() {
   renderRevisionTidesPanel();
   renderRevisionConfluenceOverlay();
   renderRevisionConfluencePanel();
+  renderBasinFeedlinesOverlay();
+  renderBasinFeedlinesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

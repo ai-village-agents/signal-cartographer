@@ -555,6 +555,7 @@ const state = {
   beaconSoundingsEnabled: true,
   tracePassageEnabled: true,
   witnessThreadsEnabled: true,
+  returnRoutesEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -626,6 +627,7 @@ const el = {
   toggleBeaconSoundings: document.getElementById("toggleBeaconSoundings"),
   toggleTracePassage: document.getElementById("toggleTracePassage"),
   toggleWitnessThreads: document.getElementById("toggleWitnessThreads"),
+  toggleReturnRoutes: document.getElementById("toggleReturnRoutes"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -645,6 +647,7 @@ const el = {
   driftSignalLayer: document.getElementById("driftSignalLayer"),
   tracePassageLayer: document.getElementById("tracePassageLayer"),
   witnessThreadsLayer: document.getElementById("witnessThreadsLayer"),
+  returnRoutesLayer: document.getElementById("returnRoutesLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -662,6 +665,7 @@ const el = {
   driftSignals: document.getElementById("driftSignals"),
   tracePassage: document.getElementById("tracePassage"),
   witnessThreads: document.getElementById("witnessThreads"),
+  returnRoutes: document.getElementById("returnRoutes"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -1615,6 +1619,39 @@ function jumpToLongestWitnessThread() {
   activateMarker({ ...targetThread.newestBeacon, type: "beacon" }, { focus: true, updateHash: true });
 }
 
+function centerViewportOnReturnRoutes() {
+  const routes = getReturnRoutes();
+  if (routes.length === 0) return;
+  const coords = routes
+    .flatMap((route) => [route.fromCenter, route.toCenter])
+    .map((coord) => ({ x: Number(coord && coord.x), y: Number(coord && coord.y) }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToBusiestReturnRoute() {
+  const routes = getReturnRoutes();
+  if (routes.length === 0) return;
+  const route = routes[0];
+  if (!route || !route.newestBeacon) return;
+  activateMarker({ ...route.newestBeacon, type: "beacon" }, { focus: true, updateHash: true });
+}
+
 function centerViewportOnDriftSignals() {
   const driftSignals = getDriftSignals();
   if (driftSignals.length === 0) return;
@@ -2486,6 +2523,146 @@ function getWitnessThreads() {
   };
 }
 
+function compareReturnRouteEntries(a, b) {
+  const aCrossings = Number(a && a.crossingCount);
+  const bCrossings = Number(b && b.crossingCount);
+  if (Number.isFinite(aCrossings) || Number.isFinite(bCrossings)) {
+    if (Number.isFinite(aCrossings) && Number.isFinite(bCrossings) && aCrossings !== bCrossings) {
+      return bCrossings - aCrossings;
+    }
+    if (Number.isFinite(aCrossings)) return -1;
+    if (Number.isFinite(bCrossings)) return 1;
+  }
+
+  const aVisitors = Number(a && a.uniqueVisitorCount);
+  const bVisitors = Number(b && b.uniqueVisitorCount);
+  if (Number.isFinite(aVisitors) || Number.isFinite(bVisitors)) {
+    if (Number.isFinite(aVisitors) && Number.isFinite(bVisitors) && aVisitors !== bVisitors) {
+      return bVisitors - aVisitors;
+    }
+    if (Number.isFinite(aVisitors)) return -1;
+    if (Number.isFinite(bVisitors)) return 1;
+  }
+
+  const aOldestTs = parseCreatedAt(a && a.oldestBeacon && a.oldestBeacon.createdAt);
+  const bOldestTs = parseCreatedAt(b && b.oldestBeacon && b.oldestBeacon.createdAt);
+  if (aOldestTs !== null || bOldestTs !== null) {
+    if (aOldestTs !== null && bOldestTs !== null && aOldestTs !== bOldestTs) return aOldestTs - bOldestTs;
+    if (aOldestTs !== null) return -1;
+    if (bOldestTs !== null) return 1;
+  }
+
+  return String(a && a.key ? a.key : "").localeCompare(String(b && b.key ? b.key : ""));
+}
+
+function getReturnRoutes() {
+  const grouped = new Map();
+  (Array.isArray(state.beacons) ? state.beacons : []).forEach((beacon) => {
+    const visitor = String(beacon && beacon.visitor ? beacon.visitor : "").trim();
+    const region = String(beacon && beacon.region ? beacon.region : "").trim();
+    if (!visitor || !region) return;
+    const key = visitor.toLowerCase();
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        key,
+        displayName: visitor,
+        beacons: []
+      });
+    }
+    const entry = grouped.get(key);
+    if (!entry) return;
+    if (!entry.displayName && visitor) {
+      entry.displayName = visitor;
+    }
+    entry.beacons.push(beacon);
+  });
+
+  const regionCenterByName = REGION_BOUNDS.reduce((acc, bound) => {
+    acc.set(bound.region, {
+      x: bound.left + bound.width / 2,
+      y: bound.top + bound.height / 2
+    });
+    return acc;
+  }, new Map());
+  const routes = new Map();
+
+  [...grouped.values()].forEach((entry) => {
+    const orderedBeacons = [...entry.beacons].sort(compareWitnessThreadBeacons);
+    for (let index = 1; index < orderedBeacons.length; index += 1) {
+      const fromBeacon = orderedBeacons[index - 1];
+      const toBeacon = orderedBeacons[index];
+      const fromRegion = String(fromBeacon && fromBeacon.region ? fromBeacon.region : "").trim();
+      const toRegion = String(toBeacon && toBeacon.region ? toBeacon.region : "").trim();
+      if (!fromRegion || !toRegion || fromRegion === toRegion) continue;
+      const fromCenter = regionCenterByName.get(fromRegion);
+      const toCenter = regionCenterByName.get(toRegion);
+      if (!fromCenter || !toCenter) continue;
+
+      const key = `${fromRegion}→${toRegion}`;
+      if (!routes.has(key)) {
+        routes.set(key, {
+          key,
+          fromRegion,
+          toRegion,
+          fromCenter,
+          toCenter,
+          crossings: [],
+          crossingCount: 0,
+          visitorKeySet: new Set(),
+          visitorNameByKey: new Map(),
+          newestBeacon: null,
+          oldestBeacon: null
+        });
+      }
+      const route = routes.get(key);
+      if (!route) continue;
+      route.crossings.push({
+        fromBeacon,
+        toBeacon,
+        visitorKey: entry.key,
+        visitor: entry.displayName || entry.key
+      });
+      route.crossingCount += 1;
+      route.visitorKeySet.add(entry.key);
+      if (!route.visitorNameByKey.has(entry.key)) {
+        route.visitorNameByKey.set(entry.key, entry.displayName || entry.key);
+      }
+    }
+  });
+
+  return [...routes.values()]
+    .map((route) => {
+      const crossings = [...route.crossings].sort((a, b) => (
+        compareWitnessThreadBeacons(a && a.toBeacon, b && b.toBeacon) ||
+        compareWitnessThreadBeacons(a && a.fromBeacon, b && b.fromBeacon) ||
+        String(a && a.visitorKey ? a.visitorKey : "").localeCompare(String(b && b.visitorKey ? b.visitorKey : ""))
+      ));
+      const oldestCrossing = crossings[0] || null;
+      const newestCrossing = crossings[crossings.length - 1] || null;
+      const oldestBeacon = oldestCrossing ? (oldestCrossing.toBeacon || oldestCrossing.fromBeacon || null) : null;
+      const newestBeacon = newestCrossing ? (newestCrossing.toBeacon || newestCrossing.fromBeacon || null) : null;
+      const visitorKeys = [...route.visitorKeySet].sort((a, b) => String(a).localeCompare(String(b)));
+      const visitors = visitorKeys
+        .map((key) => route.visitorNameByKey.get(key) || key)
+        .sort((a, b) => String(a).localeCompare(String(b)));
+      return {
+        key: route.key,
+        fromRegion: route.fromRegion,
+        toRegion: route.toRegion,
+        fromCenter: route.fromCenter,
+        toCenter: route.toCenter,
+        crossings,
+        crossingCount: crossings.length,
+        visitorKeys,
+        visitors,
+        uniqueVisitorCount: visitorKeys.length,
+        newestBeacon,
+        oldestBeacon
+      };
+    })
+    .sort(compareReturnRouteEntries);
+}
+
 function getTracePassageBeacons() {
   return [...(Array.isArray(state.beacons) ? state.beacons : [])]
     .filter((beacon) => beacon && parseCreatedAt(beacon.createdAt) !== null)
@@ -2926,6 +3103,8 @@ function setActiveTrace(marker) {
   renderDriftSignalsPanel();
   renderWitnessThreadsOverlay();
   renderWitnessThreadsPanel();
+  renderReturnRoutesOverlay();
+  renderReturnRoutesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -2979,6 +3158,7 @@ function renderBeacons() {
   });
   renderDriftSignalOverlay();
   renderWitnessThreadsOverlay();
+  renderReturnRoutesOverlay();
   renderTracePassageOverlay();
 }
 
@@ -4459,6 +4639,151 @@ function renderWitnessThreadsPanel() {
   `;
 }
 
+function renderReturnRoutesOverlay() {
+  if (!el.returnRoutesLayer) return;
+  const routes = getReturnRoutes();
+  if (!state.returnRoutesEnabled || routes.length === 0) {
+    el.returnRoutesLayer.style.display = "none";
+    el.returnRoutesLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "return-routes-overlay" });
+  let hasDrawableRoute = false;
+
+  routes.forEach((route) => {
+    const fromCenter = route && route.fromCenter ? route.fromCenter : null;
+    const toCenter = route && route.toCenter ? route.toCenter : null;
+    const fromX = Number(fromCenter && fromCenter.x);
+    const fromY = Number(fromCenter && fromCenter.y);
+    const toX = Number(toCenter && toCenter.x);
+    const toY = Number(toCenter && toCenter.y);
+    if (![fromX, fromY, toX, toY].every(Number.isFinite)) return;
+
+    hasDrawableRoute = true;
+    const startX = (fromX / 100) * MAP_W;
+    const startY = (fromY / 100) * MAP_H;
+    const endX = (toX / 100) * MAP_W;
+    const endY = (toY / 100) * MAP_H;
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const distance = Math.hypot(dx, dy) || 1;
+    const ux = dx / distance;
+    const uy = dy / distance;
+    const perpX = -uy;
+    const perpY = ux;
+    const curveSign = String(route.fromRegion || "").localeCompare(String(route.toRegion || "")) <= 0 ? 1 : -1;
+    const bend = Math.max(24, Math.min(90, distance * 0.22)) * curveSign;
+    const controlX = (startX + endX) / 2 + perpX * bend;
+    const controlY = (startY + endY) / 2 + perpY * bend;
+    const newestIssue = parseIssueNumber(route && route.newestBeacon && route.newestBeacon.issueNumber);
+    const isActive = newestIssue !== null && newestIssue === activeIssue;
+    const routeGroup = createSvgNode("g", {
+      class: `return-route${isActive ? " is-active" : ""}`
+    });
+    routeGroup.appendChild(createSvgNode("path", {
+      class: "return-route-path-glow",
+      d: `M ${startX.toFixed(1)} ${startY.toFixed(1)} Q ${controlX.toFixed(1)} ${controlY.toFixed(1)} ${endX.toFixed(1)} ${endY.toFixed(1)}`
+    }));
+    routeGroup.appendChild(createSvgNode("path", {
+      class: "return-route-path",
+      d: `M ${startX.toFixed(1)} ${startY.toFixed(1)} Q ${controlX.toFixed(1)} ${controlY.toFixed(1)} ${endX.toFixed(1)} ${endY.toFixed(1)}`
+    }));
+
+    const startNode = createSvgNode("g", {
+      class: "return-route-node return-route-node-origin",
+      transform: `translate(${startX.toFixed(1)} ${startY.toFixed(1)})`
+    });
+    startNode.appendChild(createSvgNode("circle", { class: "return-route-node-halo", r: "7.3" }));
+    startNode.appendChild(createSvgNode("circle", { class: "return-route-node-core", r: "3.1" }));
+    routeGroup.appendChild(startNode);
+
+    const destinationNode = createSvgNode("g", {
+      class: `return-route-node return-route-node-destination${isActive ? " is-active" : ""}`,
+      transform: `translate(${endX.toFixed(1)} ${endY.toFixed(1)})`
+    });
+    destinationNode.appendChild(createSvgNode("circle", { class: "return-route-node-halo", r: "8.4" }));
+    destinationNode.appendChild(createSvgNode("circle", { class: "return-route-node-core", r: "3.6" }));
+    destinationNode.appendChild(createSvgNode("circle", { class: "return-route-node-active-ring", r: "12.2" }));
+    routeGroup.appendChild(destinationNode);
+
+    if (route.crossingCount >= 2) {
+      const label = createSvgNode("text", {
+        class: "return-route-count",
+        x: (endX - ux * 12 + perpX * curveSign * 12).toFixed(1),
+        y: (endY - uy * 12 + perpY * curveSign * 12).toFixed(1)
+      });
+      label.textContent = String(route.crossingCount);
+      routeGroup.appendChild(label);
+    }
+
+    group.appendChild(routeGroup);
+  });
+
+  if (!hasDrawableRoute) {
+    el.returnRoutesLayer.style.display = "none";
+    el.returnRoutesLayer.replaceChildren();
+    return;
+  }
+
+  el.returnRoutesLayer.style.display = "block";
+  el.returnRoutesLayer.replaceChildren(group);
+}
+
+function renderReturnRoutesPanel() {
+  if (!el.returnRoutes) return;
+  if (!state.returnRoutesEnabled) {
+    el.returnRoutes.innerHTML = "<p>Return Routes is hidden. Re-enable it in Controls to see region crossings from returning visitors.</p>";
+    return;
+  }
+
+  const routes = getReturnRoutes();
+  if (routes.length === 0) {
+    el.returnRoutes.innerHTML = "<p class=\"return-routes-line\">Return Routes appears once a visitor leaves public traces in more than one region.</p>";
+    return;
+  }
+
+  const totalCrossings = routes.reduce((sum, route) => sum + route.crossingCount, 0);
+  const contributingVisitors = new Set(routes.flatMap((route) => route.visitorKeys)).size;
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const routesHtml = routes.map((route) => {
+    const newestIssue = parseIssueNumber(route && route.newestBeacon && route.newestBeacon.issueNumber);
+    const oldestIssue = parseIssueNumber(route && route.oldestBeacon && route.oldestBeacon.issueNumber);
+    const isActive = newestIssue !== null && newestIssue === activeIssue;
+    const details = [
+      `${route.crossingCount} crossing${route.crossingCount === 1 ? "" : "s"}`,
+      `${route.uniqueVisitorCount} visitor${route.uniqueVisitorCount === 1 ? "" : "s"}`,
+      oldestIssue === null ? "Oldest issue unknown" : `Oldest issue #${oldestIssue}`,
+      newestIssue === null ? "Newest issue unknown" : `Newest issue #${newestIssue}`
+    ].join(" · ");
+    return `
+      <button type="button" class="return-routes-item${isActive ? " is-active" : ""}" data-return-route-key="${escapeHtml(route.key)}">
+        <strong>${escapeHtml(route.fromRegion)}→${escapeHtml(route.toRegion)}</strong>
+        <span>${escapeHtml(details)}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.returnRoutes.innerHTML = `
+    <p class="return-routes-line">Return Routes aggregates consecutive region crossings from returning visitors.</p>
+    <p class="return-routes-line">Tracking ${routes.length} route(s), ${totalCrossings} crossing(s), and ${contributingVisitors} contributing visitor(s).</p>
+    <div class="return-routes-actions">
+      <button type="button" class="return-routes-action" data-return-route-action="center-routes">Center on routes</button>
+      <button type="button" class="return-routes-action" data-return-route-action="jump-busiest">Jump to busiest route</button>
+    </div>
+    <div class="return-routes-meta">
+      <span class="return-routes-pill">Active routes: ${routes.length}</span>
+      <span class="return-routes-pill">Crossings: ${totalCrossings}</span>
+      <span class="return-routes-pill">Contributing visitors: ${contributingVisitors}</span>
+    </div>
+    <p class="return-routes-subtitle">Region crossings</p>
+    <div class="return-routes-list">
+      ${routesHtml}
+    </div>
+  `;
+}
+
 function renderTracePassageOverlay() {
   if (!el.tracePassageLayer) return;
   const sequence = getTracePassageBeacons();
@@ -5424,6 +5749,7 @@ function initInteractions() {
   state.beaconSoundingsEnabled = !el.toggleBeaconSoundings || el.toggleBeaconSoundings.checked;
   state.tracePassageEnabled = !el.toggleTracePassage || el.toggleTracePassage.checked;
   state.witnessThreadsEnabled = !el.toggleWitnessThreads || el.toggleWitnessThreads.checked;
+  state.returnRoutesEnabled = !el.toggleReturnRoutes || el.toggleReturnRoutes.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -5454,6 +5780,8 @@ function initInteractions() {
   renderDriftSignalsPanel();
   renderWitnessThreadsOverlay();
   renderWitnessThreadsPanel();
+  renderReturnRoutesOverlay();
+  renderReturnRoutesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -5675,6 +6003,14 @@ function initInteractions() {
       state.witnessThreadsEnabled = el.toggleWitnessThreads.checked;
       renderWitnessThreadsOverlay();
       renderWitnessThreadsPanel();
+    });
+  }
+
+  if (el.toggleReturnRoutes) {
+    el.toggleReturnRoutes.addEventListener("change", () => {
+      state.returnRoutesEnabled = el.toggleReturnRoutes.checked;
+      renderReturnRoutesOverlay();
+      renderReturnRoutesPanel();
     });
   }
 
@@ -6006,6 +6342,33 @@ function initInteractions() {
     });
   }
 
+  if (el.returnRoutes) {
+    el.returnRoutes.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-return-route-action], [data-return-route-key]")
+        : null;
+      if (!actionNode) return;
+
+      const routeKey = String(actionNode.getAttribute("data-return-route-key") || "").trim();
+      if (routeKey) {
+        const route = getReturnRoutes().find((entry) => entry.key === routeKey);
+        if (!route || !route.newestBeacon) return;
+        activateMarker({ ...route.newestBeacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-return-route-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-routes") {
+        centerViewportOnReturnRoutes();
+        return;
+      }
+      if (action === "jump-busiest") {
+        jumpToBusiestReturnRoute();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -6240,6 +6603,8 @@ function initInteractions() {
   renderDriftSignalsPanel();
   renderWitnessThreadsOverlay();
   renderWitnessThreadsPanel();
+  renderReturnRoutesOverlay();
+  renderReturnRoutesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -6278,6 +6643,8 @@ async function initBeacons() {
     renderDriftSignalsPanel();
     renderWitnessThreadsOverlay();
     renderWitnessThreadsPanel();
+    renderReturnRoutesOverlay();
+    renderReturnRoutesPanel();
     renderTracePassageOverlay();
     renderTracePassagePanel();
     const driftCount = getDriftSignals().length;
@@ -6301,6 +6668,8 @@ async function initBeacons() {
     renderDriftSignalsPanel();
     renderWitnessThreadsOverlay();
     renderWitnessThreadsPanel();
+    renderReturnRoutesOverlay();
+    renderReturnRoutesPanel();
     renderTracePassageOverlay();
     renderTracePassagePanel();
     setStatus(
@@ -6337,6 +6706,8 @@ function init() {
   renderDriftSignalsPanel();
   renderWitnessThreadsOverlay();
   renderWitnessThreadsPanel();
+  renderReturnRoutesOverlay();
+  renderReturnRoutesPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

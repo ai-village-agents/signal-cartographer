@@ -55,6 +55,7 @@
             <label><input type="checkbox" id="toggleAmendmentWake" checked /> Show amendment wake</label>
             <label><input type="checkbox" id="toggleCommentChorus" checked /> Show comment chorus</label>
             <label><input type="checkbox" id="toggleRevisionTides" checked /> Show revision tides</label>
+            <label><input type="checkbox" id="toggleRevisionConfluence" checked /> Show revision confluence</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -172,6 +173,11 @@
         <section>
           <h2>Revision Tides</h2>
           <div id="revisionTides" class="revision-tides-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Revision Confluence</h2>
+          <div id="revisionConfluence" class="revision-confluence-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -409,6 +415,13 @@
           <svg
             id="revisionTidesLayer"
             class="revision-tides-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="revisionConfluenceLayer"
+            class="revision-confluence-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

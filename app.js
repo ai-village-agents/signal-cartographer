@@ -562,6 +562,7 @@ const state = {
   amendmentWakeEnabled: true,
   commentChorusEnabled: true,
   revisionTidesEnabled: true,
+  revisionConfluenceEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -643,6 +644,7 @@ const el = {
   toggleAmendmentWake: document.getElementById("toggleAmendmentWake"),
   toggleCommentChorus: document.getElementById("toggleCommentChorus"),
   toggleRevisionTides: document.getElementById("toggleRevisionTides"),
+  toggleRevisionConfluence: document.getElementById("toggleRevisionConfluence"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -666,6 +668,7 @@ const el = {
   amendmentWakeLayer: document.getElementById("amendmentWakeLayer"),
   commentChorusLayer: document.getElementById("commentChorusLayer"),
   revisionTidesLayer: document.getElementById("revisionTidesLayer"),
+  revisionConfluenceLayer: document.getElementById("revisionConfluenceLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -687,6 +690,7 @@ const el = {
   amendmentWake: document.getElementById("amendmentWake"),
   commentChorus: document.getElementById("commentChorus"),
   revisionTides: document.getElementById("revisionTides"),
+  revisionConfluence: document.getElementById("revisionConfluence"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -2057,25 +2061,40 @@ function compareRevisionTides(a, b) {
   return String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
 }
 
+function getLatestVisibleRevisionActivity(beacon) {
+  const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+  const latestComment = issueNumber === null ? null : getLatestFetchedBeaconComment(issueNumber);
+  const commentTs = parseCreatedAt(latestComment && ((latestComment.updated_at) || (latestComment.created_at)));
+  const beaconUpdatedTs = parseCreatedAt(beacon && beacon.updatedAt);
+  const beaconCreatedTs = parseCreatedAt(beacon && beacon.createdAt);
+  const issueTs = beaconUpdatedTs !== null ? beaconUpdatedTs : beaconCreatedTs;
+  const latestActivityTs = commentTs !== null ? commentTs : issueTs;
+  const fetchedComments = issueNumber === null ? [] : state.beaconCommentsByIssue.get(issueNumber);
+  return {
+    issueNumber,
+    latestComment,
+    latestActivityTs,
+    activitySource: commentTs !== null ? "Latest public comment" : "Issue update",
+    fetchedComments: Array.isArray(fetchedComments) ? fetchedComments : [],
+    fetchedCommentCount: Array.isArray(fetchedComments) ? fetchedComments.length : 0,
+    fetchedCommentTiming: commentTs !== null
+  };
+}
+
 function getRevisionTidesBeacons() {
   return getAmendmentWakeBeacons()
     .map((beacon) => {
-      const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
-      const latestComment = issueNumber === null ? null : getLatestFetchedBeaconComment(issueNumber);
-      const commentTs = parseCreatedAt(latestComment && ((latestComment.updated_at) || (latestComment.created_at)));
-      const issueTs = parseCreatedAt((beacon && beacon.updatedAt) || (beacon && beacon.createdAt));
-      const latestActivityTs = commentTs !== null ? commentTs : issueTs;
-      const activitySource = commentTs !== null ? "Latest public comment" : "Issue update";
-      const band = getRevisionTideBand(latestActivityTs);
+      const activity = getLatestVisibleRevisionActivity(beacon);
+      const band = getRevisionTideBand(activity.latestActivityTs);
       return {
         ...beacon,
-        issueNumber: issueNumber === null ? beacon && beacon.issueNumber : issueNumber,
-        latestActivityTs,
-        activitySource,
+        issueNumber: activity.issueNumber === null ? beacon && beacon.issueNumber : activity.issueNumber,
+        latestActivityTs: activity.latestActivityTs,
+        activitySource: activity.activitySource,
         bandKey: band.bandKey,
         bandLabel: band.bandLabel,
         ageMs: band.ageMs,
-        fetchedCommentTiming: commentTs !== null
+        fetchedCommentTiming: activity.fetchedCommentTiming
       };
     })
     .sort(compareRevisionTides);
@@ -2234,6 +2253,299 @@ function renderRevisionTidesPanel() {
     </div>
     <p class="revision-tides-subtitle">Latest visible activity</p>
     <div class="revision-tides-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
+function normalizeRevisionConfluenceRegionName(regionName) {
+  const trimmed = String(regionName || "").trim();
+  if (!trimmed) return "Beacon Field";
+  return REGION_BOUNDS.some((bound) => bound.region === trimmed) ? trimmed : "Beacon Field";
+}
+
+function compareRevisionConfluenceLatestBeacon(a, b) {
+  const aTs = Number.isFinite(a && a.latestActivityTs) ? a.latestActivityTs : null;
+  const bTs = Number.isFinite(b && b.latestActivityTs) ? b.latestActivityTs : null;
+  if (aTs !== null || bTs !== null) {
+    if (aTs !== null && bTs !== null && aTs !== bTs) return bTs - aTs;
+    if (aTs !== null) return -1;
+    if (bTs !== null) return 1;
+  }
+
+  const aCommentCount = Math.max(0, Number(a && a.beacon && a.beacon.commentCount) || 0);
+  const bCommentCount = Math.max(0, Number(b && b.beacon && b.beacon.commentCount) || 0);
+  if (aCommentCount !== bCommentCount) return bCommentCount - aCommentCount;
+
+  const aIssue = parseIssueNumber(a && a.beacon && a.beacon.issueNumber);
+  const bIssue = parseIssueNumber(b && b.beacon && b.beacon.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return bIssue - aIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+  return String(a && a.beacon && a.beacon.title ? a.beacon.title : "").localeCompare(String(b && b.beacon && b.beacon.title ? b.beacon.title : ""));
+}
+
+function compareRevisionConfluenceRegions(a, b) {
+  const aTs = Number.isFinite(a && a.freshestActivityTs) ? a.freshestActivityTs : null;
+  const bTs = Number.isFinite(b && b.freshestActivityTs) ? b.freshestActivityTs : null;
+  if (aTs !== null || bTs !== null) {
+    if (aTs !== null && bTs !== null && aTs !== bTs) return bTs - aTs;
+    if (aTs !== null) return -1;
+    if (bTs !== null) return 1;
+  }
+
+  const aAmended = Math.max(0, Number(a && a.amendedBeaconCount) || 0);
+  const bAmended = Math.max(0, Number(b && b.amendedBeaconCount) || 0);
+  if (aAmended !== bAmended) return bAmended - aAmended;
+
+  const aPublic = Math.max(0, Number(a && a.publicCommentCount) || 0);
+  const bPublic = Math.max(0, Number(b && b.publicCommentCount) || 0);
+  if (aPublic !== bPublic) return bPublic - aPublic;
+
+  return String(a && a.region ? a.region : "").localeCompare(String(b && b.region ? b.region : ""));
+}
+
+function getRevisionConfluenceRegions() {
+  const byRegion = new Map();
+  getAmendmentWakeBeacons().forEach((beacon) => {
+    const region = normalizeRevisionConfluenceRegionName(beacon && beacon.region);
+    const activity = getLatestVisibleRevisionActivity(beacon);
+    const freshestActivityTs = Number.isFinite(activity.latestActivityTs) ? activity.latestActivityTs : null;
+    const issueNumber = parseIssueNumber(beacon && beacon.issueNumber);
+    const regionBound = REGION_BOUNDS.find((bound) => bound.region === region) || null;
+    const visitorKey = String(beacon && beacon.visitor ? beacon.visitor : "").trim().toLowerCase();
+    const next = byRegion.get(region) || {
+      region,
+      regionBound,
+      beacons: [],
+      amendedBeaconCount: 0,
+      publicCommentCount: 0,
+      fetchedCommentCount: 0,
+      freshestActivityTs: null,
+      freshestActivityLabel: "time unknown",
+      freshWithin24hCount: 0,
+      latestBeacon: null,
+      distinctVisitors: 0,
+      distinctCommenters: 0,
+      _latestBeaconMeta: null,
+      _visitorKeys: new Set(),
+      _commenterKeys: new Set()
+    };
+
+    next.beacons.push(beacon);
+    next.amendedBeaconCount += 1;
+    next.publicCommentCount += Math.max(0, Number(beacon && beacon.commentCount) || 0);
+    next.fetchedCommentCount += Math.max(0, Number(activity.fetchedCommentCount) || 0);
+    if (Number.isFinite(freshestActivityTs) && (Date.now() - freshestActivityTs) <= (24 * 60 * 60 * 1000)) {
+      next.freshWithin24hCount += 1;
+    }
+    if (visitorKey) {
+      next._visitorKeys.add(visitorKey);
+    }
+    activity.fetchedComments.forEach((comment) => {
+      const commenterKey = String(comment && comment.user && comment.user.login ? comment.user.login : "").trim().toLowerCase();
+      if (commenterKey) {
+        next._commenterKeys.add(commenterKey);
+      }
+    });
+
+    const candidate = {
+      beacon: {
+        ...beacon,
+        issueNumber: issueNumber === null ? beacon && beacon.issueNumber : issueNumber
+      },
+      latestActivityTs: freshestActivityTs
+    };
+    if (!next._latestBeaconMeta || compareRevisionConfluenceLatestBeacon(candidate, next._latestBeaconMeta) < 0) {
+      next._latestBeaconMeta = candidate;
+      next.latestBeacon = candidate.beacon;
+    }
+
+    if (next.freshestActivityTs === null || (
+      freshestActivityTs !== null && freshestActivityTs > next.freshestActivityTs
+    )) {
+      next.freshestActivityTs = freshestActivityTs;
+    }
+
+    byRegion.set(region, next);
+  });
+
+  return Array.from(byRegion.values())
+    .map((entry) => ({
+      region: entry.region,
+      regionBound: entry.regionBound,
+      beacons: entry.beacons,
+      amendedBeaconCount: entry.amendedBeaconCount,
+      publicCommentCount: entry.publicCommentCount,
+      fetchedCommentCount: entry.fetchedCommentCount,
+      freshestActivityTs: entry.freshestActivityTs,
+      freshestActivityLabel: formatCompactAge(entry.freshestActivityTs),
+      freshWithin24hCount: entry.freshWithin24hCount,
+      latestBeacon: entry.latestBeacon,
+      distinctVisitors: entry._visitorKeys.size,
+      distinctCommenters: entry._commenterKeys.size
+    }))
+    .sort(compareRevisionConfluenceRegions);
+}
+
+function centerViewportOnRevisionConfluence() {
+  const regions = getRevisionConfluenceRegions();
+  if (regions.length === 0) return;
+  const centers = regions
+    .map((region) => region.regionBound)
+    .filter(Boolean)
+    .map((bound) => ({
+      x: Number(bound.left) + Number(bound.width) / 2,
+      y: Number(bound.top) + Number(bound.height) / 2
+    }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (centers.length === 0) return;
+  const bounds = centers.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: centers[0].x,
+    maxX: centers[0].x,
+    minY: centers[0].y,
+    maxY: centers[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToBusiestRevisionConfluence() {
+  const regions = getRevisionConfluenceRegions();
+  if (regions.length === 0) return;
+  const target = regions[0] && regions[0].latestBeacon;
+  if (!target) return;
+  activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderRevisionConfluenceOverlay() {
+  if (!el.revisionConfluenceLayer) return;
+  const regions = getRevisionConfluenceRegions();
+  if (!state.revisionConfluenceEnabled || regions.length === 0) {
+    el.revisionConfluenceLayer.style.display = "none";
+    el.revisionConfluenceLayer.replaceChildren();
+    return;
+  }
+
+  const activeRegion = state.activeTrace && state.activeTrace.type === "beacon"
+    ? normalizeRevisionConfluenceRegionName(state.activeTrace.region)
+    : "";
+  const group = createSvgNode("g", { class: "revision-confluence-overlay" });
+
+  regions.forEach((region) => {
+    const bound = region.regionBound;
+    if (!bound) return;
+    const centerX = (Number(bound.left) + Number(bound.width) / 2) / 100 * MAP_W;
+    const centerY = (Number(bound.top) + Number(bound.height) / 2) / 100 * MAP_H;
+    if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) return;
+    const basinRadiusX = 52 + Math.min(26, region.amendedBeaconCount * 2.6) + Math.min(16, region.publicCommentCount * 0.3);
+    const basinRadiusY = Math.max(28, basinRadiusX * 0.62);
+    const isActive = activeRegion && activeRegion === region.region;
+    const basinNode = createSvgNode("g", {
+      class: `revision-confluence-basin${isActive ? " is-active" : ""}`,
+      transform: `translate(${centerX.toFixed(1)} ${centerY.toFixed(1)})`
+    });
+    basinNode.appendChild(createSvgNode("ellipse", {
+      class: "revision-confluence-fill",
+      cx: "0",
+      cy: "0",
+      rx: basinRadiusX.toFixed(1),
+      ry: basinRadiusY.toFixed(1)
+    }));
+    basinNode.appendChild(createSvgNode("ellipse", {
+      class: "revision-confluence-ring",
+      cx: "0",
+      cy: "0",
+      rx: (basinRadiusX + 7.4).toFixed(1),
+      ry: (basinRadiusY + 4.4).toFixed(1)
+    }));
+    basinNode.appendChild(createSvgNode("ellipse", {
+      class: "revision-confluence-ripple",
+      cx: "0",
+      cy: "0",
+      rx: (basinRadiusX + 14.8).toFixed(1),
+      ry: (basinRadiusY + 8.2).toFixed(1)
+    }));
+    const label = createSvgNode("text", {
+      class: "revision-confluence-count",
+      x: (basinRadiusX - 4.6).toFixed(1),
+      y: (-basinRadiusY + 2.8).toFixed(1)
+    });
+    label.textContent = `${region.amendedBeaconCount}`;
+    basinNode.appendChild(label);
+    group.appendChild(basinNode);
+  });
+
+  el.revisionConfluenceLayer.style.display = "block";
+  el.revisionConfluenceLayer.replaceChildren(group);
+}
+
+function renderRevisionConfluencePanel() {
+  if (!el.revisionConfluence) return;
+  if (!state.revisionConfluenceEnabled) {
+    el.revisionConfluence.innerHTML = "<p class=\"revision-confluence-line\">Revision Confluence is hidden. Re-enable it in Controls to surface regional revision basins again.</p>";
+    return;
+  }
+
+  const regions = getRevisionConfluenceRegions();
+  if (regions.length === 0) {
+    el.revisionConfluence.innerHTML = "<p class=\"revision-confluence-line\">Revision Confluence appears once beacon issues gather visible amendment activity.</p>";
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const totalAmendedBeacons = regions.reduce((sum, region) => sum + Math.max(0, Number(region.amendedBeaconCount) || 0), 0);
+  const freshWithin24hTotal = regions.reduce((sum, region) => sum + Math.max(0, Number(region.freshWithin24hCount) || 0), 0);
+  const busiestRegionLabel = regions[0] ? regions[0].region : "no regions yet";
+
+  const listHtml = regions.map((region) => {
+    const latestBeacon = region.latestBeacon || null;
+    const issueNumber = parseIssueNumber(latestBeacon && latestBeacon.issueNumber);
+    const issueLabel = issueNumber === null ? "?" : String(issueNumber);
+    const leadTitle = String(latestBeacon && latestBeacon.title ? latestBeacon.title : "Untitled beacon");
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const fetchedExtras = (
+      Math.max(0, Number(region.fetchedCommentCount) || 0) > 0 ||
+      Math.max(0, Number(region.distinctCommenters) || 0) > 0
+    )
+      ? `
+        <span class="revision-confluence-pill">Fetched comments: ${Math.max(0, Number(region.fetchedCommentCount) || 0)}</span>
+        <span class="revision-confluence-pill">Distinct commenters: ${Math.max(0, Number(region.distinctCommenters) || 0)}</span>
+      `
+      : "";
+    return `
+      <button type="button" class="revision-confluence-item${isActive ? " is-active" : ""}" data-revision-confluence-region="${escapeHtml(region.region)}">
+        <strong>${escapeHtml(region.region)}</strong>
+        <span>${escapeHtml(`${region.region} · ${region.amendedBeaconCount} amended · ${region.publicCommentCount} public comment(s) · ${region.distinctVisitors} visitor(s)`)}</span>
+        <span class="revision-confluence-age">${escapeHtml(`Freshest activity ${region.freshestActivityLabel} · lead beacon #${issueLabel} · ${leadTitle}`)}</span>
+        <span class="revision-confluence-meta">${fetchedExtras}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.revisionConfluence.innerHTML = `
+    <p class="revision-confluence-line">Revision Confluence gathers amended beacons into regional basins so visible revision activity stays legible at a glance.</p>
+    <p class="revision-confluence-line">Tracking ${regions.length} basin(s), ${totalAmendedBeacons} amended beacon(s), and busiest activity in ${busiestRegionLabel}.</p>
+    <div class="revision-confluence-actions">
+      <button type="button" class="revision-confluence-action" data-revision-confluence-action="center">Center on confluence</button>
+      <button type="button" class="revision-confluence-action" data-revision-confluence-action="jump-busiest">Jump to busiest basin</button>
+    </div>
+    <div class="revision-confluence-meta">
+      <span class="revision-confluence-pill">Active basins: ${regions.length}</span>
+      <span class="revision-confluence-pill">Amended beacons: ${totalAmendedBeacons}</span>
+      <span class="revision-confluence-pill">Fresh within 24h: ${freshWithin24hTotal}</span>
+    </div>
+    <p class="revision-confluence-subtitle">Regional basins</p>
+    <div class="revision-confluence-list">
       ${listHtml}
     </div>
   `;
@@ -3698,6 +4010,8 @@ function setActiveTrace(marker) {
   renderCommentChorusPanel();
   renderRevisionTidesOverlay();
   renderRevisionTidesPanel();
+  renderRevisionConfluenceOverlay();
+  renderRevisionConfluencePanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -6460,6 +6774,8 @@ async function fetchBeaconComments() {
     renderCommentChorusPanel();
     renderRevisionTidesOverlay();
     renderRevisionTidesPanel();
+    renderRevisionConfluenceOverlay();
+    renderRevisionConfluencePanel();
     return;
   }
 
@@ -6470,6 +6786,8 @@ async function fetchBeaconComments() {
     renderCommentChorusPanel();
     renderRevisionTidesOverlay();
     renderRevisionTidesPanel();
+    renderRevisionConfluenceOverlay();
+    renderRevisionConfluencePanel();
     return;
   }
 
@@ -6515,6 +6833,8 @@ async function fetchBeaconComments() {
   renderCommentChorusPanel();
   renderRevisionTidesOverlay();
   renderRevisionTidesPanel();
+  renderRevisionConfluenceOverlay();
+  renderRevisionConfluencePanel();
 }
 
 function scheduleBeaconCommentRefresh() {
@@ -6531,6 +6851,8 @@ function scheduleBeaconCommentRefresh() {
     renderCommentChorusPanel();
     renderRevisionTidesOverlay();
     renderRevisionTidesPanel();
+    renderRevisionConfluenceOverlay();
+    renderRevisionConfluencePanel();
     return;
   }
   state.beaconCommentsLoading = true;
@@ -6619,6 +6941,7 @@ function initInteractions() {
   state.amendmentWakeEnabled = !el.toggleAmendmentWake || el.toggleAmendmentWake.checked;
   state.commentChorusEnabled = !el.toggleCommentChorus || el.toggleCommentChorus.checked;
   state.revisionTidesEnabled = !el.toggleRevisionTides || el.toggleRevisionTides.checked;
+  state.revisionConfluenceEnabled = !el.toggleRevisionConfluence || el.toggleRevisionConfluence.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -6657,6 +6980,8 @@ function initInteractions() {
   renderCommentChorusPanel();
   renderRevisionTidesOverlay();
   renderRevisionTidesPanel();
+  renderRevisionConfluenceOverlay();
+  renderRevisionConfluencePanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -6910,6 +7235,16 @@ function initInteractions() {
       state.revisionTidesEnabled = el.toggleRevisionTides.checked;
       renderRevisionTidesOverlay();
       renderRevisionTidesPanel();
+      renderRevisionConfluenceOverlay();
+      renderRevisionConfluencePanel();
+    });
+  }
+
+  if (el.toggleRevisionConfluence) {
+    el.toggleRevisionConfluence.addEventListener("change", () => {
+      state.revisionConfluenceEnabled = el.toggleRevisionConfluence.checked;
+      renderRevisionConfluenceOverlay();
+      renderRevisionConfluencePanel();
     });
   }
 
@@ -7352,6 +7687,33 @@ function initInteractions() {
     });
   }
 
+  if (el.revisionConfluence) {
+    el.revisionConfluence.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-revision-confluence-action], [data-revision-confluence-region]")
+        : null;
+      if (!actionNode) return;
+
+      const regionName = String(actionNode.getAttribute("data-revision-confluence-region") || "").trim();
+      if (regionName) {
+        const region = getRevisionConfluenceRegions().find((entry) => entry.region === regionName);
+        if (!region || !region.latestBeacon) return;
+        activateMarker({ ...region.latestBeacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-revision-confluence-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnRevisionConfluence();
+        return;
+      }
+      if (action === "jump-busiest") {
+        jumpToBusiestRevisionConfluence();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -7594,6 +7956,8 @@ function initInteractions() {
   renderCommentChorusPanel();
   renderRevisionTidesOverlay();
   renderRevisionTidesPanel();
+  renderRevisionConfluenceOverlay();
+  renderRevisionConfluencePanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -7640,6 +8004,8 @@ async function initBeacons() {
     renderCommentChorusPanel();
     renderRevisionTidesOverlay();
     renderRevisionTidesPanel();
+    renderRevisionConfluenceOverlay();
+    renderRevisionConfluencePanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -7672,6 +8038,8 @@ async function initBeacons() {
     renderCommentChorusPanel();
     renderRevisionTidesOverlay();
     renderRevisionTidesPanel();
+    renderRevisionConfluenceOverlay();
+    renderRevisionConfluencePanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -7717,6 +8085,8 @@ function init() {
   renderCommentChorusPanel();
   renderRevisionTidesOverlay();
   renderRevisionTidesPanel();
+  renderRevisionConfluenceOverlay();
+  renderRevisionConfluencePanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

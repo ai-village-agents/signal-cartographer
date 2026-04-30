@@ -597,6 +597,7 @@ const state = {
   bridgeTransitsEnabled: true,
   bridgeRejoinsEnabled: true,
   bridgeRingwaysEnabled: true,
+  bridgeLandingsEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -695,6 +696,7 @@ const el = {
   toggleBridgeTransits: document.getElementById("toggleBridgeTransits"),
   toggleBridgeRejoins: document.getElementById("toggleBridgeRejoins"),
   toggleBridgeRingways: document.getElementById("toggleBridgeRingways"),
+  toggleBridgeLandings: document.getElementById("toggleBridgeLandings"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -734,6 +736,7 @@ const el = {
   bridgeTransitsLayer: document.getElementById("bridgeTransitsLayer"),
   bridgeRejoinsLayer: document.getElementById("bridgeRejoinsLayer"),
   bridgeRingwaysLayer: document.getElementById("bridgeRingwaysLayer"),
+  bridgeLandingsLayer: document.getElementById("bridgeLandingsLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -771,6 +774,7 @@ const el = {
   bridgeTransits: document.getElementById("bridgeTransits"),
   bridgeRejoins: document.getElementById("bridgeRejoins"),
   bridgeRingways: document.getElementById("bridgeRingways"),
+  bridgeLandings: document.getElementById("bridgeLandings"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -6888,6 +6892,238 @@ function renderBridgeRingwaysPanel() {
   `;
 }
 
+function compareBridgeLandingEntries(a, b) {
+  const aOnwardTitle = String(a && a.onwardRelay && a.onwardRelay.title ? a.onwardRelay.title : "");
+  const bOnwardTitle = String(b && b.onwardRelay && b.onwardRelay.title ? b.onwardRelay.title : "");
+  const onwardComparison = aOnwardTitle.localeCompare(bOnwardTitle);
+  if (onwardComparison !== 0) return onwardComparison;
+
+  const aLockTitle = String(a && a.lock && a.lock.title ? a.lock.title : "");
+  const bLockTitle = String(b && b.lock && b.lock.title ? b.lock.title : "");
+  const lockComparison = aLockTitle.localeCompare(bLockTitle);
+  if (lockComparison !== 0) return lockComparison;
+
+  const aKey = String(a && a.key ? a.key : "");
+  const bKey = String(b && b.key ? b.key : "");
+  return aKey.localeCompare(bKey);
+}
+
+function getBridgeLandingEntries() {
+  const entries = getBridgeRingwayEntries()
+    .map((entry) => {
+      const onwardRelay = entry && entry.onwardRelay ? entry.onwardRelay : null;
+      const onwardX = Number(onwardRelay && onwardRelay.x);
+      const onwardY = Number(onwardRelay && onwardRelay.y);
+      if (!onwardRelay || !Number.isFinite(onwardX) || !Number.isFinite(onwardY)) return null;
+
+      const rankedLocks = BUILTIN_TRANSIT_LOCKS
+        .map((lock) => {
+          const lockX = Number(lock && lock.x);
+          const lockY = Number(lock && lock.y);
+          if (!Number.isFinite(lockX) || !Number.isFinite(lockY)) return null;
+          return {
+            lock,
+            distance: Math.hypot(lockX - onwardX, lockY - onwardY)
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (
+          a.distance - b.distance ||
+          String(a && a.lock && a.lock.title ? a.lock.title : "").localeCompare(String(b && b.lock && b.lock.title ? b.lock.title : "")) ||
+          String(a && a.lock && a.lock.id ? a.lock.id : "").localeCompare(String(b && b.lock && b.lock.id ? b.lock.id : ""))
+        ));
+      const nearest = rankedLocks[0];
+      if (!nearest || !nearest.lock) return null;
+
+      return {
+        key: `bridge-landing:${String(entry && entry.key ? entry.key : "").trim()}:${String(nearest.lock.id || "").trim().toLowerCase()}`,
+        source: entry.source,
+        transitEntry: entry.transitEntry,
+        rejoinEntry: entry.rejoinEntry,
+        ringwayEntry: entry,
+        linkedLock: entry.linkedLock,
+        arrivalRelay: entry.arrivalRelay,
+        onwardRelay: entry.onwardRelay,
+        lock: nearest.lock,
+        channel: nearest.lock.channel || entry.channel || "",
+        distance: nearest.distance
+      };
+    })
+    .filter((entry) => (
+      entry &&
+      entry.onwardRelay &&
+      Number.isFinite(Number(entry.onwardRelay.x)) &&
+      Number.isFinite(Number(entry.onwardRelay.y)) &&
+      entry.lock &&
+      Number.isFinite(Number(entry.lock.x)) &&
+      Number.isFinite(Number(entry.lock.y))
+    ));
+
+  return entries.sort(compareBridgeLandingEntries);
+}
+
+function centerViewportOnBridgeLandings() {
+  const entries = getBridgeLandingEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.onwardRelay && entry.onwardRelay.x), y: Number(entry && entry.onwardRelay && entry.onwardRelay.y) },
+      { x: Number(entry && entry.lock && entry.lock.x), y: Number(entry && entry.lock && entry.lock.y) }
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToPrimaryBridgeLandingLock() {
+  const entry = getBridgeLandingEntries()[0];
+  if (!entry || !entry.lock) return;
+  activateTransitLockMarkerById(entry.lock.id);
+}
+
+function renderBridgeLandingsOverlay() {
+  if (!el.bridgeLandingsLayer) return;
+  const entries = getBridgeLandingEntries();
+  if (!state.bridgeLandingsEnabled || entries.length === 0) {
+    el.bridgeLandingsLayer.style.display = "none";
+    el.bridgeLandingsLayer.replaceChildren();
+    return;
+  }
+
+  const activeRelayId = state.activeTrace && state.activeTrace.type === "relay"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const activeLockId = state.activeTrace && state.activeTrace.type === "transit-lock"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const group = createSvgNode("g", { class: "bridge-landings-overlay" });
+
+  entries.forEach((entry) => {
+    const onwardRelay = toWorldCoords(entry.onwardRelay);
+    const lock = toWorldCoords(entry.lock);
+    if (![onwardRelay.x, onwardRelay.y, lock.x, lock.y].every(Number.isFinite)) return;
+
+    const isActive = Boolean(
+      (activeRelayId && entry.onwardRelay && entry.onwardRelay.id === activeRelayId) ||
+      (activeLockId && entry.lock && entry.lock.id === activeLockId)
+    );
+    const node = createSvgNode("g", { class: `bridge-landing-route${isActive ? " is-active" : ""}` });
+    node.appendChild(createSvgNode("line", {
+      class: "bridge-landing-line",
+      x1: onwardRelay.x.toFixed(1),
+      y1: onwardRelay.y.toFixed(1),
+      x2: lock.x.toFixed(1),
+      y2: lock.y.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-landing-node",
+      cx: onwardRelay.x.toFixed(1),
+      cy: onwardRelay.y.toFixed(1),
+      r: "3.3"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-landing-node",
+      cx: lock.x.toFixed(1),
+      cy: lock.y.toFixed(1),
+      r: "3.5"
+    }));
+    const isEastHalf = Number(entry && entry.lock && entry.lock.x) > 50;
+    const label = createSvgNode("text", {
+      class: "bridge-landing-label",
+      x: (lock.x + (isEastHalf ? -11 : 11)).toFixed(1),
+      y: (lock.y - 8).toFixed(1),
+      "text-anchor": isEastHalf ? "end" : "start"
+    });
+    label.textContent = entry.lock.title;
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.bridgeLandingsLayer.style.display = "none";
+    el.bridgeLandingsLayer.replaceChildren();
+    return;
+  }
+
+  el.bridgeLandingsLayer.style.display = "block";
+  el.bridgeLandingsLayer.replaceChildren(group);
+}
+
+function renderBridgeLandingsPanel() {
+  if (!el.bridgeLandings) return;
+  if (!state.bridgeLandingsEnabled) {
+    el.bridgeLandings.innerHTML = "<p class=\"bridge-landings-line\">Bridge Landings is hidden. Re-enable it in Controls to restore relay-to-lock landing routes.</p>";
+    return;
+  }
+
+  const entries = getBridgeLandingEntries();
+  if (entries.length === 0) {
+    el.bridgeLandings.innerHTML = "<p class=\"bridge-landings-line\">Bridge Landings appears when bridge ringway relays can be paired with built-in transit locks.</p>";
+    return;
+  }
+
+  const activeRelayId = state.activeTrace && state.activeTrace.type === "relay"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const activeLockId = state.activeTrace && state.activeTrace.type === "transit-lock"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const firstEntry = entries[0];
+  const arrivalRelayCount = new Set(entries.map((entry) => String(entry && entry.onwardRelay && entry.onwardRelay.id ? entry.onwardRelay.id : "").trim()).filter(Boolean)).size;
+  const lockCount = new Set(entries.map((entry) => String(entry && entry.lock && entry.lock.id ? entry.lock.id : "").trim()).filter(Boolean)).size;
+  const trackingLine = entries.length === 1
+    ? `Tracking 1 landing route from ${firstEntry.onwardRelay.title} to ${firstEntry.lock.title}.`
+    : `Tracking ${entries.length} landing routes from destination ringway relays to nearest transit locks.`;
+  const listHtml = entries.map((entry, index) => {
+    const isActive = Boolean(
+      (activeRelayId && entry.onwardRelay && entry.onwardRelay.id === activeRelayId) ||
+      (activeLockId && entry.lock && entry.lock.id === activeLockId)
+    );
+    return `
+      <button type="button" class="bridge-landings-item${isActive ? " is-active" : ""}" data-bridge-landing-lock-id="${escapeHtml(entry.lock.id)}">
+        <strong>${escapeHtml(`#${index + 1} · ${entry.onwardRelay.title} → ${entry.lock.title}`)}</strong>
+        <span>${escapeHtml(`${entry.lock.region || "Unknown region"} · ${entry.onwardRelay.band || "Relay band"} · ${entry.channel || "Transit channel"}`)}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.bridgeLandings.innerHTML = `
+    <p class="bridge-landings-line">Bridge Landings traces navigation-only arrivals from destination ringway relays into the nearest transit lock.</p>
+    <p class="bridge-landings-line">${escapeHtml(trackingLine)}</p>
+    <p class="bridge-landings-line">These landing routes remain part of travel infrastructure, not of The Signal Cartographer's evidence chain.</p>
+    <div class="bridge-landings-actions">
+      <button type="button" class="bridge-landings-action" data-bridge-landings-action="center">Center on landing route</button>
+      <button type="button" class="bridge-landings-action" data-bridge-landings-action="jump-lock">Jump to arrival lock</button>
+    </div>
+    <div class="bridge-landings-meta">
+      <span class="bridge-landings-pill">Landing routes: ${entries.length}</span>
+      <span class="bridge-landings-pill">Arrival relays: ${arrivalRelayCount}</span>
+      <span class="bridge-landings-pill">Transit locks: ${lockCount}</span>
+      <span class="bridge-landings-pill">Mode: Navigation only</span>
+    </div>
+    <p class="bridge-landings-subtitle">Relay-to-lock landing</p>
+    <div class="bridge-landings-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnBridgeBearings() {
   const entries = getBridgeBearingEntries();
   if (entries.length === 0) return;
@@ -8140,6 +8376,8 @@ function setActiveTrace(marker) {
   renderBridgeRejoinsPanel();
   renderBridgeRingwaysOverlay();
   renderBridgeRingwaysPanel();
+  renderBridgeLandingsOverlay();
+  renderBridgeLandingsPanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
@@ -11176,6 +11414,7 @@ function initInteractions() {
   state.bridgeTransitsEnabled = !el.toggleBridgeTransits || el.toggleBridgeTransits.checked;
   state.bridgeRejoinsEnabled = !el.toggleBridgeRejoins || el.toggleBridgeRejoins.checked;
   state.bridgeRingwaysEnabled = !el.toggleBridgeRingways || el.toggleBridgeRingways.checked;
+  state.bridgeLandingsEnabled = !el.toggleBridgeLandings || el.toggleBridgeLandings.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -11641,6 +11880,8 @@ function initInteractions() {
       renderBridgeRejoinsPanel();
       renderBridgeRingwaysOverlay();
       renderBridgeRingwaysPanel();
+      renderBridgeLandingsOverlay();
+      renderBridgeLandingsPanel();
     });
   }
 
@@ -11655,6 +11896,8 @@ function initInteractions() {
       renderBridgeRejoinsPanel();
       renderBridgeRingwaysOverlay();
       renderBridgeRingwaysPanel();
+      renderBridgeLandingsOverlay();
+      renderBridgeLandingsPanel();
     });
   }
 
@@ -11667,6 +11910,8 @@ function initInteractions() {
       renderBridgeRejoinsPanel();
       renderBridgeRingwaysOverlay();
       renderBridgeRingwaysPanel();
+      renderBridgeLandingsOverlay();
+      renderBridgeLandingsPanel();
     });
   }
 
@@ -11677,6 +11922,8 @@ function initInteractions() {
       renderBridgeRejoinsPanel();
       renderBridgeRingwaysOverlay();
       renderBridgeRingwaysPanel();
+      renderBridgeLandingsOverlay();
+      renderBridgeLandingsPanel();
     });
   }
 
@@ -11685,6 +11932,16 @@ function initInteractions() {
       state.bridgeRingwaysEnabled = el.toggleBridgeRingways.checked;
       renderBridgeRingwaysOverlay();
       renderBridgeRingwaysPanel();
+      renderBridgeLandingsOverlay();
+      renderBridgeLandingsPanel();
+    });
+  }
+
+  if (el.toggleBridgeLandings) {
+    el.toggleBridgeLandings.addEventListener("change", () => {
+      state.bridgeLandingsEnabled = el.toggleBridgeLandings.checked;
+      renderBridgeLandingsOverlay();
+      renderBridgeLandingsPanel();
     });
   }
 
@@ -12579,6 +12836,31 @@ function initInteractions() {
     });
   }
 
+  if (el.bridgeLandings) {
+    el.bridgeLandings.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-bridge-landings-action], [data-bridge-landing-lock-id]")
+        : null;
+      if (!actionNode) return;
+
+      const lockId = String(actionNode.getAttribute("data-bridge-landing-lock-id") || "").trim();
+      if (lockId) {
+        activateTransitLockMarkerById(lockId);
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-bridge-landings-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnBridgeLandings();
+        return;
+      }
+      if (action === "jump-lock") {
+        jumpToPrimaryBridgeLandingLock();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -12798,6 +13080,8 @@ function initInteractions() {
   renderBridgeRejoinsPanel();
   renderBridgeRingwaysOverlay();
   renderBridgeRingwaysPanel();
+  renderBridgeLandingsOverlay();
+  renderBridgeLandingsPanel();
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
@@ -12889,6 +13173,8 @@ async function initBeacons() {
       renderBridgeRejoinsPanel();
       renderBridgeRingwaysOverlay();
       renderBridgeRingwaysPanel();
+      renderBridgeLandingsOverlay();
+      renderBridgeLandingsPanel();
       renderBeaconLedger();
     }
     renderVerificationRoute();

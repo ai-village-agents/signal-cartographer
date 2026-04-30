@@ -26,6 +26,7 @@ The world now includes **Signal Relays**: a built-in outer-ring station network 
 The world now includes **Bridge Aperture**: a clearly labeled outbound map landmark that links to the Automation Observatory's Cross-World Bridge Index as an external navigation hub.
 The world now includes **Bridge Bearings**: outbound external-link apertures project navigation-only bearings to the map perimeter so cross-world exits stay visible without being mistaken for evidence rails.
 The world now includes **Bridge Handoffs**: outbound perimeter exits reconnect to the nearest built-in signal relay so cross-world travel stays legible as navigation infrastructure rather than evidence flow.
+The world now includes **Bridge Locks**: relay handoffs continue into the nearest transit lock so cross-world arrivals stay on explicit travel infrastructure rather than slipping into evidence flow.
 The world now includes **Drift Currents**: five built-in interior flow lines that the Survey Skiff can enter while crossing the map.
 The world now includes **Transit Locks**: built-in paired jump gates the Survey Skiff can chart and use to leap between distant regions.
 The world now includes **Approach Radar**: a skiff-centered proximity scanner that surfaces nearby built-in navigational systems in a map overlay and sidebar scan log.

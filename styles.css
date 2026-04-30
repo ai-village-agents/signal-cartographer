@@ -3351,6 +3351,8 @@ button:hover {
 .accountability-spine-layer,
 .ledger-ingress-layer,
 .bridge-bearings-layer,
+.bridge-handoffs-layer,
+.bridge-locks-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -3561,6 +3563,14 @@ button:hover {
 }
 
 .bridge-handoffs-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.bridge-locks-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -5588,6 +5598,51 @@ button:hover {
   filter: drop-shadow(0 0 9px rgba(255, 221, 190, 0.58));
 }
 
+.bridge-lock-route {
+  pointer-events: none;
+}
+
+.bridge-lock-line {
+  fill: none;
+  stroke: rgba(227, 194, 255, 0.86);
+  stroke-width: 1.56;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 4.2 5;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 8px rgba(209, 164, 255, 0.34));
+}
+
+.bridge-lock-node {
+  fill: rgba(250, 239, 255, 0.97);
+  stroke: rgba(226, 199, 255, 0.98);
+  stroke-width: 1.05;
+  vector-effect: non-scaling-stroke;
+}
+
+.bridge-lock-label {
+  fill: rgba(243, 224, 255, 0.96);
+  font-size: 11px;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+  letter-spacing: 0.01em;
+  paint-order: stroke;
+  stroke: rgba(19, 9, 30, 0.94);
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+}
+
+.bridge-lock-route.is-active .bridge-lock-line {
+  stroke: rgba(251, 241, 255, 1);
+  stroke-width: 1.96;
+  filter: drop-shadow(0 0 10px rgba(228, 196, 255, 0.56));
+}
+
+.bridge-lock-route.is-active .bridge-lock-node {
+  fill: rgba(253, 248, 255, 0.99);
+  stroke: rgba(243, 228, 255, 1);
+  filter: drop-shadow(0 0 9px rgba(224, 196, 255, 0.58));
+}
+
 .survey-grid-current-label {
   fill: rgba(216, 255, 255, 0.95);
   font-size: 13px;
@@ -5974,4 +6029,102 @@ button:hover {
   border-color: rgba(255, 237, 216, 0.95);
   background: rgba(142, 80, 42, 0.93);
   box-shadow: 0 0 16px rgba(255, 199, 150, 0.24);
+}
+
+.bridge-locks-panel {
+  border: 1px solid rgba(229, 198, 255, 0.36);
+  background: rgba(45, 27, 63, 0.86);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.bridge-locks-line {
+  margin: 0;
+  line-height: 1.34;
+  color: #f2e5ff;
+}
+
+.bridge-locks-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.bridge-locks-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(231, 202, 255, 0.52);
+  background: rgba(100, 59, 136, 0.9);
+  color: #f8efff;
+  font-size: 0.78rem;
+}
+
+.bridge-locks-action:hover,
+.bridge-locks-action:focus-visible {
+  border-color: rgba(245, 232, 255, 0.95);
+  background: rgba(118, 70, 158, 0.94);
+}
+
+.bridge-locks-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.bridge-locks-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(233, 205, 255, 0.52);
+  background: rgba(129, 76, 171, 0.44);
+  color: #f4e9ff;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.bridge-locks-subtitle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(238, 221, 255, 0.82);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bridge-locks-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.bridge-locks-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.42rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(232, 204, 255, 0.44);
+  background: rgba(88, 53, 120, 0.84);
+  color: #fbf3ff;
+}
+
+.bridge-locks-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.bridge-locks-item span {
+  font-size: 0.76rem;
+  color: rgba(244, 230, 255, 0.88);
+  line-height: 1.32;
+}
+
+.bridge-locks-item:hover,
+.bridge-locks-item:focus-visible,
+.bridge-locks-item.is-active {
+  border-color: rgba(245, 231, 255, 0.95);
+  background: rgba(109, 64, 148, 0.92);
+  box-shadow: 0 0 16px rgba(220, 182, 255, 0.24);
 }

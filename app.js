@@ -593,6 +593,7 @@ const state = {
   ledgerIngressEnabled: true,
   bridgeBearingsEnabled: true,
   bridgeHandoffsEnabled: true,
+  bridgeLocksEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -687,6 +688,7 @@ const el = {
   toggleLedgerIngress: document.getElementById("toggleLedgerIngress"),
   toggleBridgeBearings: document.getElementById("toggleBridgeBearings"),
   toggleBridgeHandoffs: document.getElementById("toggleBridgeHandoffs"),
+  toggleBridgeLocks: document.getElementById("toggleBridgeLocks"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -722,6 +724,7 @@ const el = {
   ledgerIngressLayer: document.getElementById("ledgerIngressLayer"),
   bridgeBearingsLayer: document.getElementById("bridgeBearingsLayer"),
   bridgeHandoffsLayer: document.getElementById("bridgeHandoffsLayer"),
+  bridgeLocksLayer: document.getElementById("bridgeLocksLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -755,6 +758,7 @@ const el = {
   ledgerIngress: document.getElementById("ledgerIngress"),
   bridgeBearings: document.getElementById("bridgeBearings"),
   bridgeHandoffs: document.getElementById("bridgeHandoffs"),
+  bridgeLocks: document.getElementById("bridgeLocks"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -5945,6 +5949,251 @@ function renderBridgeHandoffsPanel() {
   `;
 }
 
+function compareBridgeLockEntries(a, b) {
+  const aRelayTitle = String(a && a.relay && a.relay.title ? a.relay.title : "");
+  const bRelayTitle = String(b && b.relay && b.relay.title ? b.relay.title : "");
+  const relayComparison = aRelayTitle.localeCompare(bRelayTitle);
+  if (relayComparison !== 0) return relayComparison;
+
+  const aLockTitle = String(a && a.lock && a.lock.title ? a.lock.title : "");
+  const bLockTitle = String(b && b.lock && b.lock.title ? b.lock.title : "");
+  const lockComparison = aLockTitle.localeCompare(bLockTitle);
+  if (lockComparison !== 0) return lockComparison;
+
+  const aExitLabel = String(a && a.exitLabel ? a.exitLabel : "");
+  const bExitLabel = String(b && b.exitLabel ? b.exitLabel : "");
+  const exitComparison = aExitLabel.localeCompare(bExitLabel);
+  if (exitComparison !== 0) return exitComparison;
+
+  const aKey = String(a && a.key ? a.key : "");
+  const bKey = String(b && b.key ? b.key : "");
+  return aKey.localeCompare(bKey);
+}
+
+function getBridgeLockEntries() {
+  const entries = getBridgeHandoffEntries()
+    .map((handoffEntry) => {
+      const relayX = Number(handoffEntry && handoffEntry.relay && handoffEntry.relay.x);
+      const relayY = Number(handoffEntry && handoffEntry.relay && handoffEntry.relay.y);
+      if (!Number.isFinite(relayX) || !Number.isFinite(relayY)) return null;
+
+      const rankedLocks = BUILTIN_TRANSIT_LOCKS
+        .map((lock) => {
+          const lockX = Number(lock && lock.x);
+          const lockY = Number(lock && lock.y);
+          if (!Number.isFinite(lockX) || !Number.isFinite(lockY)) return null;
+          return {
+            lock,
+            distance: Math.hypot(lockX - relayX, lockY - relayY)
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (
+          a.distance - b.distance ||
+          String(a && a.lock && a.lock.title ? a.lock.title : "").localeCompare(String(b && b.lock && b.lock.title ? b.lock.title : "")) ||
+          String(a && a.lock && a.lock.id ? a.lock.id : "").localeCompare(String(b && b.lock && b.lock.id ? b.lock.id : ""))
+        ));
+      const nearest = rankedLocks[0];
+      if (!nearest || !nearest.lock) return null;
+
+      return {
+        key: `bridge-lock:${String(handoffEntry && handoffEntry.key ? handoffEntry.key : "").trim()}:${String(nearest.lock.id || "").trim().toLowerCase()}`,
+        source: handoffEntry.source,
+        relay: handoffEntry.relay,
+        exitPoint: handoffEntry.exitPoint,
+        exitLabel: handoffEntry.exitLabel,
+        lock: nearest.lock,
+        distance: nearest.distance,
+        handoff: handoffEntry
+      };
+    })
+    .filter((entry) => (
+      entry &&
+      entry.relay &&
+      Number.isFinite(Number(entry.relay.x)) &&
+      Number.isFinite(Number(entry.relay.y)) &&
+      entry.lock &&
+      Number.isFinite(Number(entry.lock.x)) &&
+      Number.isFinite(Number(entry.lock.y))
+    ));
+
+  return entries.sort(compareBridgeLockEntries);
+}
+
+function centerViewportOnBridgeLocks() {
+  const entries = getBridgeLockEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.relay && entry.relay.x), y: Number(entry && entry.relay && entry.relay.y) },
+      { x: Number(entry && entry.lock && entry.lock.x), y: Number(entry && entry.lock && entry.lock.y) }
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function activateTransitLockMarkerById(lockId) {
+  const normalizedLockId = String(lockId || "").trim();
+  if (!normalizedLockId) return false;
+  const lock = findTransitLockById(normalizedLockId);
+  if (!lock) return false;
+
+  window.setTimeout(() => {
+    activateMarker(lock, { focus: true, updateHash: false });
+  }, 0);
+  return true;
+}
+
+function jumpToPrimaryBridgeLock() {
+  const entry = getBridgeLockEntries()[0];
+  if (!entry || !entry.lock) return;
+  activateTransitLockMarkerById(entry.lock.id);
+}
+
+function renderBridgeLocksOverlay() {
+  if (!el.bridgeLocksLayer) return;
+  const entries = getBridgeLockEntries();
+  if (!state.bridgeLocksEnabled || entries.length === 0) {
+    el.bridgeLocksLayer.style.display = "none";
+    el.bridgeLocksLayer.replaceChildren();
+    return;
+  }
+
+  const activeRelayId = state.activeTrace && state.activeTrace.type === "relay"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const activeLockId = state.activeTrace && state.activeTrace.type === "transit-lock"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const group = createSvgNode("g", { class: "bridge-locks-overlay" });
+
+  entries.forEach((entry) => {
+    const relay = toWorldCoords(entry.relay);
+    const lock = toWorldCoords(entry.lock);
+    if (![relay.x, relay.y, lock.x, lock.y].every(Number.isFinite)) return;
+
+    const isActive = Boolean(
+      (activeRelayId && entry.relay && entry.relay.id === activeRelayId) ||
+      (activeLockId && entry.lock && entry.lock.id === activeLockId)
+    );
+    const node = createSvgNode("g", { class: `bridge-lock-route${isActive ? " is-active" : ""}` });
+    node.appendChild(createSvgNode("line", {
+      class: "bridge-lock-line",
+      x1: relay.x.toFixed(1),
+      y1: relay.y.toFixed(1),
+      x2: lock.x.toFixed(1),
+      y2: lock.y.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-lock-node",
+      cx: relay.x.toFixed(1),
+      cy: relay.y.toFixed(1),
+      r: "3.1"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-lock-node",
+      cx: lock.x.toFixed(1),
+      cy: lock.y.toFixed(1),
+      r: "3.4"
+    }));
+    const isEastHalf = Number(entry && entry.lock && entry.lock.x) > 50;
+    const label = createSvgNode("text", {
+      class: "bridge-lock-label",
+      x: (lock.x + (isEastHalf ? -11 : 11)).toFixed(1),
+      y: (lock.y - 8).toFixed(1),
+      "text-anchor": isEastHalf ? "end" : "start"
+    });
+    label.textContent = entry.lock.title;
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.bridgeLocksLayer.style.display = "none";
+    el.bridgeLocksLayer.replaceChildren();
+    return;
+  }
+
+  el.bridgeLocksLayer.style.display = "block";
+  el.bridgeLocksLayer.replaceChildren(group);
+}
+
+function renderBridgeLocksPanel() {
+  if (!el.bridgeLocks) return;
+  if (!state.bridgeLocksEnabled) {
+    el.bridgeLocks.innerHTML = "<p class=\"bridge-locks-line\">Bridge Locks is hidden. Re-enable it in Controls to restore relay-to-lock navigation links.</p>";
+    return;
+  }
+
+  const entries = getBridgeLockEntries();
+  if (entries.length === 0) {
+    el.bridgeLocks.innerHTML = "<p class=\"bridge-locks-line\">Bridge Locks appears when bridge handoff relays can be paired with built-in transit locks.</p>";
+    return;
+  }
+
+  const activeRelayId = state.activeTrace && state.activeTrace.type === "relay"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const activeLockId = state.activeTrace && state.activeTrace.type === "transit-lock"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const firstEntry = entries[0];
+  const relayCount = new Set(entries.map((entry) => String(entry && entry.relay && entry.relay.id ? entry.relay.id : "").trim()).filter(Boolean)).size;
+  const lockCount = new Set(entries.map((entry) => String(entry && entry.lock && entry.lock.id ? entry.lock.id : "").trim()).filter(Boolean)).size;
+  const trackingLine = entries.length === 1
+    ? `Tracking 1 lock continuation from ${firstEntry.relay.title} to ${firstEntry.lock.title}.`
+    : `Tracking ${entries.length} lock continuations from bridge handoff relays to nearest transit locks.`;
+  const listHtml = entries.map((entry, index) => {
+    const isActive = Boolean(
+      (activeRelayId && entry.relay && entry.relay.id === activeRelayId) ||
+      (activeLockId && entry.lock && entry.lock.id === activeLockId)
+    );
+    return `
+      <button type="button" class="bridge-locks-item${isActive ? " is-active" : ""}" data-bridge-lock-id="${escapeHtml(entry.lock.id)}">
+        <strong>${escapeHtml(`#${index + 1} · ${entry.relay.title} → ${entry.lock.title}`)}</strong>
+        <span>${escapeHtml(`${entry.exitLabel} · ${entry.source.region} · ${entry.lock.channel || "Transit channel"}`)}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.bridgeLocks.innerHTML = `
+    <p class="bridge-locks-line">Bridge Locks traces navigation-only continuations from bridge handoff relays into the nearest transit lock.</p>
+    <p class="bridge-locks-line">${escapeHtml(trackingLine)}</p>
+    <p class="bridge-locks-line">These lock continuations remain part of travel infrastructure, not of The Signal Cartographer's evidence chain.</p>
+    <div class="bridge-locks-actions">
+      <button type="button" class="bridge-locks-action" data-bridge-locks-action="center">Center on lock route</button>
+      <button type="button" class="bridge-locks-action" data-bridge-locks-action="jump-lock">Jump to lock</button>
+    </div>
+    <div class="bridge-locks-meta">
+      <span class="bridge-locks-pill">Lock routes: ${entries.length}</span>
+      <span class="bridge-locks-pill">Relay stations: ${relayCount}</span>
+      <span class="bridge-locks-pill">Transit locks: ${lockCount}</span>
+      <span class="bridge-locks-pill">Mode: Navigation only</span>
+    </div>
+    <p class="bridge-locks-subtitle">Relay-to-lock continuation</p>
+    <div class="bridge-locks-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnBridgeBearings() {
   const entries = getBridgeBearingEntries();
   if (entries.length === 0) return;
@@ -7189,6 +7438,8 @@ function setActiveTrace(marker) {
   renderBridgeBearingsPanel();
   renderBridgeHandoffsOverlay();
   renderBridgeHandoffsPanel();
+  renderBridgeLocksOverlay();
+  renderBridgeLocksPanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
@@ -10221,6 +10472,7 @@ function initInteractions() {
   state.ledgerIngressEnabled = !el.toggleLedgerIngress || el.toggleLedgerIngress.checked;
   state.bridgeBearingsEnabled = !el.toggleBridgeBearings || el.toggleBridgeBearings.checked;
   state.bridgeHandoffsEnabled = !el.toggleBridgeHandoffs || el.toggleBridgeHandoffs.checked;
+  state.bridgeLocksEnabled = !el.toggleBridgeLocks || el.toggleBridgeLocks.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -10678,6 +10930,16 @@ function initInteractions() {
       state.bridgeHandoffsEnabled = el.toggleBridgeHandoffs.checked;
       renderBridgeHandoffsOverlay();
       renderBridgeHandoffsPanel();
+      renderBridgeLocksOverlay();
+      renderBridgeLocksPanel();
+    });
+  }
+
+  if (el.toggleBridgeLocks) {
+    el.toggleBridgeLocks.addEventListener("change", () => {
+      state.bridgeLocksEnabled = el.toggleBridgeLocks.checked;
+      renderBridgeLocksOverlay();
+      renderBridgeLocksPanel();
     });
   }
 
@@ -11472,6 +11734,31 @@ function initInteractions() {
     });
   }
 
+  if (el.bridgeLocks) {
+    el.bridgeLocks.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-bridge-locks-action], [data-bridge-lock-id]")
+        : null;
+      if (!actionNode) return;
+
+      const lockId = String(actionNode.getAttribute("data-bridge-lock-id") || "").trim();
+      if (lockId) {
+        activateTransitLockMarkerById(lockId);
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-bridge-locks-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnBridgeLocks();
+        return;
+      }
+      if (action === "jump-lock") {
+        jumpToPrimaryBridgeLock();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -11683,6 +11970,8 @@ function initInteractions() {
   renderBridgeBearingsPanel();
   renderBridgeHandoffsOverlay();
   renderBridgeHandoffsPanel();
+  renderBridgeLocksOverlay();
+  renderBridgeLocksPanel();
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
@@ -11766,6 +12055,8 @@ async function initBeacons() {
       renderBridgeBearingsPanel();
       renderBridgeHandoffsOverlay();
       renderBridgeHandoffsPanel();
+      renderBridgeLocksOverlay();
+      renderBridgeLocksPanel();
       renderBeaconLedger();
     }
     renderVerificationRoute();

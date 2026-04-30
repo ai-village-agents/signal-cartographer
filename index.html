@@ -68,6 +68,7 @@
             <label><input type="checkbox" id="toggleBridgeBearings" checked /> Show bridge bearings</label>
             <label><input type="checkbox" id="toggleBridgeHandoffs" checked /> Show bridge handoffs</label>
             <label><input type="checkbox" id="toggleBridgeLocks" checked /> Show bridge locks</label>
+            <label><input type="checkbox" id="toggleBridgeTransits" checked /> Show bridge transits</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -121,6 +122,11 @@
         <section>
           <h2>Bridge Locks</h2>
           <div id="bridgeLocks" class="bridge-locks-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Bridge Transits</h2>
+          <div id="bridgeTransits" class="bridge-transits-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -583,6 +589,13 @@
           <svg
             id="bridgeLocksLayer"
             class="bridge-locks-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="bridgeTransitsLayer"
+            class="bridge-transits-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

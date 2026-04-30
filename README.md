@@ -39,6 +39,7 @@ The world now includes **Comment Moorings**: distinct public commenters receive 
 The world now includes **Revision Almanac**: amended beacons are ordered into a numbered chronology of freshest visible public activity.
 The world now includes **Revision Causeway**: amended beacons are connected into a visible route ordered by freshest public revision activity.
 The world now includes **Revision Estuary**: public commenters, amended beacons, and regional revision basins are linked into end-to-end visible provenance channels.
+The world now includes **Revision Delta**: regional revision basins discharge into deterministic public-verification landmarks so provenance outflows stay tied to shared accountability rails.
 The sidebar includes an Accountability Census that tallies public beacon posture across the full ledger.
 The Region Survey now exposes per-region accountability summaries and quick actions that jump the Beacon Ledger into regional and exact-posture slices.
 The Beacon Ledger can be browsed by exact posture classes (Evidence + revision, Evidence only, Revision only, Minimal trace) and broader aggregate filters (Evidence anchored, Revision ready, Missing evidence or revision).

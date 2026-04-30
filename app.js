@@ -105,6 +105,14 @@ const LANDMARKS = [
   }
 ];
 
+const REVISION_DELTA_OUTLET_BY_REGION = new Map([
+  ["Rumor Sea", "Whisper Breakwater"],
+  ["Proof Plateau", "Replicator Steps"],
+  ["Revision River", "Errata Locks"],
+  ["Memory Vault", "Witness Ledger"],
+  ["Beacon Field", "Public Rails"]
+]);
+
 const ECHO_SITES = [
   {
     id: "brine-index",
@@ -568,6 +576,7 @@ const state = {
   revisionAlmanacEnabled: true,
   revisionCausewayEnabled: true,
   revisionEstuaryEnabled: true,
+  revisionDeltaEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -655,6 +664,7 @@ const el = {
   toggleRevisionAlmanac: document.getElementById("toggleRevisionAlmanac"),
   toggleRevisionCauseway: document.getElementById("toggleRevisionCauseway"),
   toggleRevisionEstuary: document.getElementById("toggleRevisionEstuary"),
+  toggleRevisionDelta: document.getElementById("toggleRevisionDelta"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -684,6 +694,7 @@ const el = {
   revisionAlmanacLayer: document.getElementById("revisionAlmanacLayer"),
   revisionCausewayLayer: document.getElementById("revisionCausewayLayer"),
   revisionEstuaryLayer: document.getElementById("revisionEstuaryLayer"),
+  revisionDeltaLayer: document.getElementById("revisionDeltaLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -711,6 +722,7 @@ const el = {
   revisionAlmanac: document.getElementById("revisionAlmanac"),
   revisionCauseway: document.getElementById("revisionCauseway"),
   revisionEstuary: document.getElementById("revisionEstuary"),
+  revisionDelta: document.getElementById("revisionDelta"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -3746,6 +3758,289 @@ function renderRevisionEstuaryPanel() {
   `;
 }
 
+function compareRevisionDeltaEntries(a, b) {
+  const aLatestTs = Number.isFinite(a && a.latestActivityTs) ? a.latestActivityTs : null;
+  const bLatestTs = Number.isFinite(b && b.latestActivityTs) ? b.latestActivityTs : null;
+  if (aLatestTs !== null || bLatestTs !== null) {
+    if (aLatestTs !== null && bLatestTs !== null && aLatestTs !== bLatestTs) return bLatestTs - aLatestTs;
+    if (aLatestTs !== null) return -1;
+    if (bLatestTs !== null) return 1;
+  }
+
+  const aRank = Number.isFinite(a && a.rank) ? Number(a.rank) : null;
+  const bRank = Number.isFinite(b && b.rank) ? Number(b.rank) : null;
+  if (aRank !== null || bRank !== null) {
+    if (aRank !== null && bRank !== null && aRank !== bRank) return aRank - bRank;
+    if (aRank !== null) return -1;
+    if (bRank !== null) return 1;
+  }
+
+  const regionComparison = String(a && a.region ? a.region : "").localeCompare(String(b && b.region ? b.region : ""));
+  if (regionComparison !== 0) return regionComparison;
+
+  return String(a && a.key ? a.key : "").localeCompare(String(b && b.key ? b.key : ""));
+}
+
+function getRevisionDeltaEntries() {
+  const estuaryEntries = getRevisionEstuaryEntries();
+  if (estuaryEntries.length === 0) return [];
+
+  const groupedByRegion = new Map();
+  estuaryEntries.forEach((entry) => {
+    const region = normalizeRevisionConfluenceRegionName(entry && entry.region);
+    if (!groupedByRegion.has(region)) groupedByRegion.set(region, []);
+    groupedByRegion.get(region).push(entry);
+  });
+
+  const entries = [];
+  groupedByRegion.forEach((regionEntries, region) => {
+    if (!Array.isArray(regionEntries) || regionEntries.length === 0) return;
+    const regionBound = REGION_BOUNDS.find((bound) => bound.region === region) || null;
+    if (!regionBound) return;
+
+    const orderedRegionEntries = [...regionEntries].sort(compareRevisionEstuaryEntries);
+    const sourceEntry = orderedRegionEntries[0] || null;
+    if (!sourceEntry) return;
+
+    const basinCoord = {
+      x: Number(regionBound.left) + Number(regionBound.width) / 2,
+      y: Number(regionBound.top) + Number(regionBound.height) / 2
+    };
+
+    const targetTitle = REVISION_DELTA_OUTLET_BY_REGION.get(region) || "";
+    const deterministicOutlet = BUILTIN_LANDMARKS.find((landmark) => landmark.title === targetTitle) || null;
+    let outletLandmark = deterministicOutlet;
+    if (!outletLandmark) {
+      outletLandmark = BUILTIN_LANDMARKS
+        .map((landmark) => ({
+          landmark,
+          distance: measurePercentDistance(basinCoord, landmark)
+        }))
+        .filter((candidate) => Number.isFinite(candidate.distance))
+        .sort((a, b) => a.distance - b.distance || String(a.landmark.title || "").localeCompare(String(b.landmark.title || "")))
+        .map((candidate) => candidate.landmark)[0] || null;
+    }
+    if (!outletLandmark) return;
+
+    const issueNumber = parseIssueNumber(sourceEntry && sourceEntry.issueNumber);
+    const latestActivityTs = Number.isFinite(sourceEntry && sourceEntry.latestActivityTs)
+      ? Number(sourceEntry.latestActivityTs)
+      : null;
+    const commenters = new Set(
+      orderedRegionEntries
+        .map((entry) => String(entry && entry.login ? entry.login : "").trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const publicCommentCount = orderedRegionEntries.reduce(
+      (sum, entry) => sum + Math.max(0, Number(entry && entry.publicCommentCount) || 0),
+      0
+    );
+    const fetchedCommentCount = orderedRegionEntries.reduce(
+      (sum, entry) => sum + Math.max(0, Number(entry && entry.fetchedCommentCount) || 0),
+      0
+    );
+    const distinctCommenters = orderedRegionEntries.reduce(
+      (sum, entry) => sum + Math.max(0, Number(entry && entry.distinctCommenters) || 0),
+      0
+    );
+
+    entries.push({
+      key: `${String(region || "").trim().toLowerCase()}::${issueNumber === null ? "unknown" : issueNumber}`,
+      region,
+      regionBound,
+      basinCoord,
+      outletLandmark,
+      outletCoord: {
+        x: Number(outletLandmark.x),
+        y: Number(outletLandmark.y)
+      },
+      outletTitle: String(outletLandmark.title || "Unnamed outlet"),
+      beacon: sourceEntry && sourceEntry.beacon ? sourceEntry.beacon : null,
+      issueNumber,
+      title: String(sourceEntry && sourceEntry.title ? sourceEntry.title : "Untitled beacon"),
+      rank: Number.isFinite(sourceEntry && sourceEntry.rank) ? Number(sourceEntry.rank) : null,
+      latestActivityTs,
+      freshestActivityLabel: formatCompactAge(latestActivityTs),
+      activitySource: String(sourceEntry && sourceEntry.activitySource ? sourceEntry.activitySource : "Visible activity"),
+      channelCount: orderedRegionEntries.length,
+      commenterCount: commenters.size,
+      publicCommentCount,
+      fetchedCommentCount,
+      distinctCommenters
+    });
+  });
+
+  return entries.sort(compareRevisionDeltaEntries);
+}
+
+function centerViewportOnRevisionDelta() {
+  const entries = getRevisionDeltaEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.basinCoord && entry.basinCoord.x), y: Number(entry && entry.basinCoord && entry.basinCoord.y) },
+      { x: Number(entry && entry.outletCoord && entry.outletCoord.x), y: Number(entry && entry.outletCoord && entry.outletCoord.y) }
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToFreshestRevisionDeltaOutflow() {
+  const entries = getRevisionDeltaEntries();
+  if (entries.length === 0) return;
+  const beacon = entries[0] && entries[0].beacon;
+  if (!beacon) return;
+  activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderRevisionDeltaOverlay() {
+  if (!el.revisionDeltaLayer) return;
+  const entries = getRevisionDeltaEntries();
+  if (!state.revisionDeltaEnabled || entries.length === 0) {
+    el.revisionDeltaLayer.style.display = "none";
+    el.revisionDeltaLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "revision-delta-overlay" });
+  entries.forEach((entry) => {
+    const basinX = (Number(entry && entry.basinCoord && entry.basinCoord.x) / 100) * MAP_W;
+    const basinY = (Number(entry && entry.basinCoord && entry.basinCoord.y) / 100) * MAP_H;
+    const outletX = (Number(entry && entry.outletCoord && entry.outletCoord.x) / 100) * MAP_W;
+    const outletY = (Number(entry && entry.outletCoord && entry.outletCoord.y) / 100) * MAP_H;
+    if (![basinX, basinY, outletX, outletY].every(Number.isFinite)) return;
+
+    const midpointX = (basinX + outletX) / 2;
+    const midpointY = (basinY + outletY) / 2;
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const node = createSvgNode("g", { class: `revision-delta-outflow${isActive ? " is-active" : ""}` });
+    node.appendChild(createSvgNode("line", {
+      class: "revision-delta-segment",
+      x1: basinX.toFixed(1),
+      y1: basinY.toFixed(1),
+      x2: outletX.toFixed(1),
+      y2: outletY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-delta-basin-node",
+      cx: basinX.toFixed(1),
+      cy: basinY.toFixed(1),
+      r: "4.2"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-delta-midpoint-node",
+      cx: midpointX.toFixed(1),
+      cy: midpointY.toFixed(1),
+      r: "2.6"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-delta-outlet-node",
+      cx: outletX.toFixed(1),
+      cy: outletY.toFixed(1),
+      r: "3.7"
+    }));
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.revisionDeltaLayer.style.display = "none";
+    el.revisionDeltaLayer.replaceChildren();
+    return;
+  }
+
+  el.revisionDeltaLayer.style.display = "block";
+  el.revisionDeltaLayer.replaceChildren(group);
+}
+
+function renderRevisionDeltaPanel() {
+  if (!el.revisionDelta) return;
+  if (!state.revisionDeltaEnabled) {
+    el.revisionDelta.innerHTML = "<p class=\"revision-delta-line\">Revision Delta is hidden. Re-enable it in Controls to reconnect revision basins to public verification outlets.</p>";
+    return;
+  }
+
+  const entries = getRevisionDeltaEntries();
+  if (entries.length === 0) {
+    el.revisionDelta.innerHTML = "<p class=\"revision-delta-line\">Revision Delta appears once revision basins can discharge into visible public verification outlets.</p>";
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const basinCount = new Set(
+    entries.map((entry) => String(entry && entry.region ? entry.region : "").trim().toLowerCase()).filter(Boolean)
+  ).size;
+  const outflowCount = entries.length;
+  const totalCommenters = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.commenterCount) || 0), 0);
+  const totalFetchedComments = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.fetchedCommentCount) || 0), 0);
+  const totalDistinctCommenters = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.distinctCommenters) || 0), 0);
+  const freshWithin24hCount = entries.reduce((sum, entry) => (
+    sum + (Number.isFinite(entry.latestActivityTs) && (Date.now() - entry.latestActivityTs) <= (24 * 60 * 60 * 1000) ? 1 : 0)
+  ), 0);
+  const freshest = entries[0] || null;
+  const freshestIssue = parseIssueNumber(freshest && freshest.issueNumber);
+  const freshestLabel = freshestIssue === null
+    ? "Issue unknown"
+    : `Issue #${freshestIssue}`;
+
+  const listHtml = entries.map((entry) => {
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const rankPrefix = Number.isFinite(entry && entry.rank) ? `#${entry.rank} · ` : "";
+    const issueLabel = issueNumber === null ? "Issue unknown" : `Issue #${issueNumber}`;
+    return `
+      <button type="button" class="revision-delta-item${isActive ? " is-active" : ""}" data-revision-delta-key="${escapeHtml(entry.key)}">
+        <strong>${escapeHtml(`${rankPrefix}${entry.region} basin → ${entry.outletTitle}`)}</strong>
+        <span>${escapeHtml(`${entry.title} · ${issueLabel} · ${entry.activitySource}`)}</span>
+        <span class="revision-delta-age">${escapeHtml(`Freshest discharge ${entry.freshestActivityLabel}`)}</span>
+        <span class="revision-delta-meta">
+          <span class="revision-delta-pill">Channels: ${Math.max(0, Number(entry.channelCount) || 0)}</span>
+          <span class="revision-delta-pill">Public commenters: ${Math.max(0, Number(entry.commenterCount) || 0)}</span>
+          <span class="revision-delta-pill">Fetched comments: ${Math.max(0, Number(entry.fetchedCommentCount) || 0)}</span>
+          <span class="revision-delta-pill">Distinct commenters: ${Math.max(0, Number(entry.distinctCommenters) || 0)}</span>
+        </span>
+      </button>
+    `;
+  }).join("");
+
+  el.revisionDelta.innerHTML = `
+    <p class="revision-delta-line">Revision Delta routes each revision basin toward a deterministic public-verification landmark so visible provenance flows back into shared accountability rails.</p>
+    <p class="revision-delta-line">Tracking ${outflowCount} outflow(s) across ${basinCount} basin(s), with freshest discharge at ${escapeHtml(freshestLabel)}.</p>
+    <div class="revision-delta-actions">
+      <button type="button" class="revision-delta-action" data-revision-delta-action="center">Center on delta</button>
+      <button type="button" class="revision-delta-action" data-revision-delta-action="jump-freshest">Jump to freshest outflow</button>
+    </div>
+    <div class="revision-delta-meta">
+      <span class="revision-delta-pill">Outflows: ${outflowCount}</span>
+      <span class="revision-delta-pill">Basins: ${basinCount}</span>
+      <span class="revision-delta-pill">Public commenters: ${totalCommenters}</span>
+      <span class="revision-delta-pill">Fresh within 24h: ${freshWithin24hCount}</span>
+      <span class="revision-delta-pill">Fetched comments: ${totalFetchedComments}</span>
+      <span class="revision-delta-pill">Distinct commenters: ${totalDistinctCommenters}</span>
+    </div>
+    <p class="revision-delta-subtitle">Public-verification outflows</p>
+    <div class="revision-delta-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnRevisionAlmanac() {
   const entries = getRevisionAlmanacEntries();
   if (entries.length === 0) return;
@@ -5374,6 +5669,8 @@ function setActiveTrace(marker) {
   renderRevisionCausewayPanel();
   renderRevisionEstuaryOverlay();
   renderRevisionEstuaryPanel();
+  renderRevisionDeltaOverlay();
+  renderRevisionDeltaPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -5435,6 +5732,7 @@ function renderBeacons() {
   renderRevisionAlmanacOverlay();
   renderRevisionCausewayOverlay();
   renderRevisionEstuaryOverlay();
+  renderRevisionDeltaOverlay();
   renderTracePassageOverlay();
 }
 
@@ -8150,8 +8448,10 @@ async function fetchBeaconComments() {
     renderRevisionAlmanacPanel();
     renderRevisionCausewayOverlay();
     renderRevisionCausewayPanel();
-  renderRevisionEstuaryOverlay();
-  renderRevisionEstuaryPanel();
+    renderRevisionEstuaryOverlay();
+    renderRevisionEstuaryPanel();
+    renderRevisionDeltaOverlay();
+    renderRevisionDeltaPanel();
     return;
   }
 
@@ -8172,8 +8472,10 @@ async function fetchBeaconComments() {
     renderRevisionAlmanacPanel();
     renderRevisionCausewayOverlay();
     renderRevisionCausewayPanel();
-  renderRevisionEstuaryOverlay();
-  renderRevisionEstuaryPanel();
+    renderRevisionEstuaryOverlay();
+    renderRevisionEstuaryPanel();
+    renderRevisionDeltaOverlay();
+    renderRevisionDeltaPanel();
     return;
   }
 
@@ -8231,6 +8533,8 @@ async function fetchBeaconComments() {
   renderRevisionCausewayPanel();
   renderRevisionEstuaryOverlay();
   renderRevisionEstuaryPanel();
+  renderRevisionDeltaOverlay();
+  renderRevisionDeltaPanel();
 }
 
 function scheduleBeaconCommentRefresh() {
@@ -8257,8 +8561,10 @@ function scheduleBeaconCommentRefresh() {
     renderRevisionAlmanacPanel();
     renderRevisionCausewayOverlay();
     renderRevisionCausewayPanel();
-  renderRevisionEstuaryOverlay();
-  renderRevisionEstuaryPanel();
+    renderRevisionEstuaryOverlay();
+    renderRevisionEstuaryPanel();
+    renderRevisionDeltaOverlay();
+    renderRevisionDeltaPanel();
     return;
   }
   state.beaconCommentsLoading = true;
@@ -8353,6 +8659,7 @@ function initInteractions() {
   state.revisionAlmanacEnabled = !el.toggleRevisionAlmanac || el.toggleRevisionAlmanac.checked;
   state.revisionCausewayEnabled = !el.toggleRevisionCauseway || el.toggleRevisionCauseway.checked;
   state.revisionEstuaryEnabled = !el.toggleRevisionEstuary || el.toggleRevisionEstuary.checked;
+  state.revisionDeltaEnabled = !el.toggleRevisionDelta || el.toggleRevisionDelta.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -8403,6 +8710,8 @@ function initInteractions() {
   renderRevisionCausewayPanel();
   renderRevisionEstuaryOverlay();
   renderRevisionEstuaryPanel();
+  renderRevisionDeltaOverlay();
+  renderRevisionDeltaPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -8668,6 +8977,8 @@ function initInteractions() {
       renderRevisionCausewayPanel();
       renderRevisionEstuaryOverlay();
       renderRevisionEstuaryPanel();
+      renderRevisionDeltaOverlay();
+      renderRevisionDeltaPanel();
     });
   }
 
@@ -8686,6 +8997,8 @@ function initInteractions() {
       renderRevisionCausewayPanel();
       renderRevisionEstuaryOverlay();
       renderRevisionEstuaryPanel();
+      renderRevisionDeltaOverlay();
+      renderRevisionDeltaPanel();
     });
   }
 
@@ -8702,6 +9015,8 @@ function initInteractions() {
       renderRevisionCausewayPanel();
       renderRevisionEstuaryOverlay();
       renderRevisionEstuaryPanel();
+      renderRevisionDeltaOverlay();
+      renderRevisionDeltaPanel();
     });
   }
 
@@ -8716,6 +9031,8 @@ function initInteractions() {
       renderRevisionCausewayPanel();
       renderRevisionEstuaryOverlay();
       renderRevisionEstuaryPanel();
+      renderRevisionDeltaOverlay();
+      renderRevisionDeltaPanel();
     });
   }
 
@@ -8728,6 +9045,8 @@ function initInteractions() {
       renderRevisionCausewayPanel();
       renderRevisionEstuaryOverlay();
       renderRevisionEstuaryPanel();
+      renderRevisionDeltaOverlay();
+      renderRevisionDeltaPanel();
     });
   }
 
@@ -8738,6 +9057,8 @@ function initInteractions() {
       renderRevisionCausewayPanel();
       renderRevisionEstuaryOverlay();
       renderRevisionEstuaryPanel();
+      renderRevisionDeltaOverlay();
+      renderRevisionDeltaPanel();
     });
   }
 
@@ -8746,6 +9067,16 @@ function initInteractions() {
       state.revisionEstuaryEnabled = el.toggleRevisionEstuary.checked;
       renderRevisionEstuaryOverlay();
       renderRevisionEstuaryPanel();
+      renderRevisionDeltaOverlay();
+      renderRevisionDeltaPanel();
+    });
+  }
+
+  if (el.toggleRevisionDelta) {
+    el.toggleRevisionDelta.addEventListener("change", () => {
+      state.revisionDeltaEnabled = el.toggleRevisionDelta.checked;
+      renderRevisionDeltaOverlay();
+      renderRevisionDeltaPanel();
     });
   }
 
@@ -9353,6 +9684,33 @@ function initInteractions() {
     });
   }
 
+  if (el.revisionDelta) {
+    el.revisionDelta.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-revision-delta-action], [data-revision-delta-key]")
+        : null;
+      if (!actionNode) return;
+
+      const deltaKey = String(actionNode.getAttribute("data-revision-delta-key") || "").trim().toLowerCase();
+      if (deltaKey) {
+        const entry = getRevisionDeltaEntries().find((item) => String(item && item.key ? item.key : "").toLowerCase() === deltaKey);
+        if (!entry || !entry.beacon) return;
+        activateMarker({ ...entry.beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-revision-delta-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnRevisionDelta();
+        return;
+      }
+      if (action === "jump-freshest") {
+        jumpToFreshestRevisionDeltaOutflow();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -9607,6 +9965,8 @@ function initInteractions() {
   renderRevisionCausewayPanel();
   renderRevisionEstuaryOverlay();
   renderRevisionEstuaryPanel();
+  renderRevisionDeltaOverlay();
+  renderRevisionDeltaPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -9663,8 +10023,10 @@ async function initBeacons() {
     renderRevisionAlmanacPanel();
     renderRevisionCausewayOverlay();
     renderRevisionCausewayPanel();
-  renderRevisionEstuaryOverlay();
-  renderRevisionEstuaryPanel();
+    renderRevisionEstuaryOverlay();
+    renderRevisionEstuaryPanel();
+    renderRevisionDeltaOverlay();
+    renderRevisionDeltaPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -9707,8 +10069,10 @@ async function initBeacons() {
     renderRevisionAlmanacPanel();
     renderRevisionCausewayOverlay();
     renderRevisionCausewayPanel();
-  renderRevisionEstuaryOverlay();
-  renderRevisionEstuaryPanel();
+    renderRevisionEstuaryOverlay();
+    renderRevisionEstuaryPanel();
+    renderRevisionDeltaOverlay();
+    renderRevisionDeltaPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -9766,6 +10130,8 @@ function init() {
   renderRevisionCausewayPanel();
   renderRevisionEstuaryOverlay();
   renderRevisionEstuaryPanel();
+  renderRevisionDeltaOverlay();
+  renderRevisionDeltaPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

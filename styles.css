@@ -3354,6 +3354,7 @@ button:hover {
 .bridge-handoffs-layer,
 .bridge-locks-layer,
 .bridge-transits-layer,
+.bridge-rejoins-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -3580,6 +3581,14 @@ button:hover {
 }
 
 .bridge-transits-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.bridge-rejoins-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -5697,6 +5706,51 @@ button:hover {
   filter: drop-shadow(0 0 9px rgba(169, 235, 255, 0.58));
 }
 
+.bridge-rejoin-route {
+  pointer-events: none;
+}
+
+.bridge-rejoin-line {
+  fill: none;
+  stroke: rgba(182, 243, 228, 0.88);
+  stroke-width: 1.58;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 6.2 4.4;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 8px rgba(158, 234, 216, 0.34));
+}
+
+.bridge-rejoin-node {
+  fill: rgba(237, 254, 249, 0.97);
+  stroke: rgba(189, 245, 232, 0.98);
+  stroke-width: 1.05;
+  vector-effect: non-scaling-stroke;
+}
+
+.bridge-rejoin-label {
+  fill: rgba(216, 249, 241, 0.97);
+  font-size: 11px;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+  letter-spacing: 0.01em;
+  paint-order: stroke;
+  stroke: rgba(9, 31, 26, 0.94);
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+}
+
+.bridge-rejoin-route.is-active .bridge-rejoin-line {
+  stroke: rgba(235, 254, 248, 1);
+  stroke-width: 1.98;
+  filter: drop-shadow(0 0 10px rgba(186, 245, 231, 0.56));
+}
+
+.bridge-rejoin-route.is-active .bridge-rejoin-node {
+  fill: rgba(247, 255, 252, 0.99);
+  stroke: rgba(225, 251, 243, 1);
+  filter: drop-shadow(0 0 9px rgba(182, 242, 228, 0.58));
+}
+
 .survey-grid-current-label {
   fill: rgba(216, 255, 255, 0.95);
   font-size: 13px;
@@ -6279,4 +6333,102 @@ button:hover {
   border-color: rgba(226, 249, 255, 0.95);
   background: rgba(42, 122, 154, 0.92);
   box-shadow: 0 0 16px rgba(159, 230, 255, 0.24);
+}
+
+.bridge-rejoins-panel {
+  border: 1px solid rgba(174, 243, 231, 0.36);
+  background: rgba(14, 52, 45, 0.86);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.bridge-rejoins-line {
+  margin: 0;
+  line-height: 1.34;
+  color: #dbfff7;
+}
+
+.bridge-rejoins-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.bridge-rejoins-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(178, 245, 234, 0.52);
+  background: rgba(35, 133, 115, 0.9);
+  color: #ebfff9;
+  font-size: 0.78rem;
+}
+
+.bridge-rejoins-action:hover,
+.bridge-rejoins-action:focus-visible {
+  border-color: rgba(230, 253, 247, 0.95);
+  background: rgba(44, 153, 132, 0.94);
+}
+
+.bridge-rejoins-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.bridge-rejoins-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(184, 246, 236, 0.52);
+  background: rgba(54, 157, 137, 0.44);
+  color: #ddfff8;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.bridge-rejoins-subtitle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(210, 250, 242, 0.82);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bridge-rejoins-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.bridge-rejoins-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.42rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(186, 246, 236, 0.44);
+  background: rgba(24, 108, 92, 0.84);
+  color: #f0fffb;
+}
+
+.bridge-rejoins-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.bridge-rejoins-item span {
+  font-size: 0.76rem;
+  color: rgba(219, 252, 245, 0.9);
+  line-height: 1.32;
+}
+
+.bridge-rejoins-item:hover,
+.bridge-rejoins-item:focus-visible,
+.bridge-rejoins-item.is-active {
+  border-color: rgba(231, 253, 247, 0.95);
+  background: rgba(35, 136, 116, 0.92);
+  box-shadow: 0 0 16px rgba(161, 239, 223, 0.24);
 }

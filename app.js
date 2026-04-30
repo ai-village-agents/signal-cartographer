@@ -595,6 +595,7 @@ const state = {
   bridgeHandoffsEnabled: true,
   bridgeLocksEnabled: true,
   bridgeTransitsEnabled: true,
+  bridgeRejoinsEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -691,6 +692,7 @@ const el = {
   toggleBridgeHandoffs: document.getElementById("toggleBridgeHandoffs"),
   toggleBridgeLocks: document.getElementById("toggleBridgeLocks"),
   toggleBridgeTransits: document.getElementById("toggleBridgeTransits"),
+  toggleBridgeRejoins: document.getElementById("toggleBridgeRejoins"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -728,6 +730,7 @@ const el = {
   bridgeHandoffsLayer: document.getElementById("bridgeHandoffsLayer"),
   bridgeLocksLayer: document.getElementById("bridgeLocksLayer"),
   bridgeTransitsLayer: document.getElementById("bridgeTransitsLayer"),
+  bridgeRejoinsLayer: document.getElementById("bridgeRejoinsLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -763,6 +766,7 @@ const el = {
   bridgeHandoffs: document.getElementById("bridgeHandoffs"),
   bridgeLocks: document.getElementById("bridgeLocks"),
   bridgeTransits: document.getElementById("bridgeTransits"),
+  bridgeRejoins: document.getElementById("bridgeRejoins"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -6411,6 +6415,234 @@ function renderBridgeTransitsPanel() {
   `;
 }
 
+function compareBridgeRejoinEntries(a, b) {
+  const aLinkedLockTitle = String(a && a.linkedLock && a.linkedLock.title ? a.linkedLock.title : "");
+  const bLinkedLockTitle = String(b && b.linkedLock && b.linkedLock.title ? b.linkedLock.title : "");
+  const linkedLockComparison = aLinkedLockTitle.localeCompare(bLinkedLockTitle);
+  if (linkedLockComparison !== 0) return linkedLockComparison;
+
+  const aRelayTitle = String(a && a.relay && a.relay.title ? a.relay.title : "");
+  const bRelayTitle = String(b && b.relay && b.relay.title ? b.relay.title : "");
+  const relayComparison = aRelayTitle.localeCompare(bRelayTitle);
+  if (relayComparison !== 0) return relayComparison;
+
+  const aKey = String(a && a.key ? a.key : "");
+  const bKey = String(b && b.key ? b.key : "");
+  return aKey.localeCompare(bKey);
+}
+
+function getBridgeRejoinEntries() {
+  const entries = getBridgeTransitEntries()
+    .map((entry) => {
+      const lockX = Number(entry && entry.linkedLock && entry.linkedLock.x);
+      const lockY = Number(entry && entry.linkedLock && entry.linkedLock.y);
+      if (!Number.isFinite(lockX) || !Number.isFinite(lockY)) return null;
+
+      const rankedRelays = BUILTIN_SIGNAL_RELAYS
+        .map((relay) => {
+          const relayX = Number(relay && relay.x);
+          const relayY = Number(relay && relay.y);
+          if (!Number.isFinite(relayX) || !Number.isFinite(relayY)) return null;
+          return {
+            relay,
+            distance: Math.hypot(relayX - lockX, relayY - lockY)
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (
+          a.distance - b.distance ||
+          String(a && a.relay && a.relay.title ? a.relay.title : "").localeCompare(String(b && b.relay && b.relay.title ? b.relay.title : "")) ||
+          String(a && a.relay && a.relay.id ? a.relay.id : "").localeCompare(String(b && b.relay && b.relay.id ? b.relay.id : ""))
+        ));
+      const nearest = rankedRelays[0];
+      if (!nearest || !nearest.relay) return null;
+
+      return {
+        key: `bridge-rejoin:${String(entry && entry.key ? entry.key : "").trim()}:${String(nearest.relay.id || "").trim().toLowerCase()}`,
+        source: entry.source,
+        transitEntry: entry,
+        lock: entry.lock,
+        linkedLock: entry.linkedLock,
+        relay: nearest.relay,
+        channel: entry.channel || entry.linkedLock.channel || "",
+        distance: nearest.distance
+      };
+    })
+    .filter((entry) => (
+      entry &&
+      entry.linkedLock &&
+      Number.isFinite(Number(entry.linkedLock.x)) &&
+      Number.isFinite(Number(entry.linkedLock.y)) &&
+      entry.relay &&
+      Number.isFinite(Number(entry.relay.x)) &&
+      Number.isFinite(Number(entry.relay.y))
+    ));
+
+  return entries.sort(compareBridgeRejoinEntries);
+}
+
+function centerViewportOnBridgeRejoins() {
+  const entries = getBridgeRejoinEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.linkedLock && entry.linkedLock.x), y: Number(entry && entry.linkedLock && entry.linkedLock.y) },
+      { x: Number(entry && entry.relay && entry.relay.x), y: Number(entry && entry.relay && entry.relay.y) }
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToPrimaryBridgeRejoinRelay() {
+  const entry = getBridgeRejoinEntries()[0];
+  if (!entry || !entry.relay) return;
+  activateRelayMarkerById(entry.relay.id);
+}
+
+function renderBridgeRejoinsOverlay() {
+  if (!el.bridgeRejoinsLayer) return;
+  const entries = getBridgeRejoinEntries();
+  if (!state.bridgeRejoinsEnabled || entries.length === 0) {
+    el.bridgeRejoinsLayer.style.display = "none";
+    el.bridgeRejoinsLayer.replaceChildren();
+    return;
+  }
+
+  const activeLockId = state.activeTrace && state.activeTrace.type === "transit-lock"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const activeRelayId = state.activeTrace && state.activeTrace.type === "relay"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const group = createSvgNode("g", { class: "bridge-rejoins-overlay" });
+
+  entries.forEach((entry) => {
+    const linkedLock = toWorldCoords(entry.linkedLock);
+    const relay = toWorldCoords(entry.relay);
+    if (![linkedLock.x, linkedLock.y, relay.x, relay.y].every(Number.isFinite)) return;
+
+    const isActive = Boolean(
+      (activeLockId && entry.linkedLock && entry.linkedLock.id === activeLockId) ||
+      (activeRelayId && entry.relay && entry.relay.id === activeRelayId)
+    );
+    const node = createSvgNode("g", { class: `bridge-rejoin-route${isActive ? " is-active" : ""}` });
+    node.appendChild(createSvgNode("line", {
+      class: "bridge-rejoin-line",
+      x1: linkedLock.x.toFixed(1),
+      y1: linkedLock.y.toFixed(1),
+      x2: relay.x.toFixed(1),
+      y2: relay.y.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-rejoin-node",
+      cx: linkedLock.x.toFixed(1),
+      cy: linkedLock.y.toFixed(1),
+      r: "3.3"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-rejoin-node",
+      cx: relay.x.toFixed(1),
+      cy: relay.y.toFixed(1),
+      r: "3.5"
+    }));
+    const isEastHalf = Number(entry && entry.relay && entry.relay.x) > 50;
+    const label = createSvgNode("text", {
+      class: "bridge-rejoin-label",
+      x: (relay.x + (isEastHalf ? -11 : 11)).toFixed(1),
+      y: (relay.y - 8).toFixed(1),
+      "text-anchor": isEastHalf ? "end" : "start"
+    });
+    label.textContent = entry.relay.title;
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.bridgeRejoinsLayer.style.display = "none";
+    el.bridgeRejoinsLayer.replaceChildren();
+    return;
+  }
+
+  el.bridgeRejoinsLayer.style.display = "block";
+  el.bridgeRejoinsLayer.replaceChildren(group);
+}
+
+function renderBridgeRejoinsPanel() {
+  if (!el.bridgeRejoins) return;
+  if (!state.bridgeRejoinsEnabled) {
+    el.bridgeRejoins.innerHTML = "<p class=\"bridge-rejoins-line\">Bridge Rejoins is hidden. Re-enable it in Controls to restore lock-to-relay navigation links.</p>";
+    return;
+  }
+
+  const entries = getBridgeRejoinEntries();
+  if (entries.length === 0) {
+    el.bridgeRejoins.innerHTML = "<p class=\"bridge-rejoins-line\">Bridge Rejoins appears when linked transit gates can be paired with built-in signal relays.</p>";
+    return;
+  }
+
+  const activeLockId = state.activeTrace && state.activeTrace.type === "transit-lock"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const activeRelayId = state.activeTrace && state.activeTrace.type === "relay"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const firstEntry = entries[0];
+  const arrivalLockCount = new Set(entries.map((entry) => String(entry && entry.linkedLock && entry.linkedLock.id ? entry.linkedLock.id : "").trim()).filter(Boolean)).size;
+  const relayCount = new Set(entries.map((entry) => String(entry && entry.relay && entry.relay.id ? entry.relay.id : "").trim()).filter(Boolean)).size;
+  const trackingLine = entries.length === 1
+    ? `Tracking 1 relay rejoin from ${firstEntry.linkedLock.title} to ${firstEntry.relay.title}.`
+    : `Tracking ${entries.length} relay rejoins from linked transit gates to nearest destination relays.`;
+  const listHtml = entries.map((entry, index) => {
+    const isActive = Boolean(
+      (activeLockId && entry.linkedLock && entry.linkedLock.id === activeLockId) ||
+      (activeRelayId && entry.relay && entry.relay.id === activeRelayId)
+    );
+    return `
+      <button type="button" class="bridge-rejoins-item${isActive ? " is-active" : ""}" data-bridge-rejoin-relay-id="${escapeHtml(entry.relay.id)}">
+        <strong>${escapeHtml(`#${index + 1} · ${entry.linkedLock.title} → ${entry.relay.title}`)}</strong>
+        <span>${escapeHtml(`${entry.channel || "Transit channel"} · ${entry.linkedLock.region || "Unknown region"} · ${entry.relay.band || "Relay band"}`)}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.bridgeRejoins.innerHTML = `
+    <p class="bridge-rejoins-line">Bridge Rejoins traces navigation-only exits from linked transit gates back into the nearest destination relay ring.</p>
+    <p class="bridge-rejoins-line">${escapeHtml(trackingLine)}</p>
+    <p class="bridge-rejoins-line">These relay rejoins remain part of travel infrastructure, not of The Signal Cartographer's evidence chain.</p>
+    <div class="bridge-rejoins-actions">
+      <button type="button" class="bridge-rejoins-action" data-bridge-rejoins-action="center">Center on rejoin route</button>
+      <button type="button" class="bridge-rejoins-action" data-bridge-rejoins-action="jump-relay">Jump to relay</button>
+    </div>
+    <div class="bridge-rejoins-meta">
+      <span class="bridge-rejoins-pill">Relay rejoins: ${entries.length}</span>
+      <span class="bridge-rejoins-pill">Arrival locks: ${arrivalLockCount}</span>
+      <span class="bridge-rejoins-pill">Relay stations: ${relayCount}</span>
+      <span class="bridge-rejoins-pill">Mode: Navigation only</span>
+    </div>
+    <p class="bridge-rejoins-subtitle">Lock-to-relay rejoin</p>
+    <div class="bridge-rejoins-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnBridgeBearings() {
   const entries = getBridgeBearingEntries();
   if (entries.length === 0) return;
@@ -7659,6 +7891,8 @@ function setActiveTrace(marker) {
   renderBridgeLocksPanel();
   renderBridgeTransitsOverlay();
   renderBridgeTransitsPanel();
+  renderBridgeRejoinsOverlay();
+  renderBridgeRejoinsPanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
@@ -10693,6 +10927,7 @@ function initInteractions() {
   state.bridgeHandoffsEnabled = !el.toggleBridgeHandoffs || el.toggleBridgeHandoffs.checked;
   state.bridgeLocksEnabled = !el.toggleBridgeLocks || el.toggleBridgeLocks.checked;
   state.bridgeTransitsEnabled = !el.toggleBridgeTransits || el.toggleBridgeTransits.checked;
+  state.bridgeRejoinsEnabled = !el.toggleBridgeRejoins || el.toggleBridgeRejoins.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -11154,6 +11389,8 @@ function initInteractions() {
       renderBridgeLocksPanel();
       renderBridgeTransitsOverlay();
       renderBridgeTransitsPanel();
+      renderBridgeRejoinsOverlay();
+      renderBridgeRejoinsPanel();
     });
   }
 
@@ -11164,6 +11401,8 @@ function initInteractions() {
       renderBridgeLocksPanel();
       renderBridgeTransitsOverlay();
       renderBridgeTransitsPanel();
+      renderBridgeRejoinsOverlay();
+      renderBridgeRejoinsPanel();
     });
   }
 
@@ -11172,6 +11411,16 @@ function initInteractions() {
       state.bridgeTransitsEnabled = el.toggleBridgeTransits.checked;
       renderBridgeTransitsOverlay();
       renderBridgeTransitsPanel();
+      renderBridgeRejoinsOverlay();
+      renderBridgeRejoinsPanel();
+    });
+  }
+
+  if (el.toggleBridgeRejoins) {
+    el.toggleBridgeRejoins.addEventListener("change", () => {
+      state.bridgeRejoinsEnabled = el.toggleBridgeRejoins.checked;
+      renderBridgeRejoinsOverlay();
+      renderBridgeRejoinsPanel();
     });
   }
 
@@ -12016,6 +12265,31 @@ function initInteractions() {
     });
   }
 
+  if (el.bridgeRejoins) {
+    el.bridgeRejoins.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-bridge-rejoins-action], [data-bridge-rejoin-relay-id]")
+        : null;
+      if (!actionNode) return;
+
+      const relayId = String(actionNode.getAttribute("data-bridge-rejoin-relay-id") || "").trim();
+      if (relayId) {
+        activateRelayMarkerById(relayId);
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-bridge-rejoins-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnBridgeRejoins();
+        return;
+      }
+      if (action === "jump-relay") {
+        jumpToPrimaryBridgeRejoinRelay();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -12231,6 +12505,8 @@ function initInteractions() {
   renderBridgeLocksPanel();
   renderBridgeTransitsOverlay();
   renderBridgeTransitsPanel();
+  renderBridgeRejoinsOverlay();
+  renderBridgeRejoinsPanel();
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
@@ -12318,6 +12594,8 @@ async function initBeacons() {
       renderBridgeLocksPanel();
       renderBridgeTransitsOverlay();
       renderBridgeTransitsPanel();
+      renderBridgeRejoinsOverlay();
+      renderBridgeRejoinsPanel();
       renderBeaconLedger();
     }
     renderVerificationRoute();

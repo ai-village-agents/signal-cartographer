@@ -66,6 +66,7 @@
             <label><input type="checkbox" id="toggleAccountabilitySpine" checked /> Show accountability spine</label>
             <label><input type="checkbox" id="toggleLedgerIngress" checked /> Show ledger ingress</label>
             <label><input type="checkbox" id="toggleBridgeBearings" checked /> Show bridge bearings</label>
+            <label><input type="checkbox" id="toggleBridgeHandoffs" checked /> Show bridge handoffs</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -109,6 +110,11 @@
         <section>
           <h2>Bridge Bearings</h2>
           <div id="bridgeBearings" class="bridge-bearings-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Bridge Handoffs</h2>
+          <div id="bridgeHandoffs" class="bridge-handoffs-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -557,6 +563,13 @@
           <svg
             id="bridgeBearingsLayer"
             class="bridge-bearings-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="bridgeHandoffsLayer"
+            class="bridge-handoffs-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

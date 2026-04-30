@@ -579,6 +579,7 @@ const state = {
   revisionDeltaEnabled: true,
   verificationSpursEnabled: true,
   accountabilitySpineEnabled: true,
+  ledgerIngressEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -669,6 +670,7 @@ const el = {
   toggleRevisionDelta: document.getElementById("toggleRevisionDelta"),
   toggleVerificationSpurs: document.getElementById("toggleVerificationSpurs"),
   toggleAccountabilitySpine: document.getElementById("toggleAccountabilitySpine"),
+  toggleLedgerIngress: document.getElementById("toggleLedgerIngress"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -701,6 +703,7 @@ const el = {
   revisionDeltaLayer: document.getElementById("revisionDeltaLayer"),
   verificationSpursLayer: document.getElementById("verificationSpursLayer"),
   accountabilitySpineLayer: document.getElementById("accountabilitySpineLayer"),
+  ledgerIngressLayer: document.getElementById("ledgerIngressLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -731,6 +734,7 @@ const el = {
   revisionDelta: document.getElementById("revisionDelta"),
   verificationSpurs: document.getElementById("verificationSpurs"),
   accountabilitySpine: document.getElementById("accountabilitySpine"),
+  ledgerIngress: document.getElementById("ledgerIngress"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -4519,6 +4523,7 @@ function renderAccountabilitySpineOverlay() {
   if (!state.accountabilitySpineEnabled || entries.length === 0) {
     el.accountabilitySpineLayer.style.display = "none";
     el.accountabilitySpineLayer.replaceChildren();
+    renderLedgerIngressOverlay();
     return;
   }
 
@@ -4619,23 +4624,27 @@ function renderAccountabilitySpineOverlay() {
   if (!group.childNodes.length) {
     el.accountabilitySpineLayer.style.display = "none";
     el.accountabilitySpineLayer.replaceChildren();
+    renderLedgerIngressOverlay();
     return;
   }
 
   el.accountabilitySpineLayer.style.display = "block";
   el.accountabilitySpineLayer.replaceChildren(group);
+  renderLedgerIngressOverlay();
 }
 
 function renderAccountabilitySpinePanel() {
   if (!el.accountabilitySpine) return;
   if (!state.accountabilitySpineEnabled) {
     el.accountabilitySpine.innerHTML = "<p class=\"accountability-spine-line\">Accountability Spine is hidden. Re-enable it in Controls to restore the full commenter-to-rail provenance spine.</p>";
+    renderLedgerIngressPanel();
     return;
   }
 
   const entries = getAccountabilitySpineEntries();
   if (entries.length === 0) {
     el.accountabilitySpine.innerHTML = "<p class=\"accountability-spine-line\">Accountability Spine appears once public commenter channels can be extended through visible verification outlets into Public Rails.</p>";
+    renderLedgerIngressPanel();
     return;
   }
 
@@ -4694,6 +4703,351 @@ function renderAccountabilitySpinePanel() {
     </div>
     <p class="accountability-spine-subtitle">End-to-end accountability routes</p>
     <div class="accountability-spine-list">
+      ${listHtml}
+    </div>
+  `;
+  renderLedgerIngressPanel();
+}
+
+function compareLedgerIngressEntries(a, b) {
+  const aLatestTs = Number.isFinite(a && a.latestActivityTs) ? Number(a.latestActivityTs) : null;
+  const bLatestTs = Number.isFinite(b && b.latestActivityTs) ? Number(b && b.latestActivityTs) : null;
+  if (aLatestTs !== null || bLatestTs !== null) {
+    if (aLatestTs !== null && bLatestTs !== null && aLatestTs !== bLatestTs) return bLatestTs - aLatestTs;
+    if (aLatestTs !== null) return -1;
+    if (bLatestTs !== null) return 1;
+  }
+
+  const aRank = Number.isFinite(a && a.rank) ? Number(a.rank) : null;
+  const bRank = Number.isFinite(b && b.rank) ? Number(b.rank) : null;
+  if (aRank !== null || bRank !== null) {
+    if (aRank !== null && bRank !== null && aRank !== bRank) return aRank - bRank;
+    if (aRank !== null) return -1;
+    if (bRank !== null) return 1;
+  }
+
+  const loginComparison = String(a && a.displayLogin ? a.displayLogin : "").localeCompare(
+    String(b && b.displayLogin ? b.displayLogin : "")
+  );
+  if (loginComparison !== 0) return loginComparison;
+
+  const titleComparison = String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+  if (titleComparison !== 0) return titleComparison;
+
+  return String(a && a.key ? a.key : "").localeCompare(String(b && b.key ? b.key : ""));
+}
+
+function getLedgerIngressEntries() {
+  const spineEntries = getAccountabilitySpineEntries();
+  if (spineEntries.length === 0) return [];
+
+  const ledgerLandmark = BUILTIN_LANDMARKS.find((landmark) => String(landmark && landmark.title ? landmark.title : "") === "Witness Ledger") || null;
+  if (!ledgerLandmark) return [];
+  const ledgerCoord = {
+    x: Number(ledgerLandmark.x),
+    y: Number(ledgerLandmark.y)
+  };
+  if (![ledgerCoord.x, ledgerCoord.y].every(Number.isFinite)) return [];
+
+  const entries = spineEntries.map((entry) => ({
+    key: `${String(entry && entry.key ? entry.key : "")}::ledger-ingress`,
+    login: String(entry && entry.login ? entry.login : "").trim().toLowerCase(),
+    displayLogin: String(entry && entry.displayLogin ? entry.displayLogin : "Unknown commenter"),
+    berthCoord: {
+      x: Number(entry && entry.berthCoord && entry.berthCoord.x),
+      y: Number(entry && entry.berthCoord && entry.berthCoord.y)
+    },
+    beacon: entry && entry.beacon ? entry.beacon : null,
+    issueNumber: parseIssueNumber(entry && entry.issueNumber),
+    title: String(entry && entry.title ? entry.title : "Untitled beacon"),
+    region: normalizeRevisionConfluenceRegionName(entry && entry.region),
+    basinCoord: {
+      x: Number(entry && entry.basinCoord && entry.basinCoord.x),
+      y: Number(entry && entry.basinCoord && entry.basinCoord.y)
+    },
+    outletLandmark: entry && entry.outletLandmark ? entry.outletLandmark : null,
+    outletCoord: {
+      x: Number(entry && entry.outletCoord && entry.outletCoord.x),
+      y: Number(entry && entry.outletCoord && entry.outletCoord.y)
+    },
+    railLandmark: entry && entry.railLandmark ? entry.railLandmark : null,
+    railCoord: {
+      x: Number(entry && entry.railCoord && entry.railCoord.x),
+      y: Number(entry && entry.railCoord && entry.railCoord.y)
+    },
+    ledgerLandmark,
+    ledgerCoord: { ...ledgerCoord },
+    rank: Number.isFinite(entry && entry.rank) ? Number(entry.rank) : null,
+    latestActivityTs: Number.isFinite(entry && entry.latestActivityTs) ? Number(entry.latestActivityTs) : null,
+    freshestActivityLabel: String(entry && entry.freshestActivityLabel ? entry.freshestActivityLabel : formatCompactAge(null)),
+    activitySource: String(entry && entry.activitySource ? entry.activitySource : "Visible activity"),
+    publicCommentCount: Math.max(0, Number(entry && entry.publicCommentCount) || 0),
+    fetchedCommentCount: Math.max(0, Number(entry && entry.fetchedCommentCount) || 0),
+    distinctCommenters: Math.max(0, Number(entry && entry.distinctCommenters) || 0),
+    loginCommentCount: Math.max(0, Number(entry && entry.loginCommentCount) || 0),
+    commenterBeaconCount: Math.max(0, Number(entry && entry.commenterBeaconCount) || 0),
+    commenterRegionCount: Math.max(0, Number(entry && entry.commenterRegionCount) || 0)
+  })).filter((entry) => (
+    Number.isFinite(entry.berthCoord.x)
+    && Number.isFinite(entry.berthCoord.y)
+    && Number.isFinite(entry.basinCoord.x)
+    && Number.isFinite(entry.basinCoord.y)
+    && Number.isFinite(entry.outletCoord.x)
+    && Number.isFinite(entry.outletCoord.y)
+    && Number.isFinite(entry.railCoord.x)
+    && Number.isFinite(entry.railCoord.y)
+    && Number.isFinite(entry.ledgerCoord.x)
+    && Number.isFinite(entry.ledgerCoord.y)
+    && Number.isFinite(Number(entry && entry.beacon ? entry.beacon.x : NaN))
+    && Number.isFinite(Number(entry && entry.beacon ? entry.beacon.y : NaN))
+  ));
+
+  return entries.sort(compareLedgerIngressEntries);
+}
+
+function centerViewportOnLedgerIngress() {
+  const entries = getLedgerIngressEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.berthCoord && entry.berthCoord.x), y: Number(entry && entry.berthCoord && entry.berthCoord.y) },
+      { x: Number(entry && entry.beacon && entry.beacon.x), y: Number(entry && entry.beacon && entry.beacon.y) },
+      { x: Number(entry && entry.basinCoord && entry.basinCoord.x), y: Number(entry && entry.basinCoord && entry.basinCoord.y) },
+      { x: Number(entry && entry.outletCoord && entry.outletCoord.x), y: Number(entry && entry.outletCoord && entry.outletCoord.y) },
+      { x: Number(entry && entry.railCoord && entry.railCoord.x), y: Number(entry && entry.railCoord && entry.railCoord.y) },
+      { x: Number(entry && entry.ledgerCoord && entry.ledgerCoord.x), y: Number(entry && entry.ledgerCoord && entry.ledgerCoord.y) }
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToFreshestLedgerIngress() {
+  const entries = getLedgerIngressEntries();
+  if (entries.length === 0) return;
+  const beacon = entries[0] && entries[0].beacon;
+  if (!beacon) return;
+  activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderLedgerIngressOverlay() {
+  if (!el.ledgerIngressLayer) return;
+  const entries = getLedgerIngressEntries();
+  if (!state.ledgerIngressEnabled || entries.length === 0) {
+    el.ledgerIngressLayer.style.display = "none";
+    el.ledgerIngressLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "ledger-ingress-overlay" });
+  entries.forEach((entry) => {
+    const berthX = (Number(entry && entry.berthCoord && entry.berthCoord.x) / 100) * MAP_W;
+    const berthY = (Number(entry && entry.berthCoord && entry.berthCoord.y) / 100) * MAP_H;
+    const beaconX = (Number(entry && entry.beacon && entry.beacon.x) / 100) * MAP_W;
+    const beaconY = (Number(entry && entry.beacon && entry.beacon.y) / 100) * MAP_H;
+    const basinX = (Number(entry && entry.basinCoord && entry.basinCoord.x) / 100) * MAP_W;
+    const basinY = (Number(entry && entry.basinCoord && entry.basinCoord.y) / 100) * MAP_H;
+    const outletX = (Number(entry && entry.outletCoord && entry.outletCoord.x) / 100) * MAP_W;
+    const outletY = (Number(entry && entry.outletCoord && entry.outletCoord.y) / 100) * MAP_H;
+    const railX = (Number(entry && entry.railCoord && entry.railCoord.x) / 100) * MAP_W;
+    const railY = (Number(entry && entry.railCoord && entry.railCoord.y) / 100) * MAP_H;
+    const ledgerX = (Number(entry && entry.ledgerCoord && entry.ledgerCoord.x) / 100) * MAP_W;
+    const ledgerY = (Number(entry && entry.ledgerCoord && entry.ledgerCoord.y) / 100) * MAP_H;
+    if (![berthX, berthY, beaconX, beaconY, basinX, basinY, outletX, outletY, railX, railY, ledgerX, ledgerY].every(Number.isFinite)) return;
+
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const node = createSvgNode("g", { class: `ledger-ingress-route${isActive ? " is-active" : ""}` });
+
+    node.appendChild(createSvgNode("line", {
+      class: "ledger-ingress-segment-berth",
+      x1: berthX.toFixed(1),
+      y1: berthY.toFixed(1),
+      x2: beaconX.toFixed(1),
+      y2: beaconY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("line", {
+      class: "ledger-ingress-segment-beacon",
+      x1: beaconX.toFixed(1),
+      y1: beaconY.toFixed(1),
+      x2: basinX.toFixed(1),
+      y2: basinY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("line", {
+      class: "ledger-ingress-segment-basin",
+      x1: basinX.toFixed(1),
+      y1: basinY.toFixed(1),
+      x2: outletX.toFixed(1),
+      y2: outletY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("line", {
+      class: "ledger-ingress-segment-outlet",
+      x1: outletX.toFixed(1),
+      y1: outletY.toFixed(1),
+      x2: railX.toFixed(1),
+      y2: railY.toFixed(1)
+    }));
+
+    const railToLedgerDistance = Math.hypot(ledgerX - railX, ledgerY - railY);
+    if (railToLedgerDistance < 1.25) {
+      const loopRadius = 9.1;
+      node.appendChild(createSvgNode("path", {
+        class: "ledger-ingress-segment-ledger",
+        d: [
+          `M ${(railX - loopRadius).toFixed(1)} ${railY.toFixed(1)}`,
+          `A ${loopRadius.toFixed(1)} ${loopRadius.toFixed(1)} 0 1 1 ${(railX + loopRadius).toFixed(1)} ${railY.toFixed(1)}`,
+          `A ${loopRadius.toFixed(1)} ${loopRadius.toFixed(1)} 0 1 1 ${(railX - loopRadius).toFixed(1)} ${railY.toFixed(1)}`
+        ].join(" ")
+      }));
+    } else {
+      node.appendChild(createSvgNode("line", {
+        class: "ledger-ingress-segment-ledger",
+        x1: railX.toFixed(1),
+        y1: railY.toFixed(1),
+        x2: ledgerX.toFixed(1),
+        y2: ledgerY.toFixed(1)
+      }));
+    }
+
+    node.appendChild(createSvgNode("circle", {
+      class: "ledger-ingress-berth-node",
+      cx: berthX.toFixed(1),
+      cy: berthY.toFixed(1),
+      r: "3.1"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "ledger-ingress-beacon-node",
+      cx: beaconX.toFixed(1),
+      cy: beaconY.toFixed(1),
+      r: "3.7"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "ledger-ingress-basin-node",
+      cx: basinX.toFixed(1),
+      cy: basinY.toFixed(1),
+      r: "3.9"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "ledger-ingress-outlet-node",
+      cx: outletX.toFixed(1),
+      cy: outletY.toFixed(1),
+      r: "4.1"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "ledger-ingress-rail-node",
+      cx: railX.toFixed(1),
+      cy: railY.toFixed(1),
+      r: "4.1"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "ledger-ingress-ledger-node",
+      cx: ledgerX.toFixed(1),
+      cy: ledgerY.toFixed(1),
+      r: "4.3"
+    }));
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.ledgerIngressLayer.style.display = "none";
+    el.ledgerIngressLayer.replaceChildren();
+    return;
+  }
+
+  el.ledgerIngressLayer.style.display = "block";
+  el.ledgerIngressLayer.replaceChildren(group);
+}
+
+function renderLedgerIngressPanel() {
+  if (!el.ledgerIngress) return;
+  if (!state.ledgerIngressEnabled) {
+    el.ledgerIngress.innerHTML = "<p class=\"ledger-ingress-line\">Ledger Ingress is hidden. Re-enable it in Controls to restore the full rail-to-ledger archive route.</p>";
+    return;
+  }
+
+  const entries = getLedgerIngressEntries();
+  if (entries.length === 0) {
+    el.ledgerIngress.innerHTML = "<p class=\"ledger-ingress-line\">Ledger Ingress appears once Accountability Spine routes can be deposited from Public Rails into Witness Ledger.</p>";
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const routeCount = entries.length;
+  const publicCommenterCount = new Set(
+    entries.map((entry) => String(entry && entry.login ? entry.login : "").trim().toLowerCase()).filter(Boolean)
+  ).size;
+  const railCount = new Set(
+    entries.map((entry) => String(entry && entry.railLandmark && entry.railLandmark.title ? entry.railLandmark.title : "").trim().toLowerCase()).filter(Boolean)
+  ).size;
+  const freshWithin24hCount = entries.reduce((sum, entry) => (
+    sum + (Number.isFinite(entry.latestActivityTs) && (Date.now() - entry.latestActivityTs) <= (24 * 60 * 60 * 1000) ? 1 : 0)
+  ), 0);
+  const fetchedCommentCount = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.fetchedCommentCount) || 0), 0);
+  const distinctCommenters = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.distinctCommenters) || 0), 0);
+  const freshest = entries[0] || null;
+  const freshestIssue = parseIssueNumber(freshest && freshest.issueNumber);
+  const freshestIssueLabel = freshestIssue === null ? "Issue unknown" : `Issue #${freshestIssue}`;
+  const ledgerTitle = String(freshest && freshest.ledgerLandmark && freshest.ledgerLandmark.title ? freshest.ledgerLandmark.title : "Witness Ledger");
+  const summary = routeCount === 1 && publicCommenterCount === 1
+    ? `Archiving 1 ingress route from 1 public commenter berth into ${ledgerTitle}, with freshest deposit at ${freshestIssueLabel}.`
+    : `Archiving ${routeCount} ingress routes from ${publicCommenterCount} public commenter berths into ${ledgerTitle}, with freshest deposit at ${freshestIssueLabel}.`;
+
+  const listHtml = entries.map((entry) => {
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const rankPrefix = Number.isFinite(entry && entry.rank) ? `#${entry.rank} · ` : "";
+    const outletTitle = String(entry && entry.outletLandmark && entry.outletLandmark.title ? entry.outletLandmark.title : "Unnamed outlet");
+    const railTitle = String(entry && entry.railLandmark && entry.railLandmark.title ? entry.railLandmark.title : "Public Rails");
+    const ledgerName = String(entry && entry.ledgerLandmark && entry.ledgerLandmark.title ? entry.ledgerLandmark.title : "Witness Ledger");
+    return `
+      <button type="button" class="ledger-ingress-item${isActive ? " is-active" : ""}" data-ledger-ingress-key="${escapeHtml(entry.key)}">
+        <strong>${escapeHtml(`${rankPrefix}${entry.displayLogin} berth → ${ledgerName}`)}</strong>
+        <span>${escapeHtml(`${entry.title} · ${entry.region} basin · ${outletTitle} · ${railTitle} · ${entry.activitySource}`)}</span>
+        <span class="ledger-ingress-age">${escapeHtml(`Freshest deposit ${entry.freshestActivityLabel}`)}</span>
+        <span class="ledger-ingress-meta">
+          <span class="ledger-ingress-pill">Commenter comments: ${Math.max(0, Number(entry.loginCommentCount) || 0)}</span>
+          <span class="ledger-ingress-pill">Fetched comments: ${Math.max(0, Number(entry.fetchedCommentCount) || 0)}</span>
+          <span class="ledger-ingress-pill">Distinct commenters: ${Math.max(0, Number(entry.distinctCommenters) || 0)}</span>
+          <span class="ledger-ingress-pill">Berth reach: ${Math.max(0, Number(entry.commenterBeaconCount) || 0)} beacon(s) / ${Math.max(0, Number(entry.commenterRegionCount) || 0)} region(s)</span>
+        </span>
+      </button>
+    `;
+  }).join("");
+
+  el.ledgerIngress.innerHTML = `
+    <p class="ledger-ingress-line">Ledger Ingress extends each accountability-spine route from Public Rails into Witness Ledger so public evidence is visibly deposited into a shared archival record.</p>
+    <p class="ledger-ingress-line">${escapeHtml(summary)}</p>
+    <div class="ledger-ingress-actions">
+      <button type="button" class="ledger-ingress-action" data-ledger-ingress-action="center">Center on ingress</button>
+      <button type="button" class="ledger-ingress-action" data-ledger-ingress-action="jump-freshest">Jump to freshest ingress</button>
+    </div>
+    <div class="ledger-ingress-meta">
+      <span class="ledger-ingress-pill">Routes: ${routeCount}</span>
+      <span class="ledger-ingress-pill">Public commenters: ${publicCommenterCount}</span>
+      <span class="ledger-ingress-pill">Rails: ${railCount}</span>
+      <span class="ledger-ingress-pill">Fresh within 24h: ${freshWithin24hCount}</span>
+      <span class="ledger-ingress-pill">Fetched comments: ${fetchedCommentCount}</span>
+      <span class="ledger-ingress-pill">Distinct commenters: ${distinctCommenters}</span>
+    </div>
+    <p class="ledger-ingress-subtitle">Rail-to-ledger deposits</p>
+    <div class="ledger-ingress-list">
       ${listHtml}
     </div>
   `;
@@ -9320,6 +9674,7 @@ function initInteractions() {
   state.revisionDeltaEnabled = !el.toggleRevisionDelta || el.toggleRevisionDelta.checked;
   state.verificationSpursEnabled = !el.toggleVerificationSpurs || el.toggleVerificationSpurs.checked;
   state.accountabilitySpineEnabled = !el.toggleAccountabilitySpine || el.toggleAccountabilitySpine.checked;
+  state.ledgerIngressEnabled = !el.toggleLedgerIngress || el.toggleLedgerIngress.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -9753,6 +10108,14 @@ function initInteractions() {
       state.accountabilitySpineEnabled = el.toggleAccountabilitySpine.checked;
       renderAccountabilitySpineOverlay();
       renderAccountabilitySpinePanel();
+    });
+  }
+
+  if (el.toggleLedgerIngress) {
+    el.toggleLedgerIngress.addEventListener("change", () => {
+      state.ledgerIngressEnabled = el.toggleLedgerIngress.checked;
+      renderLedgerIngressOverlay();
+      renderLedgerIngressPanel();
     });
   }
 
@@ -10437,6 +10800,33 @@ function initInteractions() {
       }
       if (action === "jump-freshest") {
         jumpToFreshestAccountabilitySpine();
+      }
+    });
+  }
+
+  if (el.ledgerIngress) {
+    el.ledgerIngress.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-ledger-ingress-action], [data-ledger-ingress-key]")
+        : null;
+      if (!actionNode) return;
+
+      const routeKey = String(actionNode.getAttribute("data-ledger-ingress-key") || "").trim().toLowerCase();
+      if (routeKey) {
+        const entry = getLedgerIngressEntries().find((item) => String(item && item.key ? item.key : "").toLowerCase() === routeKey);
+        if (!entry || !entry.beacon) return;
+        activateMarker({ ...entry.beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-ledger-ingress-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnLedgerIngress();
+        return;
+      }
+      if (action === "jump-freshest") {
+        jumpToFreshestLedgerIngress();
       }
     });
   }

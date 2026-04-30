@@ -64,6 +64,7 @@
             <label><input type="checkbox" id="toggleRevisionDelta" checked /> Show revision delta</label>
             <label><input type="checkbox" id="toggleVerificationSpurs" checked /> Show verification spurs</label>
             <label><input type="checkbox" id="toggleAccountabilitySpine" checked /> Show accountability spine</label>
+            <label><input type="checkbox" id="toggleLedgerIngress" checked /> Show ledger ingress</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -226,6 +227,11 @@
         <section>
           <h2>Accountability Spine</h2>
           <div id="accountabilitySpine" class="accountability-spine-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Ledger Ingress</h2>
+          <div id="ledgerIngress" class="ledger-ingress-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -526,6 +532,13 @@
           <svg
             id="accountabilitySpineLayer"
             class="accountability-spine-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="ledgerIngressLayer"
+            class="ledger-ingress-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

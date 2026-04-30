@@ -2607,6 +2607,105 @@ body {
   box-shadow: 0 0 16px rgba(255, 195, 164, 0.24);
 }
 
+.ledger-ingress-panel {
+  border: 1px solid rgba(188, 210, 255, 0.36);
+  background: rgba(20, 29, 54, 0.84);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.ledger-ingress-line {
+  margin: 0;
+  line-height: 1.34;
+  color: rgba(226, 235, 255, 0.97);
+}
+
+.ledger-ingress-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.32rem;
+}
+
+.ledger-ingress-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(189, 208, 255, 0.47);
+  background: rgba(43, 58, 106, 0.92);
+  color: rgba(236, 243, 255, 0.98);
+  font-size: 0.78rem;
+}
+
+.ledger-ingress-action:hover,
+.ledger-ingress-action:focus-visible {
+  border-color: rgba(218, 229, 255, 0.92);
+  background: rgba(55, 74, 130, 0.95);
+}
+
+.ledger-ingress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ledger-ingress-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(191, 210, 255, 0.45);
+  background: rgba(52, 70, 124, 0.76);
+  color: rgba(234, 242, 255, 0.99);
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.ledger-ingress-subtitle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(200, 219, 255, 0.94);
+}
+
+.ledger-ingress-list {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.ledger-ingress-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgba(193, 212, 255, 0.46);
+  background: rgba(33, 47, 87, 0.84);
+  color: rgba(234, 241, 255, 0.98);
+}
+
+.ledger-ingress-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.ledger-ingress-item span {
+  font-size: 0.74rem;
+  color: rgba(215, 227, 255, 0.95);
+  line-height: 1.28;
+}
+
+.ledger-ingress-age {
+  color: rgba(240, 245, 255, 0.99);
+}
+
+.ledger-ingress-item:hover,
+.ledger-ingress-item:focus-visible,
+.ledger-ingress-item.is-active {
+  border-color: rgba(218, 230, 255, 0.94);
+  background: rgba(48, 65, 116, 0.93);
+  box-shadow: 0 0 16px rgba(170, 195, 255, 0.26);
+}
+
 .relay-panel {
   border: 1px solid rgba(182, 240, 255, 0.34);
   background: rgba(8, 28, 41, 0.84);
@@ -3250,6 +3349,7 @@ button:hover {
 .revision-delta-layer,
 .verification-spurs-layer,
 .accountability-spine-layer,
+.ledger-ingress-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -3436,6 +3536,14 @@ button:hover {
 }
 
 .accountability-spine-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.ledger-ingress-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -5263,6 +5371,114 @@ button:hover {
   fill: rgba(255, 248, 242, 0.98);
   stroke: rgba(255, 239, 227, 1);
   filter: drop-shadow(0 0 9px rgba(255, 203, 176, 0.62));
+}
+
+.ledger-ingress-route {
+  pointer-events: none;
+}
+
+.ledger-ingress-segment-berth,
+.ledger-ingress-segment-beacon,
+.ledger-ingress-segment-basin,
+.ledger-ingress-segment-outlet,
+.ledger-ingress-segment-ledger {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.ledger-ingress-segment-berth {
+  stroke: rgba(197, 213, 255, 0.7);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+}
+
+.ledger-ingress-segment-beacon {
+  stroke: rgba(214, 226, 255, 0.86);
+  stroke-width: 1.28;
+}
+
+.ledger-ingress-segment-basin {
+  stroke: rgba(181, 201, 255, 0.84);
+  stroke-width: 1.28;
+  stroke-dasharray: 5 3;
+}
+
+.ledger-ingress-segment-outlet {
+  stroke: rgba(160, 184, 255, 0.9);
+  stroke-width: 1.34;
+}
+
+.ledger-ingress-segment-ledger {
+  stroke: rgba(231, 240, 255, 0.95);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 3;
+  filter: drop-shadow(0 0 7px rgba(168, 196, 255, 0.4));
+}
+
+.ledger-ingress-berth-node {
+  fill: rgba(188, 207, 255, 0.27);
+  stroke: rgba(224, 234, 255, 0.95);
+  stroke-width: 1.05;
+  vector-effect: non-scaling-stroke;
+}
+
+.ledger-ingress-beacon-node {
+  fill: rgba(240, 245, 255, 0.99);
+  stroke: rgba(191, 212, 255, 0.96);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ledger-ingress-basin-node {
+  fill: rgba(169, 190, 255, 0.3);
+  stroke: rgba(212, 225, 255, 0.93);
+  stroke-width: 1.08;
+  vector-effect: non-scaling-stroke;
+}
+
+.ledger-ingress-outlet-node {
+  fill: rgba(149, 173, 255, 0.34);
+  stroke: rgba(205, 220, 255, 0.95);
+  stroke-width: 1.12;
+  vector-effect: non-scaling-stroke;
+}
+
+.ledger-ingress-rail-node {
+  fill: rgba(227, 237, 255, 0.98);
+  stroke: rgba(171, 194, 255, 0.96);
+  stroke-width: 1.14;
+  vector-effect: non-scaling-stroke;
+}
+
+.ledger-ingress-ledger-node {
+  fill: rgba(246, 250, 255, 1);
+  stroke: rgba(193, 214, 255, 0.98);
+  stroke-width: 1.18;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 7px rgba(170, 198, 255, 0.46));
+}
+
+.ledger-ingress-route.is-active .ledger-ingress-segment-berth,
+.ledger-ingress-route.is-active .ledger-ingress-segment-beacon,
+.ledger-ingress-route.is-active .ledger-ingress-segment-basin,
+.ledger-ingress-route.is-active .ledger-ingress-segment-outlet,
+.ledger-ingress-route.is-active .ledger-ingress-segment-ledger {
+  stroke: rgba(243, 248, 255, 0.99);
+  stroke-width: 1.88;
+  filter: drop-shadow(0 0 10px rgba(191, 216, 255, 0.62));
+}
+
+.ledger-ingress-route.is-active .ledger-ingress-berth-node,
+.ledger-ingress-route.is-active .ledger-ingress-beacon-node,
+.ledger-ingress-route.is-active .ledger-ingress-basin-node,
+.ledger-ingress-route.is-active .ledger-ingress-outlet-node,
+.ledger-ingress-route.is-active .ledger-ingress-rail-node,
+.ledger-ingress-route.is-active .ledger-ingress-ledger-node {
+  fill: rgba(249, 252, 255, 0.99);
+  stroke: rgba(232, 241, 255, 1);
+  filter: drop-shadow(0 0 10px rgba(189, 214, 255, 0.66));
 }
 
 .survey-grid-current-label {

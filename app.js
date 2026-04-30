@@ -577,6 +577,7 @@ const state = {
   revisionCausewayEnabled: true,
   revisionEstuaryEnabled: true,
   revisionDeltaEnabled: true,
+  verificationSpursEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -665,6 +666,7 @@ const el = {
   toggleRevisionCauseway: document.getElementById("toggleRevisionCauseway"),
   toggleRevisionEstuary: document.getElementById("toggleRevisionEstuary"),
   toggleRevisionDelta: document.getElementById("toggleRevisionDelta"),
+  toggleVerificationSpurs: document.getElementById("toggleVerificationSpurs"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -695,6 +697,7 @@ const el = {
   revisionCausewayLayer: document.getElementById("revisionCausewayLayer"),
   revisionEstuaryLayer: document.getElementById("revisionEstuaryLayer"),
   revisionDeltaLayer: document.getElementById("revisionDeltaLayer"),
+  verificationSpursLayer: document.getElementById("verificationSpursLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -723,6 +726,7 @@ const el = {
   revisionCauseway: document.getElementById("revisionCauseway"),
   revisionEstuary: document.getElementById("revisionEstuary"),
   revisionDelta: document.getElementById("revisionDelta"),
+  verificationSpurs: document.getElementById("verificationSpurs"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -3914,6 +3918,7 @@ function renderRevisionDeltaOverlay() {
   if (!state.revisionDeltaEnabled || entries.length === 0) {
     el.revisionDeltaLayer.style.display = "none";
     el.revisionDeltaLayer.replaceChildren();
+    renderVerificationSpurOverlay();
     return;
   }
 
@@ -3962,23 +3967,27 @@ function renderRevisionDeltaOverlay() {
   if (!group.childNodes.length) {
     el.revisionDeltaLayer.style.display = "none";
     el.revisionDeltaLayer.replaceChildren();
+    renderVerificationSpurOverlay();
     return;
   }
 
   el.revisionDeltaLayer.style.display = "block";
   el.revisionDeltaLayer.replaceChildren(group);
+  renderVerificationSpurOverlay();
 }
 
 function renderRevisionDeltaPanel() {
   if (!el.revisionDelta) return;
   if (!state.revisionDeltaEnabled) {
     el.revisionDelta.innerHTML = "<p class=\"revision-delta-line\">Revision Delta is hidden. Re-enable it in Controls to reconnect revision basins to public verification outlets.</p>";
+    renderVerificationSpursPanel();
     return;
   }
 
   const entries = getRevisionDeltaEntries();
   if (entries.length === 0) {
     el.revisionDelta.innerHTML = "<p class=\"revision-delta-line\">Revision Delta appears once revision basins can discharge into visible public verification outlets.</p>";
+    renderVerificationSpursPanel();
     return;
   }
 
@@ -4036,6 +4045,307 @@ function renderRevisionDeltaPanel() {
     </div>
     <p class="revision-delta-subtitle">Public-verification outflows</p>
     <div class="revision-delta-list">
+      ${listHtml}
+    </div>
+  `;
+  renderVerificationSpursPanel();
+}
+
+function compareVerificationSpurEntries(a, b) {
+  const aLatestTs = Number.isFinite(a && a.latestActivityTs) ? Number(a.latestActivityTs) : null;
+  const bLatestTs = Number.isFinite(b && b.latestActivityTs) ? Number(b.latestActivityTs) : null;
+  if (aLatestTs !== null || bLatestTs !== null) {
+    if (aLatestTs !== null && bLatestTs !== null && aLatestTs !== bLatestTs) return bLatestTs - aLatestTs;
+    if (aLatestTs !== null) return -1;
+    if (bLatestTs !== null) return 1;
+  }
+
+  const aOutflowCount = Math.max(0, Number(a && a.outflowCount) || 0);
+  const bOutflowCount = Math.max(0, Number(b && b.outflowCount) || 0);
+  if (aOutflowCount !== bOutflowCount) return bOutflowCount - aOutflowCount;
+
+  const aRank = Number.isFinite(a && a.rank) ? Number(a.rank) : null;
+  const bRank = Number.isFinite(b && b.rank) ? Number(b.rank) : null;
+  if (aRank !== null || bRank !== null) {
+    if (aRank !== null && bRank !== null && aRank !== bRank) return aRank - bRank;
+    if (aRank !== null) return -1;
+    if (bRank !== null) return 1;
+  }
+
+  const outletComparison = String(a && a.outletTitle ? a.outletTitle : "").localeCompare(String(b && b.outletTitle ? b.outletTitle : ""));
+  if (outletComparison !== 0) return outletComparison;
+
+  return String(a && a.key ? a.key : "").localeCompare(String(b && b.key ? b.key : ""));
+}
+
+function getVerificationSpurEntries() {
+  if (!state.revisionDeltaEnabled) return [];
+  const railLandmark = BUILTIN_LANDMARKS.find((landmark) => String(landmark && landmark.title ? landmark.title : "") === "Public Rails") || null;
+  if (!railLandmark) return [];
+
+  const deltaEntries = getRevisionDeltaEntries();
+  if (deltaEntries.length === 0) return [];
+
+  const railCoord = {
+    x: Number(railLandmark.x),
+    y: Number(railLandmark.y)
+  };
+  if (![railCoord.x, railCoord.y].every(Number.isFinite)) return [];
+
+  const groupedByOutlet = new Map();
+  deltaEntries.forEach((entry) => {
+    const outletLandmark = entry && entry.outletLandmark ? entry.outletLandmark : null;
+    const outletTitle = String(
+      (outletLandmark && outletLandmark.title)
+      || (entry && entry.outletTitle)
+      || "Unnamed outlet"
+    ).trim();
+    const outletKey = getLandmarkId(outletLandmark) || toSlug(outletTitle) || outletTitle.toLowerCase();
+    if (!groupedByOutlet.has(outletKey)) {
+      groupedByOutlet.set(outletKey, {
+        outletKey,
+        outletTitle,
+        outletLandmark,
+        entries: []
+      });
+    }
+    groupedByOutlet.get(outletKey).entries.push(entry);
+  });
+
+  const spurs = [];
+  groupedByOutlet.forEach((group) => {
+    const ordered = [...(group && group.entries ? group.entries : [])].sort(compareRevisionDeltaEntries);
+    const lead = ordered[0] || null;
+    if (!lead) return;
+
+    const outletLandmark = group.outletLandmark || BUILTIN_LANDMARKS.find((landmark) => String(landmark && landmark.title ? landmark.title : "") === group.outletTitle) || null;
+    const outletCoord = outletLandmark
+      ? { x: Number(outletLandmark.x), y: Number(outletLandmark.y) }
+      : { x: Number(lead && lead.outletCoord && lead.outletCoord.x), y: Number(lead && lead.outletCoord && lead.outletCoord.y) };
+    if (![outletCoord.x, outletCoord.y].every(Number.isFinite)) return;
+
+    const regionByKey = new Map();
+    ordered.forEach((entry) => {
+      const region = normalizeRevisionConfluenceRegionName(entry && entry.region);
+      const regionKey = String(region || "").trim().toLowerCase();
+      if (!regionKey || regionByKey.has(regionKey)) return;
+      regionByKey.set(regionKey, region);
+    });
+    const regions = Array.from(regionByKey.values());
+    const basinCount = regions.length;
+    const issueNumber = parseIssueNumber(lead && lead.issueNumber);
+    const latestActivityTs = Number.isFinite(lead && lead.latestActivityTs) ? Number(lead.latestActivityTs) : null;
+
+    spurs.push({
+      key: `${group.outletKey}::${issueNumber === null ? "unknown" : issueNumber}`,
+      outletTitle: String(group.outletTitle || "Unnamed outlet"),
+      outletLandmark: outletLandmark || null,
+      outletCoord,
+      railLandmark,
+      railCoord: { ...railCoord },
+      regionCount: regions.length,
+      basinCount,
+      outflowCount: ordered.length,
+      beacon: lead && lead.beacon ? lead.beacon : null,
+      issueNumber,
+      title: String(lead && lead.title ? lead.title : "Untitled beacon"),
+      rank: Number.isFinite(lead && lead.rank) ? Number(lead.rank) : null,
+      latestActivityTs,
+      freshestActivityLabel: formatCompactAge(latestActivityTs),
+      activitySource: String(lead && lead.activitySource ? lead.activitySource : "Visible activity"),
+      publicCommentCount: ordered.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.publicCommentCount) || 0), 0),
+      fetchedCommentCount: ordered.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.fetchedCommentCount) || 0), 0),
+      distinctCommenters: ordered.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.distinctCommenters) || 0), 0),
+      commenterCount: ordered.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.commenterCount) || 0), 0),
+      regions
+    });
+  });
+
+  return spurs.sort(compareVerificationSpurEntries);
+}
+
+function centerViewportOnVerificationSpurs() {
+  const entries = getVerificationSpurEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.outletCoord && entry.outletCoord.x), y: Number(entry && entry.outletCoord && entry.outletCoord.y) },
+      { x: Number(entry && entry.railCoord && entry.railCoord.x), y: Number(entry && entry.railCoord && entry.railCoord.y) }
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToFreshestVerificationSpur() {
+  const entries = getVerificationSpurEntries();
+  if (entries.length === 0) return;
+  const beacon = entries[0] && entries[0].beacon;
+  if (!beacon) return;
+  activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderVerificationSpurOverlay() {
+  if (!el.verificationSpursLayer) return;
+  const entries = getVerificationSpurEntries();
+  if (!state.verificationSpursEnabled || entries.length === 0) {
+    el.verificationSpursLayer.style.display = "none";
+    el.verificationSpursLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "verification-spurs-overlay" });
+  entries.forEach((entry) => {
+    const outletX = (Number(entry && entry.outletCoord && entry.outletCoord.x) / 100) * MAP_W;
+    const outletY = (Number(entry && entry.outletCoord && entry.outletCoord.y) / 100) * MAP_H;
+    const railX = (Number(entry && entry.railCoord && entry.railCoord.x) / 100) * MAP_W;
+    const railY = (Number(entry && entry.railCoord && entry.railCoord.y) / 100) * MAP_H;
+    if (![outletX, outletY, railX, railY].every(Number.isFinite)) return;
+
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const node = createSvgNode("g", {
+      class: `verification-spur${isActive ? " is-active" : ""}`
+    });
+    const distance = Math.hypot(railX - outletX, railY - outletY);
+    let midpointX = (outletX + railX) / 2;
+    let midpointY = (outletY + railY) / 2;
+
+    if (distance < 1.25) {
+      const loopRadius = 8.5;
+      node.appendChild(createSvgNode("path", {
+        class: "verification-spur-segment",
+        d: [
+          `M ${(outletX - loopRadius).toFixed(1)} ${outletY.toFixed(1)}`,
+          `A ${loopRadius.toFixed(1)} ${loopRadius.toFixed(1)} 0 1 1 ${(outletX + loopRadius).toFixed(1)} ${outletY.toFixed(1)}`,
+          `A ${loopRadius.toFixed(1)} ${loopRadius.toFixed(1)} 0 1 1 ${(outletX - loopRadius).toFixed(1)} ${outletY.toFixed(1)}`
+        ].join(" ")
+      }));
+      midpointX = outletX + loopRadius * 0.72;
+      midpointY = outletY - loopRadius * 0.72;
+    } else {
+      node.appendChild(createSvgNode("line", {
+        class: "verification-spur-segment",
+        x1: outletX.toFixed(1),
+        y1: outletY.toFixed(1),
+        x2: railX.toFixed(1),
+        y2: railY.toFixed(1)
+      }));
+    }
+
+    node.appendChild(createSvgNode("circle", {
+      class: "verification-spur-outlet-node",
+      cx: outletX.toFixed(1),
+      cy: outletY.toFixed(1),
+      r: "4"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "verification-spur-midpoint-node",
+      cx: midpointX.toFixed(1),
+      cy: midpointY.toFixed(1),
+      r: "2.6"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "verification-spur-rail-node",
+      cx: railX.toFixed(1),
+      cy: railY.toFixed(1),
+      r: "3.8"
+    }));
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.verificationSpursLayer.style.display = "none";
+    el.verificationSpursLayer.replaceChildren();
+    return;
+  }
+
+  el.verificationSpursLayer.style.display = "block";
+  el.verificationSpursLayer.replaceChildren(group);
+}
+
+function renderVerificationSpursPanel() {
+  if (!el.verificationSpurs) return;
+  if (!state.verificationSpursEnabled) {
+    el.verificationSpurs.innerHTML = "<p class=\"verification-spurs-line\">Verification Spurs are hidden. Re-enable them in Controls to reconnect public-verification outlets to the shared rail spine.</p>";
+    return;
+  }
+
+  const entries = getVerificationSpurEntries();
+  if (entries.length === 0) {
+    el.verificationSpurs.innerHTML = "<p class=\"verification-spurs-line\">Verification Spurs appear once public-verification outlets have visible outflows to hand off into the shared rail spine.</p>";
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const outletCount = new Set(
+    entries.map((entry) => String(entry && entry.outletTitle ? entry.outletTitle : "").trim().toLowerCase()).filter(Boolean)
+  ).size;
+  const basinCount = new Set(
+    entries.flatMap((entry) => Array.isArray(entry && entry.regions) ? entry.regions : [])
+      .map((region) => normalizeRevisionConfluenceRegionName(region))
+      .map((region) => String(region || "").trim().toLowerCase())
+      .filter(Boolean)
+  ).size;
+  const publicCommenterCount = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.commenterCount) || 0), 0);
+  const fetchedCommentCount = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.fetchedCommentCount) || 0), 0);
+  const distinctCommenters = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.distinctCommenters) || 0), 0);
+  const freshest = entries[0] || null;
+  const freshestIssue = parseIssueNumber(freshest && freshest.issueNumber);
+  const freshestLabel = freshestIssue === null ? "Issue unknown" : `Issue #${freshestIssue}`;
+
+  const listHtml = entries.map((entry) => {
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const rankPrefix = Number.isFinite(entry && entry.rank) ? `#${entry.rank} · ` : "";
+    const issueLabel = issueNumber === null ? "Issue unknown" : `Issue #${issueNumber}`;
+    return `
+      <button type="button" class="verification-spur-item${isActive ? " is-active" : ""}" data-verification-spur-key="${escapeHtml(entry.key)}">
+        <strong>${escapeHtml(`${rankPrefix}${entry.outletTitle} → ${entry.railLandmark.title}`)}</strong>
+        <span>${escapeHtml(`${entry.title} · ${issueLabel} · ${entry.activitySource}`)}</span>
+        <span class="verification-spur-age">${escapeHtml(`Freshest handoff ${entry.freshestActivityLabel}`)}</span>
+        <span class="verification-spurs-meta">
+          <span class="verification-spurs-pill">Basins: ${Math.max(0, Number(entry && entry.basinCount) || 0)}</span>
+          <span class="verification-spurs-pill">Outflows: ${Math.max(0, Number(entry && entry.outflowCount) || 0)}</span>
+          <span class="verification-spurs-pill">Fetched comments: ${Math.max(0, Number(entry && entry.fetchedCommentCount) || 0)}</span>
+          <span class="verification-spurs-pill">Distinct commenters: ${Math.max(0, Number(entry && entry.distinctCommenters) || 0)}</span>
+        </span>
+      </button>
+    `;
+  }).join("");
+
+  el.verificationSpurs.innerHTML = `
+    <p class="verification-spurs-line">Verification Spurs carry each active public-verification outlet into Public Rails so provenance does not stop at a landmark and instead rejoins a shared accountability spine.</p>
+    <p class="verification-spurs-line">Tracking ${entries.length} spur(s) across ${outletCount} outlet(s), with freshest handoff at ${escapeHtml(freshestLabel)}.</p>
+    <div class="verification-spurs-actions">
+      <button type="button" class="verification-spurs-action" data-verification-spurs-action="center">Center on spurs</button>
+      <button type="button" class="verification-spurs-action" data-verification-spurs-action="jump-freshest">Jump to freshest spur</button>
+    </div>
+    <div class="verification-spurs-meta">
+      <span class="verification-spurs-pill">Spurs: ${entries.length}</span>
+      <span class="verification-spurs-pill">Outlets: ${outletCount}</span>
+      <span class="verification-spurs-pill">Basins: ${basinCount}</span>
+      <span class="verification-spurs-pill">Public commenters: ${publicCommenterCount}</span>
+      <span class="verification-spurs-pill">Fetched comments: ${fetchedCommentCount}</span>
+      <span class="verification-spurs-pill">Distinct commenters: ${distinctCommenters}</span>
+    </div>
+    <p class="verification-spurs-subtitle">Outlet-to-rail handoffs</p>
+    <div class="verification-spurs-list">
       ${listHtml}
     </div>
   `;
@@ -8660,6 +8970,7 @@ function initInteractions() {
   state.revisionCausewayEnabled = !el.toggleRevisionCauseway || el.toggleRevisionCauseway.checked;
   state.revisionEstuaryEnabled = !el.toggleRevisionEstuary || el.toggleRevisionEstuary.checked;
   state.revisionDeltaEnabled = !el.toggleRevisionDelta || el.toggleRevisionDelta.checked;
+  state.verificationSpursEnabled = !el.toggleVerificationSpurs || el.toggleVerificationSpurs.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -9077,6 +9388,14 @@ function initInteractions() {
       state.revisionDeltaEnabled = el.toggleRevisionDelta.checked;
       renderRevisionDeltaOverlay();
       renderRevisionDeltaPanel();
+    });
+  }
+
+  if (el.toggleVerificationSpurs) {
+    el.toggleVerificationSpurs.addEventListener("change", () => {
+      state.verificationSpursEnabled = el.toggleVerificationSpurs.checked;
+      renderVerificationSpurOverlay();
+      renderVerificationSpursPanel();
     });
   }
 
@@ -9707,6 +10026,33 @@ function initInteractions() {
       }
       if (action === "jump-freshest") {
         jumpToFreshestRevisionDeltaOutflow();
+      }
+    });
+  }
+
+  if (el.verificationSpurs) {
+    el.verificationSpurs.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-verification-spurs-action], [data-verification-spur-key]")
+        : null;
+      if (!actionNode) return;
+
+      const spurKey = String(actionNode.getAttribute("data-verification-spur-key") || "").trim().toLowerCase();
+      if (spurKey) {
+        const entry = getVerificationSpurEntries().find((item) => String(item && item.key ? item.key : "").toLowerCase() === spurKey);
+        if (!entry || !entry.beacon) return;
+        activateMarker({ ...entry.beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-verification-spurs-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnVerificationSpurs();
+        return;
+      }
+      if (action === "jump-freshest") {
+        jumpToFreshestVerificationSpur();
       }
     });
   }

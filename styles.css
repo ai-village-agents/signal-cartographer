@@ -2404,6 +2404,110 @@ body {
   box-shadow: 0 0 16px rgba(137, 240, 208, 0.32);
 }
 
+.verification-spurs-panel {
+  border: 1px solid rgba(255, 204, 148, 0.34);
+  background: rgba(49, 31, 12, 0.82);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.verification-spurs-line {
+  margin: 0;
+  line-height: 1.34;
+  color: rgba(255, 236, 214, 0.96);
+}
+
+.verification-spurs-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.32rem;
+}
+
+.verification-spurs-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(255, 204, 145, 0.45);
+  background: rgba(92, 57, 23, 0.9);
+  color: rgba(255, 239, 220, 0.96);
+  font-size: 0.78rem;
+}
+
+.verification-spurs-action:hover,
+.verification-spurs-action:focus-visible {
+  border-color: rgba(255, 226, 191, 0.9);
+  background: rgba(111, 69, 28, 0.94);
+}
+
+.verification-spurs-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.verification-spurs-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.verification-spurs-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 210, 159, 0.38);
+  background: rgba(114, 67, 25, 0.74);
+  color: rgba(255, 237, 214, 0.98);
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.verification-spurs-subtitle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(255, 222, 179, 0.9);
+}
+
+.verification-spurs-list {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.verification-spur-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgba(255, 206, 154, 0.42);
+  background: rgba(74, 45, 18, 0.82);
+  color: rgba(255, 239, 218, 0.96);
+}
+
+.verification-spur-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.verification-spur-item span {
+  font-size: 0.74rem;
+  color: rgba(255, 231, 198, 0.9);
+  line-height: 1.28;
+}
+
+.verification-spur-age {
+  color: rgba(255, 244, 225, 0.98);
+}
+
+.verification-spur-item:hover,
+.verification-spur-item:focus-visible,
+.verification-spur-item.is-active {
+  border-color: rgba(255, 228, 192, 0.9);
+  background: rgba(94, 57, 23, 0.92);
+  box-shadow: 0 0 16px rgba(255, 202, 138, 0.2);
+}
+
 .relay-panel {
   border: 1px solid rgba(182, 240, 255, 0.34);
   background: rgba(8, 28, 41, 0.84);
@@ -3045,6 +3149,7 @@ button:hover {
 .revision-causeway-layer,
 .revision-estuary-layer,
 .revision-delta-layer,
+.verification-spurs-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -3215,6 +3320,14 @@ button:hover {
 }
 
 .revision-delta-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.verification-spurs-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -4882,6 +4995,66 @@ button:hover {
   fill: rgba(246, 255, 253, 1);
   stroke: rgba(237, 255, 250, 1);
   filter: drop-shadow(0 0 10px rgba(182, 250, 229, 0.66));
+}
+
+.verification-spur {
+  pointer-events: none;
+}
+
+.verification-spur-segment {
+  fill: none;
+  stroke: rgba(255, 198, 126, 0.86);
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 5 3;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px rgba(255, 170, 88, 0.34));
+}
+
+.verification-spur-outlet-node {
+  fill: rgba(255, 191, 121, 0.26);
+  stroke: rgba(255, 233, 205, 0.92);
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+}
+
+.verification-spur-midpoint-node {
+  fill: rgba(255, 236, 209, 0.96);
+  stroke: rgba(255, 201, 137, 0.92);
+  stroke-width: 0.9;
+  vector-effect: non-scaling-stroke;
+}
+
+.verification-spur-rail-node {
+  fill: rgba(255, 244, 225, 0.99);
+  stroke: rgba(255, 215, 164, 0.95);
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px rgba(255, 190, 112, 0.4));
+}
+
+.verification-spur.is-active .verification-spur-segment {
+  stroke: rgba(255, 240, 216, 0.98);
+  stroke-width: 1.9;
+  filter: drop-shadow(0 0 8px rgba(255, 214, 160, 0.58));
+}
+
+.verification-spur.is-active .verification-spur-outlet-node {
+  fill: rgba(255, 221, 177, 0.42);
+  stroke: rgba(255, 244, 226, 0.99);
+  filter: drop-shadow(0 0 8px rgba(255, 202, 132, 0.52));
+}
+
+.verification-spur.is-active .verification-spur-midpoint-node {
+  fill: rgba(255, 247, 231, 1);
+  stroke: rgba(255, 225, 184, 0.98);
+}
+
+.verification-spur.is-active .verification-spur-rail-node {
+  fill: rgba(255, 252, 245, 1);
+  stroke: rgba(255, 238, 216, 1);
+  filter: drop-shadow(0 0 10px rgba(255, 216, 165, 0.65));
 }
 
 .survey-grid-current-label {

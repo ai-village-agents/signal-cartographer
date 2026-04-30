@@ -578,6 +578,7 @@ const state = {
   revisionEstuaryEnabled: true,
   revisionDeltaEnabled: true,
   verificationSpursEnabled: true,
+  accountabilitySpineEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -667,6 +668,7 @@ const el = {
   toggleRevisionEstuary: document.getElementById("toggleRevisionEstuary"),
   toggleRevisionDelta: document.getElementById("toggleRevisionDelta"),
   toggleVerificationSpurs: document.getElementById("toggleVerificationSpurs"),
+  toggleAccountabilitySpine: document.getElementById("toggleAccountabilitySpine"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -698,6 +700,7 @@ const el = {
   revisionEstuaryLayer: document.getElementById("revisionEstuaryLayer"),
   revisionDeltaLayer: document.getElementById("revisionDeltaLayer"),
   verificationSpursLayer: document.getElementById("verificationSpursLayer"),
+  accountabilitySpineLayer: document.getElementById("accountabilitySpineLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -727,6 +730,7 @@ const el = {
   revisionEstuary: document.getElementById("revisionEstuary"),
   revisionDelta: document.getElementById("revisionDelta"),
   verificationSpurs: document.getElementById("verificationSpurs"),
+  accountabilitySpine: document.getElementById("accountabilitySpine"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -3919,6 +3923,7 @@ function renderRevisionDeltaOverlay() {
     el.revisionDeltaLayer.style.display = "none";
     el.revisionDeltaLayer.replaceChildren();
     renderVerificationSpurOverlay();
+    renderAccountabilitySpineOverlay();
     return;
   }
 
@@ -3968,12 +3973,14 @@ function renderRevisionDeltaOverlay() {
     el.revisionDeltaLayer.style.display = "none";
     el.revisionDeltaLayer.replaceChildren();
     renderVerificationSpurOverlay();
+    renderAccountabilitySpineOverlay();
     return;
   }
 
   el.revisionDeltaLayer.style.display = "block";
   el.revisionDeltaLayer.replaceChildren(group);
   renderVerificationSpurOverlay();
+  renderAccountabilitySpineOverlay();
 }
 
 function renderRevisionDeltaPanel() {
@@ -3981,6 +3988,7 @@ function renderRevisionDeltaPanel() {
   if (!state.revisionDeltaEnabled) {
     el.revisionDelta.innerHTML = "<p class=\"revision-delta-line\">Revision Delta is hidden. Re-enable it in Controls to reconnect revision basins to public verification outlets.</p>";
     renderVerificationSpursPanel();
+    renderAccountabilitySpinePanel();
     return;
   }
 
@@ -3988,6 +3996,7 @@ function renderRevisionDeltaPanel() {
   if (entries.length === 0) {
     el.revisionDelta.innerHTML = "<p class=\"revision-delta-line\">Revision Delta appears once revision basins can discharge into visible public verification outlets.</p>";
     renderVerificationSpursPanel();
+    renderAccountabilitySpinePanel();
     return;
   }
 
@@ -4049,6 +4058,7 @@ function renderRevisionDeltaPanel() {
     </div>
   `;
   renderVerificationSpursPanel();
+  renderAccountabilitySpinePanel();
 }
 
 function compareVerificationSpurEntries(a, b) {
@@ -4346,6 +4356,344 @@ function renderVerificationSpursPanel() {
     </div>
     <p class="verification-spurs-subtitle">Outlet-to-rail handoffs</p>
     <div class="verification-spurs-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
+function compareAccountabilitySpineEntries(a, b) {
+  const aLatestTs = Number.isFinite(a && a.latestActivityTs) ? Number(a.latestActivityTs) : null;
+  const bLatestTs = Number.isFinite(b && b.latestActivityTs) ? Number(b && b.latestActivityTs) : null;
+  if (aLatestTs !== null || bLatestTs !== null) {
+    if (aLatestTs !== null && bLatestTs !== null && aLatestTs !== bLatestTs) return bLatestTs - aLatestTs;
+    if (aLatestTs !== null) return -1;
+    if (bLatestTs !== null) return 1;
+  }
+
+  const aRank = Number.isFinite(a && a.rank) ? Number(a.rank) : null;
+  const bRank = Number.isFinite(b && b.rank) ? Number(b.rank) : null;
+  if (aRank !== null || bRank !== null) {
+    if (aRank !== null && bRank !== null && aRank !== bRank) return aRank - bRank;
+    if (aRank !== null) return -1;
+    if (bRank !== null) return 1;
+  }
+
+  const loginComparison = String(a && a.displayLogin ? a.displayLogin : "").localeCompare(
+    String(b && b.displayLogin ? b.displayLogin : "")
+  );
+  if (loginComparison !== 0) return loginComparison;
+
+  const titleComparison = String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+  if (titleComparison !== 0) return titleComparison;
+
+  return String(a && a.key ? a.key : "").localeCompare(String(b && b.key ? b.key : ""));
+}
+
+function getAccountabilitySpineEntries() {
+  const estuaryEntries = getRevisionEstuaryEntries();
+  if (estuaryEntries.length === 0) return [];
+
+  const railLandmark = BUILTIN_LANDMARKS.find((landmark) => String(landmark && landmark.title ? landmark.title : "") === "Public Rails") || null;
+  if (!railLandmark) return [];
+  const railCoord = { x: Number(railLandmark.x), y: Number(railLandmark.y) };
+  if (![railCoord.x, railCoord.y].every(Number.isFinite)) return [];
+
+  const deltaEntries = getRevisionDeltaEntries();
+  if (deltaEntries.length === 0) return [];
+  const deltaByRegion = new Map();
+  deltaEntries.forEach((entry) => {
+    const regionKey = normalizeRevisionConfluenceRegionName(entry && entry.region).toLowerCase();
+    if (!regionKey || deltaByRegion.has(regionKey)) return;
+    deltaByRegion.set(regionKey, entry);
+  });
+
+  const entries = [];
+  estuaryEntries.forEach((estuaryEntry) => {
+    const regionKey = normalizeRevisionConfluenceRegionName(estuaryEntry && estuaryEntry.region).toLowerCase();
+    if (!regionKey) return;
+    const deltaEntry = deltaByRegion.get(regionKey) || null;
+    if (!deltaEntry) return;
+
+    const berthCoord = {
+      x: Number(estuaryEntry && estuaryEntry.berthCoord && estuaryEntry.berthCoord.x),
+      y: Number(estuaryEntry && estuaryEntry.berthCoord && estuaryEntry.berthCoord.y)
+    };
+    const basinCoord = estuaryEntry && estuaryEntry.regionBound
+      ? {
+        x: Number(estuaryEntry.regionBound.left) + Number(estuaryEntry.regionBound.width) / 2,
+        y: Number(estuaryEntry.regionBound.top) + Number(estuaryEntry.regionBound.height) / 2
+      }
+      : {
+        x: Number(deltaEntry && deltaEntry.basinCoord && deltaEntry.basinCoord.x),
+        y: Number(deltaEntry && deltaEntry.basinCoord && deltaEntry.basinCoord.y)
+      };
+    const outletLandmark = deltaEntry && deltaEntry.outletLandmark ? deltaEntry.outletLandmark : null;
+    const outletCoord = {
+      x: Number(deltaEntry && deltaEntry.outletCoord && deltaEntry.outletCoord.x),
+      y: Number(deltaEntry && deltaEntry.outletCoord && deltaEntry.outletCoord.y)
+    };
+    const beaconCoord = {
+      x: Number(estuaryEntry && estuaryEntry.beacon && estuaryEntry.beacon.x),
+      y: Number(estuaryEntry && estuaryEntry.beacon && estuaryEntry.beacon.y)
+    };
+    if (![berthCoord.x, berthCoord.y, basinCoord.x, basinCoord.y, outletCoord.x, outletCoord.y, beaconCoord.x, beaconCoord.y].every(Number.isFinite)) return;
+
+    const login = String(estuaryEntry && estuaryEntry.login ? estuaryEntry.login : "").trim().toLowerCase();
+    const displayLogin = String(estuaryEntry && estuaryEntry.displayLogin ? estuaryEntry.displayLogin : login || "Unknown commenter");
+    const issueNumber = parseIssueNumber(estuaryEntry && estuaryEntry.issueNumber);
+    const entryKey = String(estuaryEntry && estuaryEntry.key ? estuaryEntry.key : `${login}::${issueNumber === null ? "unknown" : issueNumber}`);
+
+    entries.push({
+      key: `${entryKey}::spine`,
+      login,
+      displayLogin,
+      berthCoord,
+      beacon: estuaryEntry && estuaryEntry.beacon ? estuaryEntry.beacon : null,
+      issueNumber,
+      title: String(estuaryEntry && estuaryEntry.title ? estuaryEntry.title : "Untitled beacon"),
+      region: normalizeRevisionConfluenceRegionName(estuaryEntry && estuaryEntry.region),
+      basinCoord,
+      outletLandmark,
+      outletCoord,
+      railLandmark,
+      railCoord: { ...railCoord },
+      rank: Number.isFinite(estuaryEntry && estuaryEntry.rank) ? Number(estuaryEntry.rank) : null,
+      latestActivityTs: Number.isFinite(estuaryEntry && estuaryEntry.latestActivityTs) ? Number(estuaryEntry.latestActivityTs) : null,
+      freshestActivityLabel: String(estuaryEntry && estuaryEntry.freshestActivityLabel ? estuaryEntry.freshestActivityLabel : formatCompactAge(null)),
+      activitySource: String(estuaryEntry && estuaryEntry.activitySource ? estuaryEntry.activitySource : "Visible activity"),
+      publicCommentCount: Math.max(0, Number(estuaryEntry && estuaryEntry.publicCommentCount) || 0),
+      fetchedCommentCount: Math.max(0, Number(estuaryEntry && estuaryEntry.fetchedCommentCount) || 0),
+      distinctCommenters: Math.max(0, Number(estuaryEntry && estuaryEntry.distinctCommenters) || 0),
+      loginCommentCount: Math.max(0, Number(estuaryEntry && estuaryEntry.loginCommentCount) || 0),
+      commenterBeaconCount: Math.max(0, Number(estuaryEntry && estuaryEntry.commenterBeaconCount) || 0),
+      commenterRegionCount: Math.max(0, Number(estuaryEntry && estuaryEntry.commenterRegionCount) || 0)
+    });
+  });
+
+  return entries.sort(compareAccountabilitySpineEntries);
+}
+
+function centerViewportOnAccountabilitySpine() {
+  const entries = getAccountabilitySpineEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.berthCoord && entry.berthCoord.x), y: Number(entry && entry.berthCoord && entry.berthCoord.y) },
+      { x: Number(entry && entry.beacon && entry.beacon.x), y: Number(entry && entry.beacon && entry.beacon.y) },
+      { x: Number(entry && entry.basinCoord && entry.basinCoord.x), y: Number(entry && entry.basinCoord && entry.basinCoord.y) },
+      { x: Number(entry && entry.outletCoord && entry.outletCoord.x), y: Number(entry && entry.outletCoord && entry.outletCoord.y) },
+      { x: Number(entry && entry.railCoord && entry.railCoord.x), y: Number(entry && entry.railCoord && entry.railCoord.y) }
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToFreshestAccountabilitySpine() {
+  const entries = getAccountabilitySpineEntries();
+  if (entries.length === 0) return;
+  const beacon = entries[0] && entries[0].beacon;
+  if (!beacon) return;
+  activateMarker({ ...beacon, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderAccountabilitySpineOverlay() {
+  if (!el.accountabilitySpineLayer) return;
+  const entries = getAccountabilitySpineEntries();
+  if (!state.accountabilitySpineEnabled || entries.length === 0) {
+    el.accountabilitySpineLayer.style.display = "none";
+    el.accountabilitySpineLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "accountability-spine-overlay" });
+  entries.forEach((entry) => {
+    const berthX = (Number(entry && entry.berthCoord && entry.berthCoord.x) / 100) * MAP_W;
+    const berthY = (Number(entry && entry.berthCoord && entry.berthCoord.y) / 100) * MAP_H;
+    const beaconX = (Number(entry && entry.beacon && entry.beacon.x) / 100) * MAP_W;
+    const beaconY = (Number(entry && entry.beacon && entry.beacon.y) / 100) * MAP_H;
+    const basinX = (Number(entry && entry.basinCoord && entry.basinCoord.x) / 100) * MAP_W;
+    const basinY = (Number(entry && entry.basinCoord && entry.basinCoord.y) / 100) * MAP_H;
+    const outletX = (Number(entry && entry.outletCoord && entry.outletCoord.x) / 100) * MAP_W;
+    const outletY = (Number(entry && entry.outletCoord && entry.outletCoord.y) / 100) * MAP_H;
+    const railX = (Number(entry && entry.railCoord && entry.railCoord.x) / 100) * MAP_W;
+    const railY = (Number(entry && entry.railCoord && entry.railCoord.y) / 100) * MAP_H;
+    if (![berthX, berthY, beaconX, beaconY, basinX, basinY, outletX, outletY, railX, railY].every(Number.isFinite)) return;
+
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const node = createSvgNode("g", { class: `accountability-spine-route${isActive ? " is-active" : ""}` });
+    node.appendChild(createSvgNode("line", {
+      class: "accountability-spine-segment-berth",
+      x1: berthX.toFixed(1),
+      y1: berthY.toFixed(1),
+      x2: beaconX.toFixed(1),
+      y2: beaconY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("line", {
+      class: "accountability-spine-segment-beacon",
+      x1: beaconX.toFixed(1),
+      y1: beaconY.toFixed(1),
+      x2: basinX.toFixed(1),
+      y2: basinY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("line", {
+      class: "accountability-spine-segment-basin",
+      x1: basinX.toFixed(1),
+      y1: basinY.toFixed(1),
+      x2: outletX.toFixed(1),
+      y2: outletY.toFixed(1)
+    }));
+
+    const outletToRailDistance = Math.hypot(railX - outletX, railY - outletY);
+    if (outletToRailDistance < 1.25) {
+      const loopRadius = 7.8;
+      node.appendChild(createSvgNode("path", {
+        class: "accountability-spine-segment-rail",
+        d: [
+          `M ${(outletX - loopRadius).toFixed(1)} ${outletY.toFixed(1)}`,
+          `A ${loopRadius.toFixed(1)} ${loopRadius.toFixed(1)} 0 1 1 ${(outletX + loopRadius).toFixed(1)} ${outletY.toFixed(1)}`,
+          `A ${loopRadius.toFixed(1)} ${loopRadius.toFixed(1)} 0 1 1 ${(outletX - loopRadius).toFixed(1)} ${outletY.toFixed(1)}`
+        ].join(" ")
+      }));
+    } else {
+      node.appendChild(createSvgNode("line", {
+        class: "accountability-spine-segment-rail",
+        x1: outletX.toFixed(1),
+        y1: outletY.toFixed(1),
+        x2: railX.toFixed(1),
+        y2: railY.toFixed(1)
+      }));
+    }
+
+    node.appendChild(createSvgNode("circle", {
+      class: "accountability-spine-berth-node",
+      cx: berthX.toFixed(1),
+      cy: berthY.toFixed(1),
+      r: "3.1"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "accountability-spine-beacon-node",
+      cx: beaconX.toFixed(1),
+      cy: beaconY.toFixed(1),
+      r: "3.7"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "accountability-spine-basin-node",
+      cx: basinX.toFixed(1),
+      cy: basinY.toFixed(1),
+      r: "3.9"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "accountability-spine-outlet-node",
+      cx: outletX.toFixed(1),
+      cy: outletY.toFixed(1),
+      r: "4.1"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "accountability-spine-rail-node",
+      cx: railX.toFixed(1),
+      cy: railY.toFixed(1),
+      r: "4"
+    }));
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.accountabilitySpineLayer.style.display = "none";
+    el.accountabilitySpineLayer.replaceChildren();
+    return;
+  }
+
+  el.accountabilitySpineLayer.style.display = "block";
+  el.accountabilitySpineLayer.replaceChildren(group);
+}
+
+function renderAccountabilitySpinePanel() {
+  if (!el.accountabilitySpine) return;
+  if (!state.accountabilitySpineEnabled) {
+    el.accountabilitySpine.innerHTML = "<p class=\"accountability-spine-line\">Accountability Spine is hidden. Re-enable it in Controls to restore the full commenter-to-rail provenance spine.</p>";
+    return;
+  }
+
+  const entries = getAccountabilitySpineEntries();
+  if (entries.length === 0) {
+    el.accountabilitySpine.innerHTML = "<p class=\"accountability-spine-line\">Accountability Spine appears once public commenter channels can be extended through visible verification outlets into Public Rails.</p>";
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const routeCount = entries.length;
+  const publicCommenterCount = new Set(
+    entries.map((entry) => String(entry && entry.login ? entry.login : "").trim().toLowerCase()).filter(Boolean)
+  ).size;
+  const outletCount = new Set(
+    entries.map((entry) => String(entry && entry.outletLandmark && entry.outletLandmark.title ? entry.outletLandmark.title : "").trim().toLowerCase()).filter(Boolean)
+  ).size;
+  const freshWithin24hCount = entries.reduce((sum, entry) => (
+    sum + (Number.isFinite(entry.latestActivityTs) && (Date.now() - entry.latestActivityTs) <= (24 * 60 * 60 * 1000) ? 1 : 0)
+  ), 0);
+  const fetchedCommentCount = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.fetchedCommentCount) || 0), 0);
+  const distinctCommenters = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry && entry.distinctCommenters) || 0), 0);
+  const freshest = entries[0] || null;
+  const freshestIssue = parseIssueNumber(freshest && freshest.issueNumber);
+  const freshestIssueLabel = freshestIssue === null ? "Issue unknown" : `Issue #${freshestIssue}`;
+  const summary = `Tracing ${routeCount} spine ${routeCount === 1 ? "route" : "routes"} from ${publicCommenterCount} public commenter ${publicCommenterCount === 1 ? "berth" : "berths"} through ${outletCount} outlet handoff${outletCount === 1 ? "" : "s"}, with freshest route at ${freshestIssueLabel}.`;
+
+  const listHtml = entries.map((entry) => {
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const rankPrefix = Number.isFinite(entry && entry.rank) ? `#${entry.rank} · ` : "";
+    const outletTitle = String(entry && entry.outletLandmark && entry.outletLandmark.title ? entry.outletLandmark.title : "Unnamed outlet");
+    return `
+      <button type="button" class="accountability-spine-item${isActive ? " is-active" : ""}" data-accountability-spine-key="${escapeHtml(entry.key)}">
+        <strong>${escapeHtml(`${rankPrefix}${entry.displayLogin} berth → Public Rails`)}</strong>
+        <span>${escapeHtml(`${entry.title} · ${entry.region} basin · ${outletTitle} · ${entry.activitySource}`)}</span>
+        <span class="accountability-spine-age">${escapeHtml(`Freshest spine route ${entry.freshestActivityLabel}`)}</span>
+        <span class="accountability-spine-meta">
+          <span class="accountability-spine-pill">Commenter comments: ${Math.max(0, Number(entry.loginCommentCount) || 0)}</span>
+          <span class="accountability-spine-pill">Fetched comments: ${Math.max(0, Number(entry.fetchedCommentCount) || 0)}</span>
+          <span class="accountability-spine-pill">Distinct commenters: ${Math.max(0, Number(entry.distinctCommenters) || 0)}</span>
+          <span class="accountability-spine-pill">Berth reach: ${Math.max(0, Number(entry.commenterBeaconCount) || 0)} beacon(s) / ${Math.max(0, Number(entry.commenterRegionCount) || 0)} region(s)</span>
+        </span>
+      </button>
+    `;
+  }).join("");
+
+  el.accountabilitySpine.innerHTML = `
+    <p class="accountability-spine-line">Accountability Spine extends each revision-estuary channel through its verification outlet into Public Rails so public evidence can be followed from commenter berth to the shared rail spine.</p>
+    <p class="accountability-spine-line">${escapeHtml(summary)}</p>
+    <div class="accountability-spine-actions">
+      <button type="button" class="accountability-spine-action" data-accountability-spine-action="center">Center on spine</button>
+      <button type="button" class="accountability-spine-action" data-accountability-spine-action="jump-freshest">Jump to freshest spine route</button>
+    </div>
+    <div class="accountability-spine-meta">
+      <span class="accountability-spine-pill">Routes: ${routeCount}</span>
+      <span class="accountability-spine-pill">Public commenters: ${publicCommenterCount}</span>
+      <span class="accountability-spine-pill">Outlets: ${outletCount}</span>
+      <span class="accountability-spine-pill">Fresh within 24h: ${freshWithin24hCount}</span>
+      <span class="accountability-spine-pill">Fetched comments: ${fetchedCommentCount}</span>
+      <span class="accountability-spine-pill">Distinct commenters: ${distinctCommenters}</span>
+    </div>
+    <p class="accountability-spine-subtitle">End-to-end accountability routes</p>
+    <div class="accountability-spine-list">
       ${listHtml}
     </div>
   `;
@@ -8971,6 +9319,7 @@ function initInteractions() {
   state.revisionEstuaryEnabled = !el.toggleRevisionEstuary || el.toggleRevisionEstuary.checked;
   state.revisionDeltaEnabled = !el.toggleRevisionDelta || el.toggleRevisionDelta.checked;
   state.verificationSpursEnabled = !el.toggleVerificationSpurs || el.toggleVerificationSpurs.checked;
+  state.accountabilitySpineEnabled = !el.toggleAccountabilitySpine || el.toggleAccountabilitySpine.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -9396,6 +9745,14 @@ function initInteractions() {
       state.verificationSpursEnabled = el.toggleVerificationSpurs.checked;
       renderVerificationSpurOverlay();
       renderVerificationSpursPanel();
+    });
+  }
+
+  if (el.toggleAccountabilitySpine) {
+    el.toggleAccountabilitySpine.addEventListener("change", () => {
+      state.accountabilitySpineEnabled = el.toggleAccountabilitySpine.checked;
+      renderAccountabilitySpineOverlay();
+      renderAccountabilitySpinePanel();
     });
   }
 
@@ -10053,6 +10410,33 @@ function initInteractions() {
       }
       if (action === "jump-freshest") {
         jumpToFreshestVerificationSpur();
+      }
+    });
+  }
+
+  if (el.accountabilitySpine) {
+    el.accountabilitySpine.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-accountability-spine-action], [data-accountability-spine-key]")
+        : null;
+      if (!actionNode) return;
+
+      const routeKey = String(actionNode.getAttribute("data-accountability-spine-key") || "").trim().toLowerCase();
+      if (routeKey) {
+        const entry = getAccountabilitySpineEntries().find((item) => String(item && item.key ? item.key : "").toLowerCase() === routeKey);
+        if (!entry || !entry.beacon) return;
+        activateMarker({ ...entry.beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-accountability-spine-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnAccountabilitySpine();
+        return;
+      }
+      if (action === "jump-freshest") {
+        jumpToFreshestAccountabilitySpine();
       }
     });
   }

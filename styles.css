@@ -2508,6 +2508,105 @@ body {
   box-shadow: 0 0 16px rgba(255, 202, 138, 0.2);
 }
 
+.accountability-spine-panel {
+  border: 1px solid rgba(245, 178, 142, 0.34);
+  background: rgba(56, 22, 17, 0.82);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.accountability-spine-line {
+  margin: 0;
+  line-height: 1.34;
+  color: rgba(255, 234, 223, 0.96);
+}
+
+.accountability-spine-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.32rem;
+}
+
+.accountability-spine-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(247, 186, 148, 0.45);
+  background: rgba(99, 48, 37, 0.9);
+  color: rgba(255, 240, 231, 0.96);
+  font-size: 0.78rem;
+}
+
+.accountability-spine-action:hover,
+.accountability-spine-action:focus-visible {
+  border-color: rgba(255, 219, 197, 0.9);
+  background: rgba(116, 58, 45, 0.94);
+}
+
+.accountability-spine-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.accountability-spine-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(246, 196, 166, 0.4);
+  background: rgba(125, 59, 45, 0.7);
+  color: rgba(255, 239, 230, 0.98);
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.accountability-spine-subtitle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(255, 212, 190, 0.9);
+}
+
+.accountability-spine-list {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.accountability-spine-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgba(247, 190, 158, 0.42);
+  background: rgba(83, 39, 30, 0.82);
+  color: rgba(255, 238, 228, 0.96);
+}
+
+.accountability-spine-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.accountability-spine-item span {
+  font-size: 0.74rem;
+  color: rgba(255, 227, 211, 0.92);
+  line-height: 1.28;
+}
+
+.accountability-spine-age {
+  color: rgba(255, 246, 239, 0.98);
+}
+
+.accountability-spine-item:hover,
+.accountability-spine-item:focus-visible,
+.accountability-spine-item.is-active {
+  border-color: rgba(255, 223, 204, 0.92);
+  background: rgba(105, 48, 37, 0.92);
+  box-shadow: 0 0 16px rgba(255, 195, 164, 0.24);
+}
+
 .relay-panel {
   border: 1px solid rgba(182, 240, 255, 0.34);
   background: rgba(8, 28, 41, 0.84);
@@ -3150,6 +3249,7 @@ button:hover {
 .revision-estuary-layer,
 .revision-delta-layer,
 .verification-spurs-layer,
+.accountability-spine-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -3328,6 +3428,14 @@ button:hover {
 }
 
 .verification-spurs-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.accountability-spine-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -5055,6 +5163,106 @@ button:hover {
   fill: rgba(255, 252, 245, 1);
   stroke: rgba(255, 238, 216, 1);
   filter: drop-shadow(0 0 10px rgba(255, 216, 165, 0.65));
+}
+
+.accountability-spine-route {
+  pointer-events: none;
+}
+
+.accountability-spine-segment-berth,
+.accountability-spine-segment-beacon,
+.accountability-spine-segment-basin,
+.accountability-spine-segment-outlet,
+.accountability-spine-segment-rail {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.accountability-spine-segment-berth {
+  stroke: rgba(255, 202, 169, 0.68);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+}
+
+.accountability-spine-segment-beacon {
+  stroke: rgba(255, 223, 197, 0.84);
+  stroke-width: 1.28;
+}
+
+.accountability-spine-segment-basin {
+  stroke: rgba(255, 188, 152, 0.82);
+  stroke-width: 1.28;
+  stroke-dasharray: 5 3;
+}
+
+.accountability-spine-segment-outlet {
+  stroke: rgba(248, 160, 120, 0.86);
+  stroke-width: 1.32;
+}
+
+.accountability-spine-segment-rail {
+  stroke: rgba(255, 214, 191, 0.92);
+  stroke-width: 1.45;
+  stroke-dasharray: 6 3;
+  filter: drop-shadow(0 0 7px rgba(255, 178, 141, 0.35));
+}
+
+.accountability-spine-berth-node {
+  fill: rgba(255, 191, 159, 0.26);
+  stroke: rgba(255, 235, 220, 0.94);
+  stroke-width: 1.05;
+  vector-effect: non-scaling-stroke;
+}
+
+.accountability-spine-beacon-node {
+  fill: rgba(255, 245, 236, 0.98);
+  stroke: rgba(255, 217, 193, 0.95);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.accountability-spine-basin-node {
+  fill: rgba(255, 177, 142, 0.28);
+  stroke: rgba(255, 222, 203, 0.92);
+  stroke-width: 1.08;
+  vector-effect: non-scaling-stroke;
+}
+
+.accountability-spine-outlet-node {
+  fill: rgba(255, 151, 108, 0.32);
+  stroke: rgba(255, 216, 194, 0.92);
+  stroke-width: 1.12;
+  vector-effect: non-scaling-stroke;
+}
+
+.accountability-spine-rail-node {
+  fill: rgba(255, 241, 231, 0.99);
+  stroke: rgba(255, 202, 174, 0.96);
+  stroke-width: 1.16;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px rgba(255, 181, 148, 0.44));
+}
+
+.accountability-spine-route.is-active .accountability-spine-segment-berth,
+.accountability-spine-route.is-active .accountability-spine-segment-beacon,
+.accountability-spine-route.is-active .accountability-spine-segment-basin,
+.accountability-spine-route.is-active .accountability-spine-segment-outlet,
+.accountability-spine-route.is-active .accountability-spine-segment-rail {
+  stroke: rgba(255, 241, 230, 0.98);
+  stroke-width: 1.85;
+  filter: drop-shadow(0 0 9px rgba(255, 210, 186, 0.58));
+}
+
+.accountability-spine-route.is-active .accountability-spine-berth-node,
+.accountability-spine-route.is-active .accountability-spine-beacon-node,
+.accountability-spine-route.is-active .accountability-spine-basin-node,
+.accountability-spine-route.is-active .accountability-spine-outlet-node,
+.accountability-spine-route.is-active .accountability-spine-rail-node {
+  fill: rgba(255, 248, 242, 0.98);
+  stroke: rgba(255, 239, 227, 1);
+  filter: drop-shadow(0 0 9px rgba(255, 203, 176, 0.62));
 }
 
 .survey-grid-current-label {

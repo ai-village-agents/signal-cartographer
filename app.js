@@ -102,6 +102,16 @@ const LANDMARKS = [
     title: "Public Rails",
     note: "The line where private certainty becomes public accountability.",
     region: "Beacon Field"
+  },
+  {
+    x: 12.8,
+    y: 87.6,
+    title: "Bridge Index Aperture",
+    note: "A clearly labeled outbound aperture toward the Automation Observatory's Cross-World Bridge Index. It is external to this world's evidence rails and exists for cross-world navigation, not proof.",
+    region: "Beacon Field",
+    externalUrl: "https://ai-village-agents.github.io/automation-observatory/cross-world-bridge-index.html",
+    externalLabel: "Open Automation Observatory Bridge Index ↗",
+    externalKind: "External navigation hub"
   }
 ];
 
@@ -541,6 +551,7 @@ const BUILTIN_LATTICE_STATIONS = LATTICE_STATIONS.map((station) => ({ ...station
 const BUILTIN_SIGNAL_RELAYS = SIGNAL_RELAYS.map((relay) => ({ ...relay, type: "relay" }));
 const BUILTIN_DRIFT_CURRENTS = DRIFT_CURRENTS.map((current) => ({ ...current, type: "current" }));
 const BUILTIN_TRANSIT_LOCKS = TRANSIT_LOCKS.map((lock) => ({ ...lock, type: "transit-lock" }));
+const BRIDGE_APERTURE_TITLE = "Bridge Index Aperture";
 
 const state = {
   tx: -MAP_W / 2,
@@ -631,6 +642,7 @@ const el = {
   beaconColor: document.getElementById("beaconColor"),
   statusMsg: document.getElementById("statusMsg"),
   tracePanel: document.getElementById("tracePanel"),
+  bridgeAperture: document.getElementById("bridgeAperture"),
   verificationChain: document.getElementById("verificationChain"),
   permalinkStatus: document.getElementById("permalinkStatus"),
   permalinkField: document.getElementById("permalinkField"),
@@ -5594,6 +5606,56 @@ function getBeaconPosture(beacon) {
   };
 }
 
+function getBridgeApertureLandmark() {
+  return BUILTIN_LANDMARKS.find((landmark) => landmark && landmark.title === BRIDGE_APERTURE_TITLE) || null;
+}
+
+function centerViewportOnBridgeAperture() {
+  const aperture = getBridgeApertureLandmark();
+  if (!aperture) return;
+  centerViewportOnPercentCoord(aperture, { scale: state.scale });
+}
+
+function openBridgeApertureExternal() {
+  const aperture = getBridgeApertureLandmark();
+  const url = String(aperture && aperture.externalUrl ? aperture.externalUrl : "").trim();
+  if (!url) return;
+  window.open(url, "_blank", "noopener");
+}
+
+function renderBridgeAperturePanel() {
+  if (!el.bridgeAperture) return;
+  const aperture = getBridgeApertureLandmark();
+  if (!aperture) {
+    el.bridgeAperture.innerHTML = '<p class="bridge-aperture-line">Bridge Aperture is unavailable.</p>';
+    return;
+  }
+
+  const isActive = Boolean(state.activeTrace && state.activeTrace.type === "landmark" && state.activeTrace.id === aperture.id);
+  el.bridgeAperture.innerHTML = `
+    <p class="bridge-aperture-line">Bridge Aperture marks a clearly labeled outbound route from The Signal Cartographer to an external cross-world navigation hub.</p>
+    <p class="bridge-aperture-line">Tracking 1 outbound bridge from Beacon Field to the Automation Observatory Cross-World Bridge Index.</p>
+    <p class="bridge-aperture-line">Use this hub for cross-world navigation only; it is external to The Signal Cartographer's own public-evidence record.</p>
+    <div class="bridge-aperture-actions">
+      <button type="button" class="bridge-aperture-action" data-bridge-aperture-action="center">Center on aperture</button>
+      <button type="button" class="bridge-aperture-action" data-bridge-aperture-action="open">Open bridge index</button>
+    </div>
+    <div class="bridge-aperture-meta">
+      <span class="bridge-aperture-pill">Outbound links: 1</span>
+      <span class="bridge-aperture-pill">Region: Beacon Field</span>
+      <span class="bridge-aperture-pill">Mode: External hub</span>
+      <span class="bridge-aperture-pill">Evidence role: Navigation only</span>
+    </div>
+    <p class="bridge-aperture-subtitle">Outbound world link</p>
+    <div class="bridge-aperture-list">
+      <button type="button" class="bridge-aperture-item${isActive ? " is-active" : ""}" data-bridge-aperture-landmark-id="${escapeHtml(aperture.id)}">
+        <strong>#1 · Bridge Index Aperture</strong>
+        <span>Automation Observatory · Cross-World Bridge Index · External navigation hub</span>
+      </button>
+    </div>
+  `;
+}
+
 function renderTracePanel() {
   if (!el.tracePanel) return;
   const trace = state.activeTrace;
@@ -5637,6 +5699,8 @@ function renderTracePanel() {
 
   const link = trace.issueUrl
     ? `<p class="trace-link"><a href="${trace.issueUrl}" target="_blank" rel="noopener">Open public issue ↗</a></p>`
+    : trace.externalUrl
+      ? `<p class="trace-link"><a href="${escapeHtml(trace.externalUrl)}" target="_blank" rel="noopener">${escapeHtml(trace.externalLabel || "Open external link ↗")}</a></p>`
     : trace.type === "echo"
       ? '<p class="small trace-link">Built-in echo site: discoverable through Signal Sweep.</p>'
       : trace.type === "lattice"
@@ -6648,6 +6712,7 @@ function setActiveTrace(marker) {
   renderTransitLockOverlay();
   renderVerificationRoute();
   renderTracePanel();
+  renderBridgeAperturePanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
@@ -10831,6 +10896,33 @@ function initInteractions() {
     });
   }
 
+  if (el.bridgeAperture) {
+    el.bridgeAperture.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-bridge-aperture-action], [data-bridge-aperture-landmark-id]")
+        : null;
+      if (!actionNode) return;
+
+      const landmarkId = String(actionNode.getAttribute("data-bridge-aperture-landmark-id") || "").trim().toLowerCase();
+      if (landmarkId) {
+        const aperture = getBridgeApertureLandmark();
+        if (!aperture || String(aperture.id || "").trim().toLowerCase() != landmarkId) return;
+        activateMarker(aperture, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-bridge-aperture-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnBridgeAperture();
+        return;
+      }
+      if (action === "open") {
+        openBridgeApertureExternal();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -11037,6 +11129,7 @@ function initInteractions() {
 
   setRegionDetail("Beacon Field");
   renderTracePanel();
+  renderBridgeAperturePanel();
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
@@ -11115,6 +11208,7 @@ async function initBeacons() {
     } else {
       renderBeacons();
       renderTracePanel();
+      renderBridgeAperturePanel();
       renderBeaconLedger();
     }
     renderVerificationRoute();

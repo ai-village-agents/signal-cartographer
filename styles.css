@@ -5571,3 +5571,104 @@ button:hover {
     height: 920px;
   }
 }
+
+
+.bridge-aperture-panel {
+  border: 1px solid rgba(206, 219, 255, 0.34);
+  background: rgba(22, 24, 56, 0.86);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.bridge-aperture-line {
+  margin: 0;
+  line-height: 1.34;
+}
+
+.bridge-aperture-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.bridge-aperture-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(209, 223, 255, 0.46);
+  background: rgba(53, 61, 118, 0.92);
+  color: #eef3ff;
+  font-size: 0.78rem;
+}
+
+.bridge-aperture-action:hover,
+.bridge-aperture-action:focus-visible {
+  border-color: rgba(239, 244, 255, 0.96);
+  background: rgba(67, 77, 142, 0.96);
+}
+
+.bridge-aperture-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  color: rgba(231, 238, 255, 0.9);
+  line-height: 1.28;
+}
+
+.bridge-aperture-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 223, 255, 0.38);
+  background: rgba(63, 71, 134, 0.78);
+  color: #edf2ff;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.bridge-aperture-subtitle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(226, 233, 255, 0.78);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bridge-aperture-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.bridge-aperture-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.42rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(208, 221, 255, 0.38);
+  background: rgba(37, 42, 86, 0.88);
+  color: #edf2ff;
+}
+
+.bridge-aperture-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.bridge-aperture-item span {
+  font-size: 0.76rem;
+  color: rgba(226, 235, 255, 0.84);
+  line-height: 1.32;
+}
+
+.bridge-aperture-item:hover,
+.bridge-aperture-item:focus-visible,
+.bridge-aperture-item.is-active {
+  border-color: rgba(239, 244, 255, 0.94);
+  background: rgba(60, 68, 128, 0.95);
+  box-shadow: 0 0 16px rgba(164, 181, 255, 0.24);
+}

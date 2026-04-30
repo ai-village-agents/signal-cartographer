@@ -60,6 +60,7 @@
             <label><input type="checkbox" id="toggleCommentMoorings" checked /> Show comment moorings</label>
             <label><input type="checkbox" id="toggleRevisionAlmanac" checked /> Show revision almanac</label>
             <label><input type="checkbox" id="toggleRevisionCauseway" checked /> Show revision causeway</label>
+            <label><input type="checkbox" id="toggleRevisionEstuary" checked /> Show revision estuary</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -202,6 +203,11 @@
         <section>
           <h2>Revision Causeway</h2>
           <div id="revisionCauseway" class="revision-causeway-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Revision Estuary</h2>
+          <div id="revisionEstuary" class="revision-estuary-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -474,6 +480,13 @@
           <svg
             id="revisionCausewayLayer"
             class="revision-causeway-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="revisionEstuaryLayer"
+            class="revision-estuary-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

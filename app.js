@@ -567,6 +567,7 @@ const state = {
   commentMooringsEnabled: true,
   revisionAlmanacEnabled: true,
   revisionCausewayEnabled: true,
+  revisionEstuaryEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -653,6 +654,7 @@ const el = {
   toggleCommentMoorings: document.getElementById("toggleCommentMoorings"),
   toggleRevisionAlmanac: document.getElementById("toggleRevisionAlmanac"),
   toggleRevisionCauseway: document.getElementById("toggleRevisionCauseway"),
+  toggleRevisionEstuary: document.getElementById("toggleRevisionEstuary"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -681,6 +683,7 @@ const el = {
   commentMooringsLayer: document.getElementById("commentMooringsLayer"),
   revisionAlmanacLayer: document.getElementById("revisionAlmanacLayer"),
   revisionCausewayLayer: document.getElementById("revisionCausewayLayer"),
+  revisionEstuaryLayer: document.getElementById("revisionEstuaryLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -707,6 +710,7 @@ const el = {
   commentMoorings: document.getElementById("commentMoorings"),
   revisionAlmanac: document.getElementById("revisionAlmanac"),
   revisionCauseway: document.getElementById("revisionCauseway"),
+  revisionEstuary: document.getElementById("revisionEstuary"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -3419,6 +3423,329 @@ function renderRevisionCausewayPanel() {
   `;
 }
 
+function compareRevisionEstuaryEntries(a, b) {
+  const aLatestTs = Number.isFinite(a && a.latestActivityTs) ? a.latestActivityTs : null;
+  const bLatestTs = Number.isFinite(b && b.latestActivityTs) ? b.latestActivityTs : null;
+  if (aLatestTs !== null || bLatestTs !== null) {
+    if (aLatestTs !== null && bLatestTs !== null && aLatestTs !== bLatestTs) return bLatestTs - aLatestTs;
+    if (aLatestTs !== null) return -1;
+    if (bLatestTs !== null) return 1;
+  }
+
+  const aRank = Number.isFinite(a && a.rank) ? Number(a.rank) : null;
+  const bRank = Number.isFinite(b && b.rank) ? Number(b.rank) : null;
+  if (aRank !== null || bRank !== null) {
+    if (aRank !== null && bRank !== null && aRank !== bRank) return aRank - bRank;
+    if (aRank !== null) return -1;
+    if (bRank !== null) return 1;
+  }
+
+  const loginComparison = String(a && a.displayLogin ? a.displayLogin : a && a.login ? a.login : "").localeCompare(
+    String(b && b.displayLogin ? b.displayLogin : b && b.login ? b.login : "")
+  );
+  if (loginComparison !== 0) return loginComparison;
+
+  const titleComparison = String(a && a.title ? a.title : "").localeCompare(String(b && b.title ? b.title : ""));
+  if (titleComparison !== 0) return titleComparison;
+
+  const aIssue = parseIssueNumber(a && a.issueNumber);
+  const bIssue = parseIssueNumber(b && b.issueNumber);
+  if (aIssue !== null || bIssue !== null) {
+    if (aIssue !== null && bIssue !== null && aIssue !== bIssue) return aIssue - bIssue;
+    if (aIssue !== null) return -1;
+    if (bIssue !== null) return 1;
+  }
+
+  return String(a && a.key ? a.key : "").localeCompare(String(b && b.key ? b.key : ""));
+}
+
+function getRevisionEstuaryEntries() {
+  const mooringEntries = getCommentMooringEntries();
+  const almanacEntries = getRevisionAlmanacEntries();
+  const almanacByIssue = new Map(
+    almanacEntries
+      .map((entry) => [parseIssueNumber(entry && entry.issueNumber), entry])
+      .filter((entry) => entry[0] !== null)
+  );
+  const entries = [];
+
+  mooringEntries.forEach((mooring) => {
+    const login = String(mooring && mooring.login ? mooring.login : "").trim().toLowerCase();
+    if (!login) return;
+    const displayLogin = String(mooring && mooring.displayLogin ? mooring.displayLogin : login);
+    const beacons = Array.isArray(mooring && mooring.beacons) ? mooring.beacons : [];
+    beacons.forEach((mooringBeacon) => {
+      const issueNumber = parseIssueNumber(mooringBeacon && mooringBeacon.issueNumber);
+      if (issueNumber === null) return;
+      const almanacEntry = almanacByIssue.get(issueNumber) || null;
+      const beacon = almanacEntry && almanacEntry.beacon
+        ? { ...almanacEntry.beacon, issueNumber }
+        : { ...mooringBeacon, issueNumber };
+      const region = normalizeRevisionConfluenceRegionName(
+        almanacEntry && almanacEntry.region
+          ? almanacEntry.region
+          : beacon && beacon.region
+      );
+      const regionBound = REGION_BOUNDS.find((bound) => bound.region === region) || null;
+      const comments = Array.isArray(state.beaconCommentsByIssue.get(issueNumber))
+        ? state.beaconCommentsByIssue.get(issueNumber)
+        : [];
+      const loginCommentCount = comments.reduce((sum, comment) => {
+        const commentLogin = String(comment && comment.user && comment.user.login ? comment.user.login : "").trim().toLowerCase();
+        return sum + (commentLogin === login ? 1 : 0);
+      }, 0);
+      const latestActivityTs = Number.isFinite(almanacEntry && almanacEntry.latestActivityTs)
+        ? Number(almanacEntry.latestActivityTs)
+        : null;
+      const key = `${login}::${issueNumber}`;
+
+      entries.push({
+        key,
+        login,
+        displayLogin,
+        berthCoord: mooring.berthCoord,
+        berthSide: mooring.berthSide,
+        beacon,
+        issueNumber,
+        title: String(almanacEntry && almanacEntry.title ? almanacEntry.title : beacon && beacon.title ? beacon.title : "Untitled beacon"),
+        region,
+        regionBound,
+        rank: Number.isFinite(almanacEntry && almanacEntry.rank) ? Number(almanacEntry.rank) : null,
+        latestActivityTs,
+        freshestActivityLabel: formatCompactAge(latestActivityTs),
+        activitySource: String(almanacEntry && almanacEntry.activitySource ? almanacEntry.activitySource : "Visible activity"),
+        publicCommentCount: Math.max(0, Number(almanacEntry && almanacEntry.publicCommentCount) || 0),
+        fetchedCommentCount: Math.max(0, Number(almanacEntry && almanacEntry.fetchedCommentCount) || 0),
+        distinctCommenters: Math.max(0, Number(almanacEntry && almanacEntry.distinctCommenters) || 0),
+        loginCommentCount,
+        commenterBeaconCount: Math.max(0, Number(mooring && mooring.beaconCount) || 0),
+        commenterRegionCount: Math.max(0, Number(mooring && mooring.regionCount) || 0)
+      });
+    });
+  });
+
+  return entries.sort(compareRevisionEstuaryEntries);
+}
+
+function centerViewportOnRevisionEstuary() {
+  const entries = getRevisionEstuaryEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => {
+      const points = [
+        { x: Number(entry && entry.berthCoord && entry.berthCoord.x), y: Number(entry && entry.berthCoord && entry.berthCoord.y) },
+        { x: Number(entry && entry.beacon && entry.beacon.x), y: Number(entry && entry.beacon && entry.beacon.y) }
+      ];
+      const bound = entry && entry.regionBound;
+      if (bound) {
+        points.push({
+          x: Number(bound.left) + Number(bound.width) / 2,
+          y: Number(bound.top) + Number(bound.height) / 2
+        });
+      }
+      return points;
+    })
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToFreshestRevisionEstuaryChannel() {
+  const entries = getRevisionEstuaryEntries();
+  if (entries.length === 0) return;
+  const target = entries[0] && entries[0].beacon;
+  if (!target) return;
+  activateMarker({ ...target, type: "beacon" }, { focus: true, updateHash: true });
+}
+
+function renderRevisionEstuaryOverlay() {
+  if (!el.revisionEstuaryLayer) return;
+  const entries = getRevisionEstuaryEntries();
+  if (!state.revisionEstuaryEnabled || entries.length === 0) {
+    el.revisionEstuaryLayer.style.display = "none";
+    el.revisionEstuaryLayer.replaceChildren();
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const group = createSvgNode("g", { class: "revision-estuary-overlay" });
+  entries.forEach((entry) => {
+    const berthX = (Number(entry && entry.berthCoord && entry.berthCoord.x) / 100) * MAP_W;
+    const berthY = (Number(entry && entry.berthCoord && entry.berthCoord.y) / 100) * MAP_H;
+    const beaconX = (Number(entry && entry.beacon && entry.beacon.x) / 100) * MAP_W;
+    const beaconY = (Number(entry && entry.beacon && entry.beacon.y) / 100) * MAP_H;
+    const bound = entry && entry.regionBound;
+    if (!bound) return;
+    const basinX = ((Number(bound.left) + Number(bound.width) / 2) / 100) * MAP_W;
+    const basinY = ((Number(bound.top) + Number(bound.height) / 2) / 100) * MAP_H;
+    if (![berthX, berthY, beaconX, beaconY, basinX, basinY].every(Number.isFinite)) return;
+
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const node = createSvgNode("g", { class: `revision-estuary-channel${isActive ? " is-active" : ""}` });
+    node.appendChild(createSvgNode("line", {
+      class: "revision-estuary-berth-segment",
+      x1: berthX.toFixed(1),
+      y1: berthY.toFixed(1),
+      x2: beaconX.toFixed(1),
+      y2: beaconY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("line", {
+      class: "revision-estuary-basin-segment",
+      x1: beaconX.toFixed(1),
+      y1: beaconY.toFixed(1),
+      x2: basinX.toFixed(1),
+      y2: basinY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-estuary-berth-node",
+      cx: berthX.toFixed(1),
+      cy: berthY.toFixed(1),
+      r: "3.1"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-estuary-beacon-halo",
+      cx: beaconX.toFixed(1),
+      cy: beaconY.toFixed(1),
+      r: "8.4"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-estuary-beacon-core",
+      cx: beaconX.toFixed(1),
+      cy: beaconY.toFixed(1),
+      r: "3.9"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "revision-estuary-basin-node",
+      cx: basinX.toFixed(1),
+      cy: basinY.toFixed(1),
+      r: "4.1"
+    }));
+
+    if (Number.isFinite(entry && entry.rank)) {
+      const rank = Math.max(1, Number(entry.rank));
+      const issueSeed = issueNumber === null ? 0 : issueNumber;
+      const badgeAngle = ((rank + issueSeed) % 12) * (Math.PI / 6);
+      const badgeDistance = 13.8;
+      const badgeX = basinX + Math.cos(badgeAngle) * badgeDistance;
+      const badgeY = basinY - Math.sin(badgeAngle) * badgeDistance;
+      node.appendChild(createSvgNode("line", {
+        class: "revision-estuary-rank-tether",
+        x1: basinX.toFixed(1),
+        y1: basinY.toFixed(1),
+        x2: badgeX.toFixed(1),
+        y2: badgeY.toFixed(1)
+      }));
+      node.appendChild(createSvgNode("circle", {
+        class: "revision-estuary-rank-badge",
+        cx: badgeX.toFixed(1),
+        cy: badgeY.toFixed(1),
+        r: "7.4"
+      }));
+      const rankLabel = createSvgNode("text", {
+        class: "revision-estuary-rank-text",
+        x: badgeX.toFixed(1),
+        y: (badgeY + 0.4).toFixed(1)
+      });
+      rankLabel.textContent = String(rank);
+      node.appendChild(rankLabel);
+    }
+
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.revisionEstuaryLayer.style.display = "none";
+    el.revisionEstuaryLayer.replaceChildren();
+    return;
+  }
+
+  el.revisionEstuaryLayer.style.display = "block";
+  el.revisionEstuaryLayer.replaceChildren(group);
+}
+
+function renderRevisionEstuaryPanel() {
+  if (!el.revisionEstuary) return;
+  if (!state.revisionEstuaryEnabled) {
+    el.revisionEstuary.innerHTML = "<p class=\"revision-estuary-line\">Revision Estuary is hidden. Re-enable it in Controls to restore end-to-end revision provenance channels.</p>";
+    return;
+  }
+
+  const entries = getRevisionEstuaryEntries();
+  if (entries.length === 0) {
+    el.revisionEstuary.innerHTML = "<p class=\"revision-estuary-line\">Revision Estuary appears once public commenters, amended beacons, and revision basins can be linked into visible channels.</p>";
+    return;
+  }
+
+  const activeIssue = parseIssueNumber(state.activeTrace && state.activeTrace.issueNumber);
+  const basinCount = new Set(entries.map((entry) => String(entry.region || "").trim().toLowerCase()).filter(Boolean)).size;
+  const commenterCount = new Set(entries.map((entry) => String(entry.login || "").trim().toLowerCase()).filter(Boolean)).size;
+  const freshWithin24hCount = entries.reduce((sum, entry) => (
+    sum + (Number.isFinite(entry.latestActivityTs) && (Date.now() - entry.latestActivityTs) <= (24 * 60 * 60 * 1000) ? 1 : 0)
+  ), 0);
+  const freshest = entries[0] || null;
+  const freshestLabel = freshest
+    ? `${freshest.freshestActivityLabel} (Issue #${parseIssueNumber(freshest.issueNumber) === null ? "?" : parseIssueNumber(freshest.issueNumber)})`
+    : "time unknown";
+
+  const listHtml = entries.map((entry) => {
+    const issueNumber = parseIssueNumber(entry && entry.issueNumber);
+    const isActive = issueNumber !== null && issueNumber === activeIssue;
+    const rankPrefix = Number.isFinite(entry && entry.rank) ? `#${entry.rank} · ` : "";
+    const issueLabel = issueNumber === null ? "Issue unknown" : `Issue #${issueNumber}`;
+    const title = String(entry && entry.title ? entry.title : "Untitled beacon");
+    const regionLabel = String(entry && entry.region ? entry.region : "Beacon Field");
+    return `
+      <button type="button" class="revision-estuary-item${isActive ? " is-active" : ""}" data-revision-estuary-key="${escapeHtml(entry.key)}">
+        <strong>${escapeHtml(`${rankPrefix}${entry.displayLogin} berth → ${issueLabel}`)}</strong>
+        <span>${escapeHtml(`${title} · ${regionLabel} basin · ${entry.activitySource}`)}</span>
+        <span class="revision-estuary-age">${escapeHtml(`Freshest activity ${entry.freshestActivityLabel}`)}</span>
+        <span class="revision-estuary-meta">
+          <span class="revision-estuary-pill">Commenter comments: ${Math.max(0, Number(entry.loginCommentCount) || 0)}</span>
+          <span class="revision-estuary-pill">Fetched comments: ${Math.max(0, Number(entry.fetchedCommentCount) || 0)}</span>
+          <span class="revision-estuary-pill">Distinct commenters: ${Math.max(0, Number(entry.distinctCommenters) || 0)}</span>
+          <span class="revision-estuary-pill">Commenter reach: ${Math.max(0, Number(entry.commenterBeaconCount) || 0)} beacon(s) / ${Math.max(0, Number(entry.commenterRegionCount) || 0)} region(s)</span>
+        </span>
+      </button>
+    `;
+  }).join("");
+
+  el.revisionEstuary.innerHTML = `
+    <p class="revision-estuary-line">Revision Estuary links public commenters through amended beacons into regional basins so end-to-end revision provenance can be followed across the map.</p>
+    <p class="revision-estuary-line">Tracking ${entries.length} channel(s), ${commenterCount} public commenter(s), ${basinCount} basin(s) reached, with freshest visible activity at ${escapeHtml(freshestLabel)}.</p>
+    <div class="revision-estuary-actions">
+      <button type="button" class="revision-estuary-action" data-revision-estuary-action="center">Center on estuary</button>
+      <button type="button" class="revision-estuary-action" data-revision-estuary-action="jump-freshest">Jump to freshest channel</button>
+    </div>
+    <div class="revision-estuary-meta">
+      <span class="revision-estuary-pill">Channels: ${entries.length}</span>
+      <span class="revision-estuary-pill">Public commenters: ${commenterCount}</span>
+      <span class="revision-estuary-pill">Basins reached: ${basinCount}</span>
+      <span class="revision-estuary-pill">Fresh within 24h: ${freshWithin24hCount}</span>
+      <span class="revision-estuary-pill">Public comments: ${entries.reduce((sum, entry) => sum + Math.max(0, Number(entry.publicCommentCount) || 0), 0)}</span>
+      <span class="revision-estuary-pill">Fetched comments: ${entries.reduce((sum, entry) => sum + Math.max(0, Number(entry.fetchedCommentCount) || 0), 0)}</span>
+    </div>
+    <p class="revision-estuary-subtitle">End-to-end provenance</p>
+    <div class="revision-estuary-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnRevisionAlmanac() {
   const entries = getRevisionAlmanacEntries();
   if (entries.length === 0) return;
@@ -5045,6 +5372,8 @@ function setActiveTrace(marker) {
   renderRevisionAlmanacPanel();
   renderRevisionCausewayOverlay();
   renderRevisionCausewayPanel();
+  renderRevisionEstuaryOverlay();
+  renderRevisionEstuaryPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();
@@ -5105,6 +5434,7 @@ function renderBeacons() {
   renderCommentMooringsOverlay();
   renderRevisionAlmanacOverlay();
   renderRevisionCausewayOverlay();
+  renderRevisionEstuaryOverlay();
   renderTracePassageOverlay();
 }
 
@@ -7820,6 +8150,8 @@ async function fetchBeaconComments() {
     renderRevisionAlmanacPanel();
     renderRevisionCausewayOverlay();
     renderRevisionCausewayPanel();
+  renderRevisionEstuaryOverlay();
+  renderRevisionEstuaryPanel();
     return;
   }
 
@@ -7840,6 +8172,8 @@ async function fetchBeaconComments() {
     renderRevisionAlmanacPanel();
     renderRevisionCausewayOverlay();
     renderRevisionCausewayPanel();
+  renderRevisionEstuaryOverlay();
+  renderRevisionEstuaryPanel();
     return;
   }
 
@@ -7895,6 +8229,8 @@ async function fetchBeaconComments() {
   renderRevisionAlmanacPanel();
   renderRevisionCausewayOverlay();
   renderRevisionCausewayPanel();
+  renderRevisionEstuaryOverlay();
+  renderRevisionEstuaryPanel();
 }
 
 function scheduleBeaconCommentRefresh() {
@@ -7921,6 +8257,8 @@ function scheduleBeaconCommentRefresh() {
     renderRevisionAlmanacPanel();
     renderRevisionCausewayOverlay();
     renderRevisionCausewayPanel();
+  renderRevisionEstuaryOverlay();
+  renderRevisionEstuaryPanel();
     return;
   }
   state.beaconCommentsLoading = true;
@@ -8014,6 +8352,7 @@ function initInteractions() {
   state.commentMooringsEnabled = !el.toggleCommentMoorings || el.toggleCommentMoorings.checked;
   state.revisionAlmanacEnabled = !el.toggleRevisionAlmanac || el.toggleRevisionAlmanac.checked;
   state.revisionCausewayEnabled = !el.toggleRevisionCauseway || el.toggleRevisionCauseway.checked;
+  state.revisionEstuaryEnabled = !el.toggleRevisionEstuary || el.toggleRevisionEstuary.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -8062,6 +8401,8 @@ function initInteractions() {
   renderRevisionAlmanacPanel();
   renderRevisionCausewayOverlay();
   renderRevisionCausewayPanel();
+  renderRevisionEstuaryOverlay();
+  renderRevisionEstuaryPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -8325,6 +8666,8 @@ function initInteractions() {
       renderRevisionAlmanacPanel();
       renderRevisionCausewayOverlay();
       renderRevisionCausewayPanel();
+      renderRevisionEstuaryOverlay();
+      renderRevisionEstuaryPanel();
     });
   }
 
@@ -8341,6 +8684,8 @@ function initInteractions() {
       renderRevisionAlmanacPanel();
       renderRevisionCausewayOverlay();
       renderRevisionCausewayPanel();
+      renderRevisionEstuaryOverlay();
+      renderRevisionEstuaryPanel();
     });
   }
 
@@ -8355,6 +8700,8 @@ function initInteractions() {
       renderRevisionAlmanacPanel();
       renderRevisionCausewayOverlay();
       renderRevisionCausewayPanel();
+      renderRevisionEstuaryOverlay();
+      renderRevisionEstuaryPanel();
     });
   }
 
@@ -8367,6 +8714,8 @@ function initInteractions() {
       renderRevisionAlmanacPanel();
       renderRevisionCausewayOverlay();
       renderRevisionCausewayPanel();
+      renderRevisionEstuaryOverlay();
+      renderRevisionEstuaryPanel();
     });
   }
 
@@ -8377,6 +8726,8 @@ function initInteractions() {
       renderRevisionAlmanacPanel();
       renderRevisionCausewayOverlay();
       renderRevisionCausewayPanel();
+      renderRevisionEstuaryOverlay();
+      renderRevisionEstuaryPanel();
     });
   }
 
@@ -8385,6 +8736,16 @@ function initInteractions() {
       state.revisionCausewayEnabled = el.toggleRevisionCauseway.checked;
       renderRevisionCausewayOverlay();
       renderRevisionCausewayPanel();
+      renderRevisionEstuaryOverlay();
+      renderRevisionEstuaryPanel();
+    });
+  }
+
+  if (el.toggleRevisionEstuary) {
+    el.toggleRevisionEstuary.addEventListener("change", () => {
+      state.revisionEstuaryEnabled = el.toggleRevisionEstuary.checked;
+      renderRevisionEstuaryOverlay();
+      renderRevisionEstuaryPanel();
     });
   }
 
@@ -8965,6 +9326,33 @@ function initInteractions() {
     });
   }
 
+  if (el.revisionEstuary) {
+    el.revisionEstuary.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-revision-estuary-action], [data-revision-estuary-key]")
+        : null;
+      if (!actionNode) return;
+
+      const estuaryKey = String(actionNode.getAttribute("data-revision-estuary-key") || "").trim().toLowerCase();
+      if (estuaryKey) {
+        const entry = getRevisionEstuaryEntries().find((item) => String(item && item.key ? item.key : "").toLowerCase() === estuaryKey);
+        if (!entry || !entry.beacon) return;
+        activateMarker({ ...entry.beacon, type: "beacon" }, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-revision-estuary-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnRevisionEstuary();
+        return;
+      }
+      if (action === "jump-freshest") {
+        jumpToFreshestRevisionEstuaryChannel();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -9217,6 +9605,8 @@ function initInteractions() {
   renderRevisionAlmanacPanel();
   renderRevisionCausewayOverlay();
   renderRevisionCausewayPanel();
+  renderRevisionEstuaryOverlay();
+  renderRevisionEstuaryPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderRelayMarkers();
@@ -9273,6 +9663,8 @@ async function initBeacons() {
     renderRevisionAlmanacPanel();
     renderRevisionCausewayOverlay();
     renderRevisionCausewayPanel();
+  renderRevisionEstuaryOverlay();
+  renderRevisionEstuaryPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -9315,6 +9707,8 @@ async function initBeacons() {
     renderRevisionAlmanacPanel();
     renderRevisionCausewayOverlay();
     renderRevisionCausewayPanel();
+  renderRevisionEstuaryOverlay();
+  renderRevisionEstuaryPanel();
     scheduleBeaconCommentRefresh();
     renderTracePassageOverlay();
     renderTracePassagePanel();
@@ -9370,6 +9764,8 @@ function init() {
   renderRevisionAlmanacPanel();
   renderRevisionCausewayOverlay();
   renderRevisionCausewayPanel();
+  renderRevisionEstuaryOverlay();
+  renderRevisionEstuaryPanel();
   renderTracePassageOverlay();
   renderTracePassagePanel();
   renderSignalRelaysPanel();

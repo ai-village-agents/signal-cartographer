@@ -3355,6 +3355,7 @@ button:hover {
 .bridge-locks-layer,
 .bridge-transits-layer,
 .bridge-rejoins-layer,
+.bridge-ringways-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -3589,6 +3590,14 @@ button:hover {
 }
 
 .bridge-rejoins-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.bridge-ringways-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -5751,6 +5760,51 @@ button:hover {
   filter: drop-shadow(0 0 9px rgba(182, 242, 228, 0.58));
 }
 
+.bridge-ringway-route {
+  pointer-events: none;
+}
+
+.bridge-ringway-line {
+  fill: none;
+  stroke: rgba(181, 243, 255, 0.88);
+  stroke-width: 1.58;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 4.8 4.5;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 8px rgba(145, 229, 255, 0.34));
+}
+
+.bridge-ringway-node {
+  fill: rgba(238, 252, 255, 0.97);
+  stroke: rgba(193, 244, 255, 0.98);
+  stroke-width: 1.05;
+  vector-effect: non-scaling-stroke;
+}
+
+.bridge-ringway-label {
+  fill: rgba(217, 246, 255, 0.97);
+  font-size: 11px;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+  letter-spacing: 0.01em;
+  paint-order: stroke;
+  stroke: rgba(7, 25, 33, 0.94);
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+}
+
+.bridge-ringway-route.is-active .bridge-ringway-line {
+  stroke: rgba(237, 252, 255, 1);
+  stroke-width: 1.98;
+  filter: drop-shadow(0 0 10px rgba(188, 238, 255, 0.56));
+}
+
+.bridge-ringway-route.is-active .bridge-ringway-node {
+  fill: rgba(247, 254, 255, 0.99);
+  stroke: rgba(225, 249, 255, 1);
+  filter: drop-shadow(0 0 9px rgba(184, 236, 255, 0.58));
+}
+
 .survey-grid-current-label {
   fill: rgba(216, 255, 255, 0.95);
   font-size: 13px;
@@ -6431,4 +6485,102 @@ button:hover {
   border-color: rgba(231, 253, 247, 0.95);
   background: rgba(35, 136, 116, 0.92);
   box-shadow: 0 0 16px rgba(161, 239, 223, 0.24);
+}
+
+.bridge-ringways-panel {
+  border: 1px solid rgba(182, 242, 255, 0.36);
+  background: rgba(14, 46, 58, 0.86);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.bridge-ringways-line {
+  margin: 0;
+  line-height: 1.34;
+  color: #dcf7ff;
+}
+
+.bridge-ringways-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.bridge-ringways-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(192, 244, 255, 0.52);
+  background: rgba(40, 120, 146, 0.9);
+  color: #ecfbff;
+  font-size: 0.78rem;
+}
+
+.bridge-ringways-action:hover,
+.bridge-ringways-action:focus-visible {
+  border-color: rgba(229, 251, 255, 0.95);
+  background: rgba(49, 140, 168, 0.94);
+}
+
+.bridge-ringways-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.bridge-ringways-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(197, 246, 255, 0.52);
+  background: rgba(62, 147, 177, 0.44);
+  color: #ddf7ff;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.bridge-ringways-subtitle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(212, 245, 255, 0.82);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bridge-ringways-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.bridge-ringways-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.42rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(201, 247, 255, 0.44);
+  background: rgba(31, 97, 120, 0.84);
+  color: #f1fcff;
+}
+
+.bridge-ringways-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.bridge-ringways-item span {
+  font-size: 0.76rem;
+  color: rgba(220, 248, 255, 0.9);
+  line-height: 1.32;
+}
+
+.bridge-ringways-item:hover,
+.bridge-ringways-item:focus-visible,
+.bridge-ringways-item.is-active {
+  border-color: rgba(229, 251, 255, 0.95);
+  background: rgba(40, 124, 151, 0.92);
+  box-shadow: 0 0 16px rgba(166, 235, 255, 0.24);
 }

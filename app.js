@@ -596,6 +596,7 @@ const state = {
   bridgeLocksEnabled: true,
   bridgeTransitsEnabled: true,
   bridgeRejoinsEnabled: true,
+  bridgeRingwaysEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -693,6 +694,7 @@ const el = {
   toggleBridgeLocks: document.getElementById("toggleBridgeLocks"),
   toggleBridgeTransits: document.getElementById("toggleBridgeTransits"),
   toggleBridgeRejoins: document.getElementById("toggleBridgeRejoins"),
+  toggleBridgeRingways: document.getElementById("toggleBridgeRingways"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -731,6 +733,7 @@ const el = {
   bridgeLocksLayer: document.getElementById("bridgeLocksLayer"),
   bridgeTransitsLayer: document.getElementById("bridgeTransitsLayer"),
   bridgeRejoinsLayer: document.getElementById("bridgeRejoinsLayer"),
+  bridgeRingwaysLayer: document.getElementById("bridgeRingwaysLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -767,6 +770,7 @@ const el = {
   bridgeLocks: document.getElementById("bridgeLocks"),
   bridgeTransits: document.getElementById("bridgeTransits"),
   bridgeRejoins: document.getElementById("bridgeRejoins"),
+  bridgeRingways: document.getElementById("bridgeRingways"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -6643,6 +6647,247 @@ function renderBridgeRejoinsPanel() {
   `;
 }
 
+function compareBridgeRingwayEntries(a, b) {
+  const aArrivalTitle = String(a && a.arrivalRelay && a.arrivalRelay.title ? a.arrivalRelay.title : "");
+  const bArrivalTitle = String(b && b.arrivalRelay && b.arrivalRelay.title ? b.arrivalRelay.title : "");
+  const arrivalComparison = aArrivalTitle.localeCompare(bArrivalTitle);
+  if (arrivalComparison !== 0) return arrivalComparison;
+
+  const aOnwardTitle = String(a && a.onwardRelay && a.onwardRelay.title ? a.onwardRelay.title : "");
+  const bOnwardTitle = String(b && b.onwardRelay && b.onwardRelay.title ? b.onwardRelay.title : "");
+  const onwardComparison = aOnwardTitle.localeCompare(bOnwardTitle);
+  if (onwardComparison !== 0) return onwardComparison;
+
+  const aKey = String(a && a.key ? a.key : "");
+  const bKey = String(b && b.key ? b.key : "");
+  return aKey.localeCompare(bKey);
+}
+
+function getBridgeRingwayEntries() {
+  const relayById = new Map(BUILTIN_SIGNAL_RELAYS.map((relay) => [String(relay && relay.id ? relay.id : ""), relay]));
+  const entries = getBridgeRejoinEntries()
+    .map((entry) => {
+      const arrivalRelay = entry && entry.relay ? entry.relay : null;
+      const arrivalRelayId = String(arrivalRelay && arrivalRelay.id ? arrivalRelay.id : "").trim();
+      if (!arrivalRelay || !arrivalRelayId) return null;
+
+      const arrivalX = Number(arrivalRelay.x);
+      const arrivalY = Number(arrivalRelay.y);
+      if (!Number.isFinite(arrivalX) || !Number.isFinite(arrivalY)) return null;
+
+      const linkedRelayIds = SIGNAL_RELAY_LINKS
+        .flatMap(([fromId, toId]) => {
+          const normalizedFromId = String(fromId || "").trim();
+          const normalizedToId = String(toId || "").trim();
+          if (normalizedFromId === arrivalRelayId) return [normalizedToId];
+          if (normalizedToId === arrivalRelayId) return [normalizedFromId];
+          return [];
+        })
+        .filter(Boolean);
+      if (linkedRelayIds.length === 0) return null;
+
+      const rankedRelays = [...new Set(linkedRelayIds)]
+        .map((relayId) => relayById.get(relayId))
+        .filter(Boolean)
+        .map((relay) => ({
+          relay,
+          distance: Math.hypot(Number(relay.x) - arrivalX, Number(relay.y) - arrivalY)
+        }))
+        .filter((item) => Number.isFinite(item.distance))
+        .sort((a, b) => (
+          a.distance - b.distance ||
+          String(a && a.relay && a.relay.title ? a.relay.title : "").localeCompare(String(b && b.relay && b.relay.title ? b.relay.title : "")) ||
+          String(a && a.relay && a.relay.id ? a.relay.id : "").localeCompare(String(b && b.relay && b.relay.id ? b.relay.id : ""))
+        ));
+      const onward = rankedRelays[0];
+      if (!onward || !onward.relay) return null;
+
+      return {
+        key: `bridge-ringway:${String(entry && entry.key ? entry.key : "").trim()}:${String(onward.relay.id || "").trim().toLowerCase()}`,
+        source: entry.source,
+        transitEntry: entry.transitEntry,
+        rejoinEntry: entry,
+        linkedLock: entry.linkedLock,
+        arrivalRelay,
+        onwardRelay: onward.relay,
+        channel: entry.channel || "",
+        distance: onward.distance
+      };
+    })
+    .filter((entry) => (
+      entry &&
+      entry.arrivalRelay &&
+      Number.isFinite(Number(entry.arrivalRelay.x)) &&
+      Number.isFinite(Number(entry.arrivalRelay.y)) &&
+      entry.onwardRelay &&
+      Number.isFinite(Number(entry.onwardRelay.x)) &&
+      Number.isFinite(Number(entry.onwardRelay.y))
+    ));
+
+  return entries.sort(compareBridgeRingwayEntries);
+}
+
+function centerViewportOnBridgeRingways() {
+  const entries = getBridgeRingwayEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.arrivalRelay && entry.arrivalRelay.x), y: Number(entry && entry.arrivalRelay && entry.arrivalRelay.y) },
+      { x: Number(entry && entry.onwardRelay && entry.onwardRelay.x), y: Number(entry && entry.onwardRelay && entry.onwardRelay.y) }
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToPrimaryBridgeRingwayRelay() {
+  const entry = getBridgeRingwayEntries()[0];
+  if (!entry || !entry.onwardRelay) return;
+  activateRelayMarkerById(entry.onwardRelay.id);
+}
+
+function renderBridgeRingwaysOverlay() {
+  if (!el.bridgeRingwaysLayer) return;
+  const entries = getBridgeRingwayEntries();
+  if (!state.bridgeRingwaysEnabled || entries.length === 0) {
+    el.bridgeRingwaysLayer.style.display = "none";
+    el.bridgeRingwaysLayer.replaceChildren();
+    return;
+  }
+
+  const activeRelayId = state.activeTrace && state.activeTrace.type === "relay"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const group = createSvgNode("g", { class: "bridge-ringways-overlay" });
+
+  entries.forEach((entry) => {
+    const arrivalRelay = toWorldCoords(entry.arrivalRelay);
+    const onwardRelay = toWorldCoords(entry.onwardRelay);
+    if (![arrivalRelay.x, arrivalRelay.y, onwardRelay.x, onwardRelay.y].every(Number.isFinite)) return;
+
+    const isActive = Boolean(
+      activeRelayId &&
+      (
+        (entry.arrivalRelay && entry.arrivalRelay.id === activeRelayId) ||
+        (entry.onwardRelay && entry.onwardRelay.id === activeRelayId)
+      )
+    );
+    const node = createSvgNode("g", { class: `bridge-ringway-route${isActive ? " is-active" : ""}` });
+    node.appendChild(createSvgNode("line", {
+      class: "bridge-ringway-line",
+      x1: arrivalRelay.x.toFixed(1),
+      y1: arrivalRelay.y.toFixed(1),
+      x2: onwardRelay.x.toFixed(1),
+      y2: onwardRelay.y.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-ringway-node",
+      cx: arrivalRelay.x.toFixed(1),
+      cy: arrivalRelay.y.toFixed(1),
+      r: "3.3"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-ringway-node",
+      cx: onwardRelay.x.toFixed(1),
+      cy: onwardRelay.y.toFixed(1),
+      r: "3.5"
+    }));
+    const isEastHalf = Number(entry && entry.onwardRelay && entry.onwardRelay.x) > 50;
+    const label = createSvgNode("text", {
+      class: "bridge-ringway-label",
+      x: (onwardRelay.x + (isEastHalf ? -11 : 11)).toFixed(1),
+      y: (onwardRelay.y - 8).toFixed(1),
+      "text-anchor": isEastHalf ? "end" : "start"
+    });
+    label.textContent = entry.onwardRelay.title;
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.bridgeRingwaysLayer.style.display = "none";
+    el.bridgeRingwaysLayer.replaceChildren();
+    return;
+  }
+
+  el.bridgeRingwaysLayer.style.display = "block";
+  el.bridgeRingwaysLayer.replaceChildren(group);
+}
+
+function renderBridgeRingwaysPanel() {
+  if (!el.bridgeRingways) return;
+  if (!state.bridgeRingwaysEnabled) {
+    el.bridgeRingways.innerHTML = "<p class=\"bridge-ringways-line\">Bridge Ringways is hidden. Re-enable it in Controls to restore relay-to-relay navigation links.</p>";
+    return;
+  }
+
+  const entries = getBridgeRingwayEntries();
+  if (entries.length === 0) {
+    el.bridgeRingways.innerHTML = "<p class=\"bridge-ringways-line\">Bridge Ringways appears when bridge rejoin relays can be paired with linked built-in relay spans.</p>";
+    return;
+  }
+
+  const activeRelayId = state.activeTrace && state.activeTrace.type === "relay"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const arrivalRelayCount = new Set(entries.map((entry) => String(entry && entry.arrivalRelay && entry.arrivalRelay.id ? entry.arrivalRelay.id : "").trim()).filter(Boolean)).size;
+  const onwardRelayCount = new Set(entries.map((entry) => String(entry && entry.onwardRelay && entry.onwardRelay.id ? entry.onwardRelay.id : "").trim()).filter(Boolean)).size;
+  const trackingLine = entries.length === 1
+    ? "Tracking 1 relay span from Vault Verge Relay to Delta Relay."
+    : `Tracking ${entries.length} relay spans from bridge rejoin relays to onward built-in relay stations.`;
+  const listHtml = entries.map((entry, index) => {
+    const isActive = Boolean(
+      activeRelayId &&
+      (
+        (entry.arrivalRelay && entry.arrivalRelay.id === activeRelayId) ||
+        (entry.onwardRelay && entry.onwardRelay.id === activeRelayId)
+      )
+    );
+    return `
+      <button type="button" class="bridge-ringways-item${isActive ? " is-active" : ""}" data-bridge-ringway-relay-id="${escapeHtml(entry.onwardRelay.id)}">
+        <strong>${escapeHtml(`#${index + 1} · ${entry.arrivalRelay.title} → ${entry.onwardRelay.title}`)}</strong>
+        <span>${escapeHtml(`${entry.channel || "Transit channel"} · ${entry.arrivalRelay.region || "Unknown region"} → ${entry.onwardRelay.region || "Unknown region"} · ${entry.onwardRelay.band || "Relay band"}`)}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.bridgeRingways.innerHTML = `
+    <p class="bridge-ringways-line">Bridge Ringways traces navigation-only continuations from destination relays onto the built-in relay ring.</p>
+    <p class="bridge-ringways-line">${escapeHtml(trackingLine)}</p>
+    <p class="bridge-ringways-line">These ringway continuations remain part of travel infrastructure, not of The Signal Cartographer's evidence chain.</p>
+    <div class="bridge-ringways-actions">
+      <button type="button" class="bridge-ringways-action" data-bridge-ringways-action="center">Center on ringway span</button>
+      <button type="button" class="bridge-ringways-action" data-bridge-ringways-action="jump-relay">Jump to onward relay</button>
+    </div>
+    <div class="bridge-ringways-meta">
+      <span class="bridge-ringways-pill">Relay spans: ${entries.length}</span>
+      <span class="bridge-ringways-pill">Arrival relays: ${arrivalRelayCount}</span>
+      <span class="bridge-ringways-pill">Onward relays: ${onwardRelayCount}</span>
+      <span class="bridge-ringways-pill">Mode: Navigation only</span>
+    </div>
+    <p class="bridge-ringways-subtitle">Relay-to-relay continuation</p>
+    <div class="bridge-ringways-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnBridgeBearings() {
   const entries = getBridgeBearingEntries();
   if (entries.length === 0) return;
@@ -7893,6 +8138,8 @@ function setActiveTrace(marker) {
   renderBridgeTransitsPanel();
   renderBridgeRejoinsOverlay();
   renderBridgeRejoinsPanel();
+  renderBridgeRingwaysOverlay();
+  renderBridgeRingwaysPanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
@@ -10928,6 +11175,7 @@ function initInteractions() {
   state.bridgeLocksEnabled = !el.toggleBridgeLocks || el.toggleBridgeLocks.checked;
   state.bridgeTransitsEnabled = !el.toggleBridgeTransits || el.toggleBridgeTransits.checked;
   state.bridgeRejoinsEnabled = !el.toggleBridgeRejoins || el.toggleBridgeRejoins.checked;
+  state.bridgeRingwaysEnabled = !el.toggleBridgeRingways || el.toggleBridgeRingways.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -11391,6 +11639,8 @@ function initInteractions() {
       renderBridgeTransitsPanel();
       renderBridgeRejoinsOverlay();
       renderBridgeRejoinsPanel();
+      renderBridgeRingwaysOverlay();
+      renderBridgeRingwaysPanel();
     });
   }
 
@@ -11403,6 +11653,8 @@ function initInteractions() {
       renderBridgeTransitsPanel();
       renderBridgeRejoinsOverlay();
       renderBridgeRejoinsPanel();
+      renderBridgeRingwaysOverlay();
+      renderBridgeRingwaysPanel();
     });
   }
 
@@ -11413,6 +11665,8 @@ function initInteractions() {
       renderBridgeTransitsPanel();
       renderBridgeRejoinsOverlay();
       renderBridgeRejoinsPanel();
+      renderBridgeRingwaysOverlay();
+      renderBridgeRingwaysPanel();
     });
   }
 
@@ -11421,6 +11675,16 @@ function initInteractions() {
       state.bridgeRejoinsEnabled = el.toggleBridgeRejoins.checked;
       renderBridgeRejoinsOverlay();
       renderBridgeRejoinsPanel();
+      renderBridgeRingwaysOverlay();
+      renderBridgeRingwaysPanel();
+    });
+  }
+
+  if (el.toggleBridgeRingways) {
+    el.toggleBridgeRingways.addEventListener("change", () => {
+      state.bridgeRingwaysEnabled = el.toggleBridgeRingways.checked;
+      renderBridgeRingwaysOverlay();
+      renderBridgeRingwaysPanel();
     });
   }
 
@@ -12290,6 +12554,31 @@ function initInteractions() {
     });
   }
 
+  if (el.bridgeRingways) {
+    el.bridgeRingways.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-bridge-ringways-action], [data-bridge-ringway-relay-id]")
+        : null;
+      if (!actionNode) return;
+
+      const relayId = String(actionNode.getAttribute("data-bridge-ringway-relay-id") || "").trim();
+      if (relayId) {
+        activateRelayMarkerById(relayId);
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-bridge-ringways-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnBridgeRingways();
+        return;
+      }
+      if (action === "jump-relay") {
+        jumpToPrimaryBridgeRingwayRelay();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -12507,6 +12796,8 @@ function initInteractions() {
   renderBridgeTransitsPanel();
   renderBridgeRejoinsOverlay();
   renderBridgeRejoinsPanel();
+  renderBridgeRingwaysOverlay();
+  renderBridgeRingwaysPanel();
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
@@ -12596,6 +12887,8 @@ async function initBeacons() {
       renderBridgeTransitsPanel();
       renderBridgeRejoinsOverlay();
       renderBridgeRejoinsPanel();
+      renderBridgeRingwaysOverlay();
+      renderBridgeRingwaysPanel();
       renderBeaconLedger();
     }
     renderVerificationRoute();

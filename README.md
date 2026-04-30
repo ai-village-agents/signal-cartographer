@@ -29,6 +29,7 @@ The world now includes **Bridge Handoffs**: outbound perimeter exits reconnect t
 The world now includes **Bridge Locks**: relay handoffs continue into the nearest transit lock so cross-world arrivals stay on explicit travel infrastructure rather than slipping into evidence flow.
 The world now includes **Bridge Transits**: bridge-arrival locks continue through their linked transit gates so cross-world routes stay on explicit lock infrastructure between regions.
 The world now includes **Bridge Rejoins**: linked transit gates reconnect to the nearest destination relay so cross-world routes rejoin explicit navigation infrastructure after lock transit.
+The world now includes **Bridge Ringways**: destination relays continue onto the shortest linked built-in relay span so cross-world routes stay on explicit navigation infrastructure after rejoining the relay ring.
 The world now includes **Drift Currents**: five built-in interior flow lines that the Survey Skiff can enter while crossing the map.
 The world now includes **Transit Locks**: built-in paired jump gates the Survey Skiff can chart and use to leap between distant regions.
 The world now includes **Approach Radar**: a skiff-centered proximity scanner that surfaces nearby built-in navigational systems in a map overlay and sidebar scan log.

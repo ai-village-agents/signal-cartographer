@@ -591,6 +591,7 @@ const state = {
   verificationSpursEnabled: true,
   accountabilitySpineEnabled: true,
   ledgerIngressEnabled: true,
+  bridgeBearingsEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -683,6 +684,7 @@ const el = {
   toggleVerificationSpurs: document.getElementById("toggleVerificationSpurs"),
   toggleAccountabilitySpine: document.getElementById("toggleAccountabilitySpine"),
   toggleLedgerIngress: document.getElementById("toggleLedgerIngress"),
+  toggleBridgeBearings: document.getElementById("toggleBridgeBearings"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -716,6 +718,7 @@ const el = {
   verificationSpursLayer: document.getElementById("verificationSpursLayer"),
   accountabilitySpineLayer: document.getElementById("accountabilitySpineLayer"),
   ledgerIngressLayer: document.getElementById("ledgerIngressLayer"),
+  bridgeBearingsLayer: document.getElementById("bridgeBearingsLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -747,6 +750,7 @@ const el = {
   verificationSpurs: document.getElementById("verificationSpurs"),
   accountabilitySpine: document.getElementById("accountabilitySpine"),
   ledgerIngress: document.getElementById("ledgerIngress"),
+  bridgeBearings: document.getElementById("bridgeBearings"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -5623,6 +5627,223 @@ function openBridgeApertureExternal() {
   window.open(url, "_blank", "noopener");
 }
 
+function compareBridgeBearingEntries(a, b) {
+  const aTitle = String(a && a.source && a.source.title ? a.source.title : "");
+  const bTitle = String(b && b.source && b.source.title ? b.source.title : "");
+  const titleComparison = aTitle.localeCompare(bTitle);
+  if (titleComparison !== 0) return titleComparison;
+
+  const aRegion = String(a && a.source && a.source.region ? a.source.region : "");
+  const bRegion = String(b && b.source && b.source.region ? b.source.region : "");
+  const regionComparison = aRegion.localeCompare(bRegion);
+  if (regionComparison !== 0) return regionComparison;
+
+  const aExitLabel = String(a && a.exitLabel ? a.exitLabel : "");
+  const bExitLabel = String(b && b.exitLabel ? b.exitLabel : "");
+  const exitComparison = aExitLabel.localeCompare(bExitLabel);
+  if (exitComparison !== 0) return exitComparison;
+
+  const aId = String(a && a.source && a.source.id ? a.source.id : "");
+  const bId = String(b && b.source && b.source.id ? b.source.id : "");
+  return aId.localeCompare(bId);
+}
+
+function getBridgeBearingEntries() {
+  const edgeOrder = { north: 0, south: 1, west: 2, east: 3 };
+  const getExit = (x, y) => {
+    const candidates = [
+      { edge: "north", distance: y, point: { x, y: 0 }, label: "North perimeter exit" },
+      { edge: "south", distance: 100 - y, point: { x, y: 100 }, label: "South perimeter exit" },
+      { edge: "west", distance: x, point: { x: 0, y }, label: "West perimeter exit" },
+      { edge: "east", distance: 100 - x, point: { x: 100, y }, label: "East perimeter exit" }
+    ];
+    candidates.sort((a, b) => (
+      a.distance - b.distance ||
+      (edgeOrder[a.edge] ?? 99) - (edgeOrder[b.edge] ?? 99)
+    ));
+    return candidates[0];
+  };
+
+  const entries = BUILTIN_LANDMARKS
+    .filter((landmark) => String(landmark && landmark.externalUrl ? landmark.externalUrl : "").trim())
+    .map((landmark) => {
+      const sourceX = Number(landmark && landmark.x);
+      const sourceY = Number(landmark && landmark.y);
+      if (!Number.isFinite(sourceX) || !Number.isFinite(sourceY)) return null;
+      const sourceId = getLandmarkId(landmark);
+      const exit = getExit(sourceX, sourceY);
+      return {
+        key: `bridge-bearing:${sourceId || toSlug(landmark && landmark.title)}`,
+        source: {
+          id: sourceId,
+          title: String(landmark && landmark.title ? landmark.title : "Untitled landmark"),
+          region: String(landmark && landmark.region ? landmark.region : "Unknown region"),
+          x: sourceX,
+          y: sourceY
+        },
+        externalUrl: String(landmark && landmark.externalUrl ? landmark.externalUrl : "").trim(),
+        externalLabel: String(landmark && landmark.externalLabel ? landmark.externalLabel : "").trim(),
+        externalKind: String(landmark && landmark.externalKind ? landmark.externalKind : "").trim(),
+        exitPoint: exit.point,
+        exitLabel: exit.label,
+        exitEdge: exit.edge
+      };
+    })
+    .filter((entry) => entry && entry.source && Number.isFinite(entry.source.x) && Number.isFinite(entry.source.y));
+
+  return entries.sort(compareBridgeBearingEntries);
+}
+
+function centerViewportOnBridgeBearings() {
+  const entries = getBridgeBearingEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.source && entry.source.x), y: Number(entry && entry.source && entry.source.y) },
+      { x: Number(entry && entry.exitPoint && entry.exitPoint.x), y: Number(entry && entry.exitPoint && entry.exitPoint.y) }
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function openPrimaryBridgeBearingExternal() {
+  const entry = getBridgeBearingEntries()[0];
+  const url = String(entry && entry.externalUrl ? entry.externalUrl : "").trim();
+  if (!url) return;
+  window.open(url, "_blank", "noopener");
+}
+
+function renderBridgeBearingsOverlay() {
+  if (!el.bridgeBearingsLayer) return;
+  const entries = getBridgeBearingEntries();
+  if (!state.bridgeBearingsEnabled || entries.length === 0) {
+    el.bridgeBearingsLayer.style.display = "none";
+    el.bridgeBearingsLayer.replaceChildren();
+    return;
+  }
+
+  const activeLandmarkId = state.activeTrace && state.activeTrace.type === "landmark"
+    ? getLandmarkId(state.activeTrace)
+    : "";
+  const group = createSvgNode("g", { class: "bridge-bearings-overlay" });
+  entries.forEach((entry) => {
+    const sourceX = (Number(entry && entry.source && entry.source.x) / 100) * MAP_W;
+    const sourceY = (Number(entry && entry.source && entry.source.y) / 100) * MAP_H;
+    const exitX = (Number(entry && entry.exitPoint && entry.exitPoint.x) / 100) * MAP_W;
+    const exitY = (Number(entry && entry.exitPoint && entry.exitPoint.y) / 100) * MAP_H;
+    if (![sourceX, sourceY, exitX, exitY].every(Number.isFinite)) return;
+
+    const isActive = Boolean(activeLandmarkId && entry.source && entry.source.id === activeLandmarkId);
+    const node = createSvgNode("g", { class: `bridge-bearing-route${isActive ? " is-active" : ""}` });
+    node.appendChild(createSvgNode("line", {
+      class: "bridge-bearing-line",
+      x1: sourceX.toFixed(1),
+      y1: sourceY.toFixed(1),
+      x2: exitX.toFixed(1),
+      y2: exitY.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-bearing-exit-node",
+      cx: exitX.toFixed(1),
+      cy: exitY.toFixed(1),
+      r: "3.2"
+    }));
+    const isEastHalf = Number(entry && entry.exitPoint && entry.exitPoint.x) > 50;
+    const label = createSvgNode("text", {
+      class: "bridge-bearing-exit-label",
+      x: (exitX + (isEastHalf ? -10 : 10)).toFixed(1),
+      y: (exitY - 8).toFixed(1),
+      "text-anchor": isEastHalf ? "end" : "start"
+    });
+    label.textContent = entry.exitLabel;
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.bridgeBearingsLayer.style.display = "none";
+    el.bridgeBearingsLayer.replaceChildren();
+    return;
+  }
+
+  el.bridgeBearingsLayer.style.display = "block";
+  el.bridgeBearingsLayer.replaceChildren(group);
+}
+
+function renderBridgeBearingsPanel() {
+  if (!el.bridgeBearings) return;
+  if (!state.bridgeBearingsEnabled) {
+    el.bridgeBearings.innerHTML = "<p class=\"bridge-bearings-line\">Bridge Bearings is hidden. Re-enable it in Controls to restore outbound perimeter routes.</p>";
+    return;
+  }
+
+  const entries = getBridgeBearingEntries();
+  if (entries.length === 0) {
+    el.bridgeBearings.innerHTML = "<p class=\"bridge-bearings-line\">Bridge Bearings appears when built-in landmarks expose outbound external navigation apertures.</p>";
+    return;
+  }
+
+  const activeLandmarkId = state.activeTrace && state.activeTrace.type === "landmark"
+    ? getLandmarkId(state.activeTrace)
+    : "";
+  const firstEntry = entries[0];
+  const externalHubCount = new Set(entries.map((entry) => String(entry && entry.externalUrl ? entry.externalUrl : "").trim()).filter(Boolean)).size;
+  const perimeterExitCount = new Set(entries.map((entry) => String(entry && entry.exitLabel ? entry.exitLabel : "").trim()).filter(Boolean)).size;
+  const trackingLine = entries.length === 1
+    ? `Tracking 1 external bearing from ${firstEntry.source.region} to the ${firstEntry.exitLabel}.`
+    : `Tracking ${entries.length} external bearings from built-in external apertures to map perimeter exits.`;
+
+  const listHtml = entries.map((entry, index) => {
+    const isActive = Boolean(activeLandmarkId && entry.source && entry.source.id === activeLandmarkId);
+    const detail = entry.source.title === BRIDGE_APERTURE_TITLE
+      ? "Automation Observatory · Cross-World Bridge Index · External navigation hub"
+      : `${entry.source.region} · ${entry.externalLabel || "External link"} · ${entry.externalKind || "External navigation hub"}`;
+    return `
+      <button type="button" class="bridge-bearings-item${isActive ? " is-active" : ""}" data-bridge-bearing-landmark-id="${escapeHtml(entry.source.id)}">
+        <strong>${escapeHtml(`#${index + 1} · ${entry.source.title} → ${entry.exitLabel}`)}</strong>
+        <span>${escapeHtml(detail)}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.bridgeBearings.innerHTML = `
+    <p class="bridge-bearings-line">Bridge Bearings traces outbound navigation-only bearings from external apertures to the perimeter of this world.</p>
+    <p class="bridge-bearings-line">${escapeHtml(trackingLine)}</p>
+    <p class="bridge-bearings-line">These bearings are not internal proof routes; they mark where cross-world travel exits The Signal Cartographer.</p>
+    <div class="bridge-bearings-actions">
+      <button type="button" class="bridge-bearings-action" data-bridge-bearings-action="center">Center on bearing</button>
+      <button type="button" class="bridge-bearings-action" data-bridge-bearings-action="open">Open bridge index</button>
+    </div>
+    <div class="bridge-bearings-meta">
+      <span class="bridge-bearings-pill">Bearings: ${entries.length}</span>
+      <span class="bridge-bearings-pill">External hubs: ${externalHubCount}</span>
+      <span class="bridge-bearings-pill">Perimeter exits: ${perimeterExitCount}</span>
+      <span class="bridge-bearings-pill">Evidence role: Navigation only</span>
+    </div>
+    <p class="bridge-bearings-subtitle">Outbound perimeter route</p>
+    <div class="bridge-bearings-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function renderBridgeAperturePanel() {
   if (!el.bridgeAperture) return;
   const aperture = getBridgeApertureLandmark();
@@ -6713,6 +6934,8 @@ function setActiveTrace(marker) {
   renderVerificationRoute();
   renderTracePanel();
   renderBridgeAperturePanel();
+  renderBridgeBearingsOverlay();
+  renderBridgeBearingsPanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
@@ -9740,6 +9963,7 @@ function initInteractions() {
   state.verificationSpursEnabled = !el.toggleVerificationSpurs || el.toggleVerificationSpurs.checked;
   state.accountabilitySpineEnabled = !el.toggleAccountabilitySpine || el.toggleAccountabilitySpine.checked;
   state.ledgerIngressEnabled = !el.toggleLedgerIngress || el.toggleLedgerIngress.checked;
+  state.bridgeBearingsEnabled = !el.toggleBridgeBearings || el.toggleBridgeBearings.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -10181,6 +10405,14 @@ function initInteractions() {
       state.ledgerIngressEnabled = el.toggleLedgerIngress.checked;
       renderLedgerIngressOverlay();
       renderLedgerIngressPanel();
+    });
+  }
+
+  if (el.toggleBridgeBearings) {
+    el.toggleBridgeBearings.addEventListener("change", () => {
+      state.bridgeBearingsEnabled = el.toggleBridgeBearings.checked;
+      renderBridgeBearingsOverlay();
+      renderBridgeBearingsPanel();
     });
   }
 
@@ -10923,6 +11155,33 @@ function initInteractions() {
     });
   }
 
+  if (el.bridgeBearings) {
+    el.bridgeBearings.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-bridge-bearings-action], [data-bridge-bearing-landmark-id]")
+        : null;
+      if (!actionNode) return;
+
+      const landmarkId = String(actionNode.getAttribute("data-bridge-bearing-landmark-id") || "").trim().toLowerCase();
+      if (landmarkId) {
+        const landmark = BUILTIN_LANDMARKS.find((item) => String(getLandmarkId(item) || "").trim().toLowerCase() === landmarkId);
+        if (!landmark) return;
+        activateMarker(landmark, { focus: true, updateHash: true });
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-bridge-bearings-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnBridgeBearings();
+        return;
+      }
+      if (action === "open") {
+        openPrimaryBridgeBearingExternal();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -11130,6 +11389,8 @@ function initInteractions() {
   setRegionDetail("Beacon Field");
   renderTracePanel();
   renderBridgeAperturePanel();
+  renderBridgeBearingsOverlay();
+  renderBridgeBearingsPanel();
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
@@ -11209,6 +11470,8 @@ async function initBeacons() {
       renderBeacons();
       renderTracePanel();
       renderBridgeAperturePanel();
+      renderBridgeBearingsOverlay();
+      renderBridgeBearingsPanel();
       renderBeaconLedger();
     }
     renderVerificationRoute();

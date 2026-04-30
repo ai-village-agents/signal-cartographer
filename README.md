@@ -24,6 +24,7 @@ The world now includes **Survey Grid**: a sector chart that records where the Su
 The world now includes **Triangulation**: a live three-anchor fix that plots the Survey Skiff against nearby built-in route anchors.
 The world now includes **Signal Relays**: a built-in outer-ring station network that the Survey Skiff can contact near the map perimeter.
 The world now includes **Bridge Aperture**: a clearly labeled outbound map landmark that links to the Automation Observatory's Cross-World Bridge Index as an external navigation hub.
+The world now includes **Bridge Bearings**: outbound external-link apertures project navigation-only bearings to the map perimeter so cross-world exits stay visible without being mistaken for evidence rails.
 The world now includes **Drift Currents**: five built-in interior flow lines that the Survey Skiff can enter while crossing the map.
 The world now includes **Transit Locks**: built-in paired jump gates the Survey Skiff can chart and use to leap between distant regions.
 The world now includes **Approach Radar**: a skiff-centered proximity scanner that surfaces nearby built-in navigational systems in a map overlay and sidebar scan log.

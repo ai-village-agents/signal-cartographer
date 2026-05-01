@@ -676,6 +676,7 @@ const el = {
   witnessRegions: document.getElementById("witnessRegions"),
   witnessPostures: document.getElementById("witnessPostures"),
   witnessCurrents: document.getElementById("witnessCurrents"),
+  witnessFrontiers: document.getElementById("witnessFrontiers"),
   recenterBtn: document.getElementById("recenterBtn"),
   toggleLandmarks: document.getElementById("toggleLandmarks"),
   toggleBeacons: document.getElementById("toggleBeacons"),
@@ -1268,6 +1269,7 @@ function setRegionDetail(regionName) {
   renderWitnessRegions();
   renderWitnessPostures();
   renderWitnessCurrents();
+  renderWitnessFrontiers();
   renderWitnessRegister();
   renderWitnessBalance();
 }
@@ -10385,7 +10387,7 @@ function renderWitnessRegister() {
   const unknownVisitorLabel = "Unknown visitor";
   const normalizeVisitorLabel = (value) => {
     const trimmed = String(value || "").trim();
-    return (trimmed || unknownVisitorLabel).toLowerCase();
+    return trimmed || unknownVisitorLabel;
   };
   const beacons = (Array.isArray(state.beacons) ? state.beacons : []).map((beacon) => ({ ...beacon, type: "beacon" }));
 
@@ -11011,6 +11013,156 @@ function renderWitnessCurrents() {
   });
 }
 
+function renderWitnessFrontiers() {
+  if (!el.witnessFrontiers) return;
+
+  const postures = [
+    { code: "full", label: "Evidence + revision", filterLabel: "Evidence + revision" },
+    { code: "evidence", label: "Evidence only", filterLabel: "Evidence only" },
+    { code: "revision", label: "Revision only", filterLabel: "Revision only" },
+    { code: "minimal", label: "Minimal trace", filterLabel: "Minimal trace" }
+  ];
+  const validRegions = new Set(Object.keys(REGION_COPY));
+  const unknownVisitorLabel = "Unknown visitor";
+  const unknownRegionLabel = "Unknown region";
+  const normalizeVisitorLabel = (value) => {
+    const trimmed = String(value || "").trim();
+    return (trimmed || unknownVisitorLabel).toLowerCase();
+  };
+  const normalizeRegionLabel = (value) => {
+    const trimmed = String(value || "").trim();
+    return validRegions.has(trimmed) ? trimmed : unknownRegionLabel;
+  };
+  const beacons = (Array.isArray(state.beacons) ? state.beacons : []).map((beacon) => ({ ...beacon, type: "beacon" }));
+
+  if (beacons.length === 0) {
+    el.witnessFrontiers.innerHTML = '<p class="small">Witness frontiers are awaiting public beacons.</p>';
+    return;
+  }
+
+  const summariesByVisitor = new Map();
+  beacons.forEach((beacon) => {
+    const trimmedVisitor = String((beacon && beacon.visitor) || "").trim();
+    const visitorLabel = trimmedVisitor || unknownVisitorLabel;
+    if (!summariesByVisitor.has(visitorLabel)) {
+      summariesByVisitor.set(visitorLabel, {
+        visitorLabel,
+        beacons: [],
+        regions: new Set(),
+        postureCounts: new Map(postures.map((posture) => [posture.code, 0]))
+      });
+    }
+    const summary = summariesByVisitor.get(visitorLabel);
+    summary.beacons.push(beacon);
+    summary.regions.add(normalizeRegionLabel(beacon && beacon.region));
+    const posture = getBeaconPosture(beacon);
+    const postureCode = String((posture && posture.code) || "");
+    if (summary.postureCounts.has(postureCode)) {
+      summary.postureCounts.set(postureCode, Number(summary.postureCounts.get(postureCode) || 0) + 1);
+    }
+  });
+
+  const entries = Array.from(summariesByVisitor.values())
+    .map((summary) => {
+      const totalCount = summary.beacons.length;
+      const regionCount = summary.regions.size;
+      const freshestBeacon = summary.beacons.slice().sort(compareBeaconLedger)[0] || null;
+      let dominantPosture = null;
+      let dominantPostureCount = -1;
+      postures.forEach((posture) => {
+        const count = Number(summary.postureCounts.get(posture.code) || 0);
+        if (count > dominantPostureCount) {
+          dominantPosture = posture;
+          dominantPostureCount = count;
+        }
+      });
+      return {
+        visitorLabel: summary.visitorLabel,
+        normalizedVisitorLabel: normalizeVisitorLabel(summary.visitorLabel),
+        totalCount,
+        regionCount,
+        dominantPostureLabel: dominantPosture ? dominantPosture.label : "None",
+        dominantPostureFilterLabel: dominantPosture ? dominantPosture.filterLabel : "",
+        dominantPostureCount: Math.max(0, dominantPostureCount),
+        freshestBeacon
+      };
+    })
+    .sort((a, b) => b.totalCount - a.totalCount || a.visitorLabel.localeCompare(b.visitorLabel));
+
+  const activeVisitorLabel = state.activeTrace && state.activeTrace.type === "beacon"
+    ? normalizeVisitorLabel(String((state.activeTrace && state.activeTrace.visitor) || "").trim() || unknownVisitorLabel)
+    : "";
+  const listHtml = entries
+    .map((entry) => {
+      const issueNumber = parseIssueNumber(entry.freshestBeacon && entry.freshestBeacon.issueNumber);
+      const freshestLabel = issueNumber !== null
+        ? `Issue #${issueNumber}`
+        : String((entry.freshestBeacon && entry.freshestBeacon.title) || "").trim() || "Unknown";
+      const summaryLine = `${entry.visitorLabel} has left ${entry.totalCount} beacon${entry.totalCount === 1 ? "" : "s"} across ${entry.regionCount} region${entry.regionCount === 1 ? "" : "s"}, with ${entry.dominantPostureLabel} as the dominant posture (${entry.dominantPostureCount} of ${entry.totalCount}).`;
+      const disabledAttr = entry.totalCount === 0 ? " disabled" : "";
+      const activeClass = activeVisitorLabel && activeVisitorLabel === entry.normalizedVisitorLabel ? " is-active" : "";
+
+      return `
+        <li>
+          <div class="survey-item${activeClass}">
+            <span class="survey-header">${escapeHtml(entry.visitorLabel)}</span>
+            <span class="survey-copy">${escapeHtml(summaryLine)}</span>
+            <span class="survey-meta">
+              <span class="survey-pill">Total beacons: ${entry.totalCount}</span>
+              <span class="survey-pill">Regions: ${entry.regionCount}</span>
+              <span class="survey-pill">Dominant posture: ${escapeHtml(entry.dominantPostureLabel)}</span>
+              <span class="survey-pill">Freshest beacon: ${escapeHtml(freshestLabel)}</span>
+            </span>
+          </div>
+          <div class="survey-actions">
+            <button type="button" class="survey-action" data-witness-frontiers-browse="${escapeHtml(entry.visitorLabel)}"${disabledAttr}>Browse visitor frontier</button>
+            <button type="button" class="survey-action" data-witness-frontiers-inspect="${escapeHtml(entry.visitorLabel)}"${disabledAttr}>Inspect freshest beacon</button>
+          </div>
+        </li>
+      `;
+    })
+    .join("");
+
+  el.witnessFrontiers.innerHTML = `<ul class="survey-list">${listHtml}</ul>`;
+
+  el.witnessFrontiers.querySelectorAll("[data-witness-frontiers-browse]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const visitorLabel = String(node.dataset.witnessFrontiersBrowse || "");
+      const entry = entries.find((item) => item && item.visitorLabel === visitorLabel);
+      if (!entry) return;
+      const regionOptions = getSelectOptionValues(el.ledgerRegionFilter);
+      const postureOptions = getSelectOptionValues(el.ledgerPostureFilter);
+      if (el.ledgerRegionFilter && regionOptions.has("All regions")) {
+        el.ledgerRegionFilter.value = "All regions";
+      }
+      if (el.ledgerPostureFilter) {
+        if (postureOptions.has(entry.dominantPostureFilterLabel)) {
+          el.ledgerPostureFilter.value = entry.dominantPostureFilterLabel;
+        } else if (postureOptions.has("All postures")) {
+          el.ledgerPostureFilter.value = "All postures";
+        }
+      }
+      if (el.ledgerSearchFilter) {
+        el.ledgerSearchFilter.value = entry.visitorLabel === unknownVisitorLabel ? "" : entry.visitorLabel;
+      }
+      handleLedgerFilterChange();
+    });
+  });
+
+  el.witnessFrontiers.querySelectorAll("[data-witness-frontiers-inspect]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const visitorLabel = String(node.dataset.witnessFrontiersInspect || "");
+      const entry = entries.find((item) => item && item.visitorLabel === visitorLabel);
+      if (!entry || !entry.freshestBeacon) return;
+      activateMarker(entry.freshestBeacon, { focus: true, updateHash: true });
+    });
+  });
+}
+
 function setActiveTrace(marker) {
   state.activeTrace = marker
     ? {
@@ -11035,6 +11187,7 @@ function setActiveTrace(marker) {
   renderWitnessRegions();
   renderWitnessPostures();
   renderWitnessCurrents();
+  renderWitnessFrontiers();
   renderWitnessRegister();
   renderWitnessBalance();
   renderBridgeAperturePanel();
@@ -13886,6 +14039,7 @@ async function fetchBeaconComments() {
     renderWitnessRegions();
     renderWitnessPostures();
     renderWitnessCurrents();
+    renderWitnessFrontiers();
     renderWitnessRegister();
     renderWitnessBalance();
     return;
@@ -13917,6 +14071,7 @@ async function fetchBeaconComments() {
     renderWitnessRegions();
     renderWitnessPostures();
     renderWitnessCurrents();
+    renderWitnessFrontiers();
     renderWitnessRegister();
     renderWitnessBalance();
     return;
@@ -13983,6 +14138,7 @@ async function fetchBeaconComments() {
   renderWitnessRegions();
   renderWitnessPostures();
   renderWitnessCurrents();
+  renderWitnessFrontiers();
   renderWitnessRegister();
   renderWitnessBalance();
 }
@@ -16134,6 +16290,7 @@ async function initBeacons() {
     renderWitnessRegions();
     renderWitnessPostures();
     renderWitnessCurrents();
+    renderWitnessFrontiers();
     renderWitnessRegister();
     renderWitnessBalance();
     const restoredFromHash = restoreHashSelection();
@@ -16223,6 +16380,7 @@ async function initBeacons() {
     renderWitnessRegions();
     renderWitnessPostures();
     renderWitnessCurrents();
+    renderWitnessFrontiers();
     renderWitnessRegister();
     renderWitnessBalance();
     renderBeaconLedger();

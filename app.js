@@ -603,6 +603,7 @@ const state = {
   bridgeRecoveriesEnabled: true,
   bridgeCourseEnabled: true,
   bridgeAtlasEnabled: true,
+  routeCharterEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -706,6 +707,7 @@ const el = {
   toggleBridgeRecoveries: document.getElementById("toggleBridgeRecoveries"),
   toggleBridgeCourse: document.getElementById("toggleBridgeCourse"),
   toggleBridgeAtlas: document.getElementById("toggleBridgeAtlas"),
+  toggleRouteCharter: document.getElementById("toggleRouteCharter"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -750,6 +752,7 @@ const el = {
   bridgeRecoveriesLayer: document.getElementById("bridgeRecoveriesLayer"),
   bridgeCourseLayer: document.getElementById("bridgeCourseLayer"),
   bridgeAtlasLayer: document.getElementById("bridgeAtlasLayer"),
+  routeCharterLayer: document.getElementById("routeCharterLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -792,6 +795,7 @@ const el = {
   bridgeRecoveries: document.getElementById("bridgeRecoveries"),
   bridgeCourse: document.getElementById("bridgeCourse"),
   bridgeAtlas: document.getElementById("bridgeAtlas"),
+  routeCharter: document.getElementById("routeCharter"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -4695,6 +4699,8 @@ function renderAccountabilitySpinePanel() {
   if (!state.accountabilitySpineEnabled) {
     el.accountabilitySpine.innerHTML = "<p class=\"accountability-spine-line\">Accountability Spine is hidden. Re-enable it in Controls to restore the full commenter-to-rail provenance spine.</p>";
     renderLedgerIngressPanel();
+    renderRouteCharterOverlay();
+    renderRouteCharterPanel();
     return;
   }
 
@@ -4702,6 +4708,8 @@ function renderAccountabilitySpinePanel() {
   if (entries.length === 0) {
     el.accountabilitySpine.innerHTML = "<p class=\"accountability-spine-line\">Accountability Spine appears once public commenter channels can be extended through visible verification outlets into Public Rails.</p>";
     renderLedgerIngressPanel();
+    renderRouteCharterOverlay();
+    renderRouteCharterPanel();
     return;
   }
 
@@ -4764,6 +4772,8 @@ function renderAccountabilitySpinePanel() {
     </div>
   `;
   renderLedgerIngressPanel();
+  renderRouteCharterOverlay();
+  renderRouteCharterPanel();
 }
 
 function compareLedgerIngressEntries(a, b) {
@@ -5653,6 +5663,10 @@ function getBeaconPosture(beacon) {
 
 function getBridgeApertureLandmark() {
   return BUILTIN_LANDMARKS.find((landmark) => landmark && landmark.title === BRIDGE_APERTURE_TITLE) || null;
+}
+
+function getLandmarkByTitle(title) {
+  return BUILTIN_LANDMARKS.find((landmark) => String(landmark && landmark.title ? landmark.title : "") === String(title || "")) || null;
 }
 
 function centerViewportOnBridgeAperture() {
@@ -7986,6 +8000,256 @@ function jumpToPrimaryBridgeAtlasDestination() {
   activateRelayMarkerById(entry.destinationRelay.id);
 }
 
+function getRouteCharterEntry() {
+  const bridgeEntry = getBridgeAtlasEntries()[0];
+  const ledgerEntries = getLedgerIngressEntries();
+  const bridgeAperture = getBridgeApertureLandmark();
+  const publicRails = getLandmarkByTitle("Public Rails");
+  const witnessLedger = getLandmarkByTitle("Witness Ledger");
+  if (!bridgeEntry || !Array.isArray(bridgeEntry.stages) || !Array.isArray(bridgeEntry.waypoints)) return null;
+  if (ledgerEntries.length === 0 || !bridgeAperture || !publicRails || !witnessLedger || !bridgeEntry.destinationRelay) return null;
+
+  const navigationRegionSet = new Set([
+    String(bridgeEntry && bridgeEntry.source && bridgeEntry.source.region ? bridgeEntry.source.region : "").trim(),
+    String(bridgeEntry && bridgeEntry.courseEntry && bridgeEntry.courseEntry.transitEntry && bridgeEntry.courseEntry.transitEntry.relay && bridgeEntry.courseEntry.transitEntry.relay.region ? bridgeEntry.courseEntry.transitEntry.relay.region : "").trim(),
+    String(bridgeEntry && bridgeEntry.courseEntry && bridgeEntry.courseEntry.transitEntry && bridgeEntry.courseEntry.transitEntry.lock && bridgeEntry.courseEntry.transitEntry.lock.region ? bridgeEntry.courseEntry.transitEntry.lock.region : "").trim(),
+    String(bridgeEntry && bridgeEntry.courseEntry && bridgeEntry.courseEntry.transitEntry && bridgeEntry.courseEntry.transitEntry.linkedLock && bridgeEntry.courseEntry.transitEntry.linkedLock.region ? bridgeEntry.courseEntry.transitEntry.linkedLock.region : "").trim(),
+    String(bridgeEntry && bridgeEntry.courseEntry && bridgeEntry.courseEntry.rejoinEntry && bridgeEntry.courseEntry.rejoinEntry.relay && bridgeEntry.courseEntry.rejoinEntry.relay.region ? bridgeEntry.courseEntry.rejoinEntry.relay.region : "").trim(),
+    String(bridgeEntry && bridgeEntry.courseEntry && bridgeEntry.courseEntry.ringwayEntry && bridgeEntry.courseEntry.ringwayEntry.onwardRelay && bridgeEntry.courseEntry.ringwayEntry.onwardRelay.region ? bridgeEntry.courseEntry.ringwayEntry.onwardRelay.region : "").trim(),
+    String(bridgeEntry && bridgeEntry.courseEntry && bridgeEntry.courseEntry.landingEntry && bridgeEntry.courseEntry.landingEntry.lock && bridgeEntry.courseEntry.landingEntry.lock.region ? bridgeEntry.courseEntry.landingEntry.lock.region : "").trim(),
+    String(bridgeEntry && bridgeEntry.courseEntry && bridgeEntry.courseEntry.exchangeEntry && bridgeEntry.courseEntry.exchangeEntry.linkedLock && bridgeEntry.courseEntry.exchangeEntry.linkedLock.region ? bridgeEntry.courseEntry.exchangeEntry.linkedLock.region : "").trim(),
+    String(bridgeEntry && bridgeEntry.destinationRelay && bridgeEntry.destinationRelay.region ? bridgeEntry.destinationRelay.region : "").trim()
+  ].filter(Boolean));
+
+  const evidenceRegionSet = new Set();
+  ledgerEntries.forEach((entry) => {
+    const routeRegion = String(entry && entry.region ? entry.region : "").trim();
+    const outletRegion = String(entry && entry.outletLandmark && entry.outletLandmark.region ? entry.outletLandmark.region : "").trim();
+    const railRegion = String(entry && entry.railLandmark && entry.railLandmark.region ? entry.railLandmark.region : "").trim();
+    const ledgerRegion = String(entry && entry.ledgerLandmark && entry.ledgerLandmark.region ? entry.ledgerLandmark.region : "").trim();
+    if (routeRegion) evidenceRegionSet.add(routeRegion);
+    if (outletRegion) evidenceRegionSet.add(outletRegion);
+    if (railRegion) evidenceRegionSet.add(railRegion);
+    if (ledgerRegion) evidenceRegionSet.add(ledgerRegion);
+  });
+  evidenceRegionSet.add(String(publicRails.region || "").trim());
+  evidenceRegionSet.add(String(witnessLedger.region || "").trim());
+  evidenceRegionSet.delete("");
+
+  const anchors = [
+    {
+      key: "navigation:bridge-index-aperture",
+      system: "navigation",
+      title: "Bridge Index Aperture",
+      shortLabel: "Navigation aperture",
+      type: "landmark",
+      id: String(getLandmarkId(bridgeAperture) || ""),
+      marker: bridgeAperture,
+      coord: { x: Number(bridgeAperture.x), y: Number(bridgeAperture.y) }
+    },
+    {
+      key: "navigation:ember-shelf-relay",
+      system: "navigation",
+      title: "Ember Shelf Relay",
+      shortLabel: "Recovered relay",
+      type: "relay",
+      id: String(bridgeEntry.destinationRelay.id || ""),
+      marker: bridgeEntry.destinationRelay,
+      coord: { x: Number(bridgeEntry.destinationRelay.x), y: Number(bridgeEntry.destinationRelay.y) }
+    },
+    {
+      key: "evidence:public-rails",
+      system: "evidence",
+      title: "Public Rails",
+      shortLabel: "Evidence rail",
+      type: "landmark",
+      id: String(getLandmarkId(publicRails) || ""),
+      marker: publicRails,
+      coord: { x: Number(publicRails.x), y: Number(publicRails.y) }
+    },
+    {
+      key: "evidence:witness-ledger",
+      system: "evidence",
+      title: "Witness Ledger",
+      shortLabel: "Archive ledger",
+      type: "landmark",
+      id: String(getLandmarkId(witnessLedger) || ""),
+      marker: witnessLedger,
+      coord: { x: Number(witnessLedger.x), y: Number(witnessLedger.y) }
+    }
+  ].filter((anchor) => Number.isFinite(anchor.coord.x) && Number.isFinite(anchor.coord.y) && anchor.id);
+  if (anchors.length !== 4) return null;
+
+  const navigationAnchors = anchors.filter((anchor) => anchor.system === "navigation");
+  const evidenceAnchors = anchors.filter((anchor) => anchor.system === "evidence");
+  const navigationAnchorKeys = new Set(navigationAnchors.map((anchor) => `${anchor.type}:${anchor.id}`));
+  const evidenceAnchorKeys = new Set(evidenceAnchors.map((anchor) => `${anchor.type}:${anchor.id}`));
+  const sharedAnchorCount = Array.from(navigationAnchorKeys).filter((key) => evidenceAnchorKeys.has(key)).length;
+  const sharedRegionCount = Array.from(navigationRegionSet).filter((region) => evidenceRegionSet.has(region)).length;
+
+  const freshest = ledgerEntries[0] || null;
+  const freshestIssue = parseIssueNumber(freshest && freshest.issueNumber);
+  const freshestEvidenceIssueLabel = freshestIssue === null ? "Issue unknown" : `Issue #${freshestIssue}`;
+
+  return {
+    anchors,
+    navigationAnchors,
+    evidenceAnchors,
+    navigationStageCount: bridgeEntry.stages.length,
+    navigationWaypointCount: bridgeEntry.waypoints.length,
+    navigationRegionCount: navigationRegionSet.size,
+    evidenceRouteCount: ledgerEntries.length,
+    evidenceRegionCount: evidenceRegionSet.size,
+    sharedAnchorCount,
+    sharedRegionCount,
+    freshestEvidenceIssueLabel
+  };
+}
+
+function getActiveRouteCharterAnchorKey(charterEntry) {
+  if (!charterEntry || !state.activeTrace) return "";
+  const activeType = String(state.activeTrace.type || "").trim();
+  if (activeType === "landmark") {
+    const activeLandmarkId = String(getLandmarkId(state.activeTrace) || "");
+    if (!activeLandmarkId) return "";
+    const match = charterEntry.anchors.find((anchor) => anchor.type === "landmark" && anchor.id === activeLandmarkId);
+    return match ? match.key : "";
+  }
+  if (activeType === "relay") {
+    const activeRelayId = String(state.activeTrace.id || "");
+    if (!activeRelayId) return "";
+    const match = charterEntry.anchors.find((anchor) => anchor.type === "relay" && anchor.id === activeRelayId);
+    return match ? match.key : "";
+  }
+  return "";
+}
+
+function activateRouteCharterAnchor(anchorKey) {
+  const charterEntry = getRouteCharterEntry();
+  if (!charterEntry) return;
+  const anchor = charterEntry.anchors.find((item) => item.key === anchorKey);
+  if (!anchor) return;
+  if (anchor.type === "relay") {
+    activateRelayMarkerById(anchor.id);
+    return;
+  }
+  if (anchor.type === "landmark" && anchor.marker) {
+    activateMarker(anchor.marker, { focus: true, updateHash: false });
+  }
+}
+
+function renderRouteCharterOverlay() {
+  if (!el.routeCharterLayer) return;
+  const charterEntry = getRouteCharterEntry();
+  if (!state.routeCharterEnabled || !charterEntry) {
+    el.routeCharterLayer.style.display = "none";
+    el.routeCharterLayer.replaceChildren();
+    return;
+  }
+
+  const activeAnchorKey = getActiveRouteCharterAnchorKey(charterEntry);
+  const group = createSvgNode("g", { class: "route-charter-overlay" });
+  charterEntry.anchors.forEach((anchor) => {
+    const world = toWorldCoords(anchor.coord);
+    if (!Number.isFinite(world.x) || !Number.isFinite(world.y)) return;
+    const isActive = activeAnchorKey === anchor.key;
+    const isEastHalf = Number(anchor && anchor.coord && anchor.coord.x) > 50;
+    const node = createSvgNode("g", {
+      class: `route-charter-anchor route-charter-anchor-${anchor.system}${isActive ? " is-active" : ""}`
+    });
+    node.appendChild(createSvgNode("circle", {
+      class: "route-charter-ring",
+      cx: world.x.toFixed(1),
+      cy: world.y.toFixed(1),
+      r: "9.2"
+    }));
+    const label = createSvgNode("text", {
+      class: "route-charter-anchor-label",
+      x: (world.x + (isEastHalf ? -12 : 12)).toFixed(1),
+      y: (world.y - 11).toFixed(1),
+      "text-anchor": isEastHalf ? "end" : "start"
+    });
+    label.textContent = anchor.shortLabel;
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.routeCharterLayer.style.display = "none";
+    el.routeCharterLayer.replaceChildren();
+    return;
+  }
+
+  el.routeCharterLayer.style.display = "block";
+  el.routeCharterLayer.replaceChildren(group);
+}
+
+function renderRouteCharterPanel() {
+  if (!el.routeCharter) return;
+  if (!state.routeCharterEnabled) {
+    el.routeCharter.innerHTML = "<p class=\"route-charter-line\">Route Charter is hidden. Re-enable it in Controls to restore the evidence-vs-navigation charter.</p>";
+    return;
+  }
+
+  const charterEntry = getRouteCharterEntry();
+  if (!charterEntry) {
+    el.routeCharter.innerHTML = "<p class=\"route-charter-line\">Route Charter appears once bridge navigation and ledger evidence routes can both be summarized.</p>";
+    return;
+  }
+
+  const activeAnchorKey = getActiveRouteCharterAnchorKey(charterEntry);
+  const navigationCardActive = Boolean(activeAnchorKey && activeAnchorKey.startsWith("navigation:"));
+  const evidenceCardActive = Boolean(activeAnchorKey && activeAnchorKey.startsWith("evidence:"));
+  const evidenceRouteLabel = charterEntry.evidenceRouteCount === 1 ? "route" : "routes";
+  const evidenceIngressLabel = charterEntry.evidenceRouteCount === 1 ? "route" : "routes";
+  const navigationContext = `${charterEntry.navigationStageCount} named stages · ${charterEntry.navigationWaypointCount} waypoints · ${charterEntry.navigationRegionCount} regions · travel infrastructure only`;
+  const evidenceContext = `${charterEntry.evidenceRouteCount} ingress ${evidenceRouteLabel} · ${charterEntry.evidenceRegionCount} regions · freshest deposit ${charterEntry.freshestEvidenceIssueLabel}`;
+
+  const navigationAnchorHtml = charterEntry.navigationAnchors.map((anchor) => `
+      <button type="button" class="route-charter-anchor-button${activeAnchorKey === anchor.key ? " is-active" : ""}" data-route-charter-anchor-key="${escapeHtml(anchor.key)}">
+        ${escapeHtml(anchor.title)}
+      </button>
+    `).join("");
+  const evidenceAnchorHtml = charterEntry.evidenceAnchors.map((anchor) => `
+      <button type="button" class="route-charter-anchor-button${activeAnchorKey === anchor.key ? " is-active" : ""}" data-route-charter-anchor-key="${escapeHtml(anchor.key)}">
+        ${escapeHtml(anchor.title)}
+      </button>
+    `).join("");
+
+  el.routeCharter.innerHTML = `
+    <p class="route-charter-line">Route Charter compares the navigation-only bridge stack with the public evidence routes that terminate in Witness Ledger.</p>
+    <p class="route-charter-line">${escapeHtml(`Comparing 1 navigation charter with ${charterEntry.evidenceRouteCount} evidence ingress ${evidenceIngressLabel} across 4 charter anchors.`)}</p>
+    <p class="route-charter-line">Shared regions do not collapse the boundary: bridge travel stays navigation-only, while ledger ingress remains part of The Signal Cartographer's evidence chain.</p>
+    <div class="route-charter-actions">
+      <button type="button" class="route-charter-action" data-route-charter-action="center-navigation">Center on navigation charter</button>
+      <button type="button" class="route-charter-action" data-route-charter-action="center-evidence">Center on evidence charter</button>
+    </div>
+    <div class="route-charter-meta">
+      <span class="route-charter-pill">Navigation stages: ${charterEntry.navigationStageCount}</span>
+      <span class="route-charter-pill">Evidence routes: ${charterEntry.evidenceRouteCount}</span>
+      <span class="route-charter-pill">Shared anchors: ${charterEntry.sharedAnchorCount}</span>
+      <span class="route-charter-pill">Shared regions: ${charterEntry.sharedRegionCount}</span>
+    </div>
+    <p class="route-charter-subtitle">Boundary ledger</p>
+    <div class="route-charter-list">
+      <div class="route-charter-item route-charter-item-navigation${navigationCardActive ? " is-active" : ""}">
+        <strong>Navigation · Bridge Index Aperture → Ember Shelf Relay</strong>
+        <span>${escapeHtml(navigationContext)}</span>
+        <div class="route-charter-anchor-list">
+          ${navigationAnchorHtml}
+        </div>
+      </div>
+      <div class="route-charter-item route-charter-item-evidence${evidenceCardActive ? " is-active" : ""}">
+        <strong>Evidence · Public Rails → Witness Ledger</strong>
+        <span>${escapeHtml(evidenceContext)}</span>
+        <div class="route-charter-anchor-list">
+          ${evidenceAnchorHtml}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderBridgeAtlasOverlay() {
   if (!el.bridgeAtlasLayer) return;
   const entries = getBridgeAtlasEntries();
@@ -9420,6 +9684,8 @@ function setActiveTrace(marker) {
   renderBridgeCoursePanel();
   renderBridgeAtlasOverlay();
   renderBridgeAtlasPanel();
+  renderRouteCharterOverlay();
+  renderRouteCharterPanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
@@ -12461,6 +12727,7 @@ function initInteractions() {
   state.bridgeRecoveriesEnabled = !el.toggleBridgeRecoveries || el.toggleBridgeRecoveries.checked;
   state.bridgeCourseEnabled = !el.toggleBridgeCourse || el.toggleBridgeCourse.checked;
   state.bridgeAtlasEnabled = !el.toggleBridgeAtlas || el.toggleBridgeAtlas.checked;
+  state.routeCharterEnabled = !el.toggleRouteCharter || el.toggleRouteCharter.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -12902,6 +13169,8 @@ function initInteractions() {
       state.ledgerIngressEnabled = el.toggleLedgerIngress.checked;
       renderLedgerIngressOverlay();
       renderLedgerIngressPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -12936,6 +13205,8 @@ function initInteractions() {
       renderBridgeCoursePanel();
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -12960,6 +13231,8 @@ function initInteractions() {
       renderBridgeCoursePanel();
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -12982,6 +13255,8 @@ function initInteractions() {
       renderBridgeCoursePanel();
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -13002,6 +13277,8 @@ function initInteractions() {
       renderBridgeCoursePanel();
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -13020,6 +13297,8 @@ function initInteractions() {
       renderBridgeCoursePanel();
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -13036,6 +13315,8 @@ function initInteractions() {
       renderBridgeCoursePanel();
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -13050,6 +13331,8 @@ function initInteractions() {
       renderBridgeCoursePanel();
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -13062,6 +13345,8 @@ function initInteractions() {
       renderBridgeCoursePanel();
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -13072,6 +13357,8 @@ function initInteractions() {
       renderBridgeCoursePanel();
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -13080,6 +13367,16 @@ function initInteractions() {
       state.bridgeAtlasEnabled = el.toggleBridgeAtlas.checked;
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
+    });
+  }
+
+  if (el.toggleRouteCharter) {
+    el.toggleRouteCharter.addEventListener("change", () => {
+      state.routeCharterEnabled = el.toggleRouteCharter.checked;
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
     });
   }
 
@@ -14111,6 +14408,31 @@ function initInteractions() {
     });
   }
 
+  if (el.routeCharter) {
+    el.routeCharter.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-route-charter-action], [data-route-charter-anchor-key]")
+        : null;
+      if (!actionNode) return;
+
+      const anchorKey = String(actionNode.getAttribute("data-route-charter-anchor-key") || "").trim();
+      if (anchorKey) {
+        activateRouteCharterAnchor(anchorKey);
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-route-charter-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center-navigation") {
+        centerViewportOnBridgeAtlas();
+        return;
+      }
+      if (action === "center-evidence") {
+        centerViewportOnLedgerIngress();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -14340,6 +14662,8 @@ function initInteractions() {
   renderBridgeCoursePanel();
   renderBridgeAtlasOverlay();
   renderBridgeAtlasPanel();
+  renderRouteCharterOverlay();
+  renderRouteCharterPanel();
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
@@ -14441,6 +14765,8 @@ async function initBeacons() {
       renderBridgeCoursePanel();
       renderBridgeAtlasOverlay();
       renderBridgeAtlasPanel();
+      renderRouteCharterOverlay();
+      renderRouteCharterPanel();
       renderBeaconLedger();
     }
     renderVerificationRoute();

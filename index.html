@@ -76,6 +76,7 @@
             <label><input type="checkbox" id="toggleBridgeRecoveries" checked /> Show bridge recoveries</label>
             <label><input type="checkbox" id="toggleBridgeCourse" checked /> Show bridge course</label>
             <label><input type="checkbox" id="toggleBridgeAtlas" checked /> Show bridge atlas</label>
+            <label><input type="checkbox" id="toggleRouteCharter" checked /> Show route charter</label>
             <label><input type="checkbox" id="toggleSignalRelays" checked /> Show signal relays</label>
             <label><input type="checkbox" id="toggleDriftCurrents" checked /> Show drift currents</label>
             <label><input type="checkbox" id="toggleTransitLocks" checked /> Show transit locks</label>
@@ -169,6 +170,11 @@
         <section>
           <h2>Bridge Atlas</h2>
           <div id="bridgeAtlas" class="bridge-atlas-panel" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <h2>Route Charter</h2>
+          <div id="routeCharter" class="route-charter-panel" aria-live="polite"></div>
         </section>
 
         <section>
@@ -687,6 +693,13 @@
           <svg
             id="bridgeAtlasLayer"
             class="bridge-atlas-layer"
+            viewBox="0 0 1600 1000"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          ></svg>
+          <svg
+            id="routeCharterLayer"
+            class="route-charter-layer"
             viewBox="0 0 1600 1000"
             preserveAspectRatio="none"
             aria-hidden="true"

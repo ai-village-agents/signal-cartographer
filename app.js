@@ -674,6 +674,7 @@ const el = {
   witnessBalance: document.getElementById("witnessBalance"),
   witnessRegister: document.getElementById("witnessRegister"),
   witnessRegions: document.getElementById("witnessRegions"),
+  witnessPostures: document.getElementById("witnessPostures"),
   recenterBtn: document.getElementById("recenterBtn"),
   toggleLandmarks: document.getElementById("toggleLandmarks"),
   toggleBeacons: document.getElementById("toggleBeacons"),
@@ -1264,6 +1265,7 @@ function setRegionDetail(regionName) {
   renderJurisdictionSurvey();
   renderWorldBalance();
   renderWitnessRegions();
+  renderWitnessPostures();
   renderWitnessRegister();
   renderWitnessBalance();
 }
@@ -10671,6 +10673,145 @@ function renderWitnessRegions() {
   });
 }
 
+function renderWitnessPostures() {
+  if (!el.witnessPostures) return;
+
+  const postures = [
+    { code: "full", label: "Evidence + revision", filterLabel: "Evidence + revision" },
+    { code: "evidence", label: "Evidence only", filterLabel: "Evidence only" },
+    { code: "revision", label: "Revision only", filterLabel: "Revision only" },
+    { code: "minimal", label: "Minimal trace", filterLabel: "Minimal trace" }
+  ];
+  const validRegions = new Set(Object.keys(REGION_COPY));
+  const unknownVisitorLabel = "Unknown visitor";
+  const unknownRegionLabel = "Unknown region";
+  const beacons = (Array.isArray(state.beacons) ? state.beacons : [])
+    .map((beacon) => ({ ...beacon, type: "beacon" }));
+
+  if (beacons.length === 0) {
+    el.witnessPostures.innerHTML = '<p class="small">Witness postures are awaiting public beacons.</p>';
+    return;
+  }
+
+  const summaries = new Map(
+    postures.map((posture) => [posture.code, {
+      ...posture,
+      totalCount: 0,
+      visitorValues: new Set(),
+      regionCounts: new Map(),
+      beacons: [],
+      strongestRegion: "None",
+      strongestCount: 0,
+      freshestBeacon: null
+    }])
+  );
+
+  beacons.forEach((beacon) => {
+    const posture = getBeaconPosture(beacon);
+    const summary = summaries.get(posture && posture.code);
+    if (!summary) return;
+    summary.totalCount += 1;
+    summary.beacons.push(beacon);
+    const visitorValue = String((beacon && beacon.visitor) || "").trim() || unknownVisitorLabel;
+    summary.visitorValues.add(visitorValue);
+    const regionValue = String((beacon && beacon.region) || "").trim();
+    const regionLabel = validRegions.has(regionValue) ? regionValue : unknownRegionLabel;
+    summary.regionCounts.set(regionLabel, (summary.regionCounts.get(regionLabel) || 0) + 1);
+  });
+
+  summaries.forEach((summary) => {
+    const strongestEntry = Array.from(summary.regionCounts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] || null;
+    summary.strongestRegion = strongestEntry ? strongestEntry[0] : "None";
+    summary.strongestCount = strongestEntry ? strongestEntry[1] : 0;
+    summary.freshestBeacon = summary.beacons.slice().sort(compareBeaconLedger)[0] || null;
+  });
+
+  const activePostureCode = state.activeTrace && state.activeTrace.type === "beacon"
+    ? getBeaconPosture(state.activeTrace).code
+    : "";
+  const entries = postures.map((posture) => {
+    const summary = summaries.get(posture.code);
+    return {
+      code: summary.code,
+      label: summary.label,
+      filterLabel: summary.filterLabel,
+      totalCount: summary.totalCount,
+      visitorCount: summary.visitorValues.size,
+      strongestRegion: summary.strongestRegion,
+      strongestCount: summary.strongestCount,
+      freshestBeacon: summary.freshestBeacon
+    };
+  });
+  const listHtml = entries
+    .map((entry) => {
+      const issueNumber = entry.freshestBeacon ? parseIssueNumber(entry.freshestBeacon.issueNumber) : null;
+      const freshestLabel = issueNumber !== null
+        ? `Issue #${issueNumber}`
+        : String((entry.freshestBeacon && entry.freshestBeacon.title) || "").trim() || "Unknown";
+      const summaryLine = entry.totalCount === 0
+        ? `${entry.label} currently has no public beacons.`
+        : `${entry.label} holds ${entry.totalCount} beacon${entry.totalCount === 1 ? "" : "s"} from ${entry.visitorCount} visitor${entry.visitorCount === 1 ? "" : "s"} and is strongest in ${entry.strongestRegion} (${entry.strongestCount} of ${entry.totalCount} beacons).`;
+      const disabledAttr = entry.totalCount === 0 ? " disabled" : "";
+      const activeClass = activePostureCode && activePostureCode === entry.code ? " is-active" : "";
+
+      return `
+        <li>
+          <div class="survey-item${activeClass}">
+            <span class="survey-header">${escapeHtml(entry.label)}</span>
+            <span class="survey-copy">${escapeHtml(summaryLine)}</span>
+            <span class="survey-meta">
+              <span class="survey-pill">Total beacons: ${entry.totalCount}</span>
+              <span class="survey-pill">Visitors: ${entry.visitorCount}</span>
+              <span class="survey-pill">Strongest region: ${escapeHtml(entry.strongestRegion)}</span>
+              <span class="survey-pill">Freshest beacon: ${escapeHtml(freshestLabel)}</span>
+            </span>
+          </div>
+          <div class="survey-actions">
+            <button type="button" class="survey-action" data-witness-postures-browse="${escapeHtml(entry.code)}"${disabledAttr}>Browse posture testimony</button>
+            <button type="button" class="survey-action" data-witness-postures-inspect="${escapeHtml(entry.code)}"${disabledAttr}>Inspect freshest beacon</button>
+          </div>
+        </li>
+      `;
+    })
+    .join("");
+
+  el.witnessPostures.innerHTML = `<ul class="survey-list">${listHtml}</ul>`;
+
+  el.witnessPostures.querySelectorAll("[data-witness-postures-browse]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const code = String(node.dataset.witnessPosturesBrowse || "");
+      const entry = entries.find((item) => item && item.code === code);
+      if (!entry) return;
+      const regionOptions = getSelectOptionValues(el.ledgerRegionFilter);
+      const postureOptions = getSelectOptionValues(el.ledgerPostureFilter);
+      if (el.ledgerRegionFilter && regionOptions.has("All regions")) {
+        el.ledgerRegionFilter.value = "All regions";
+      }
+      if (el.ledgerPostureFilter && postureOptions.has(entry.filterLabel)) {
+        el.ledgerPostureFilter.value = entry.filterLabel;
+      }
+      if (el.ledgerSearchFilter) {
+        el.ledgerSearchFilter.value = "";
+      }
+      handleLedgerFilterChange();
+    });
+  });
+
+  el.witnessPostures.querySelectorAll("[data-witness-postures-inspect]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const code = String(node.dataset.witnessPosturesInspect || "");
+      const entry = entries.find((item) => item && item.code === code);
+      if (!entry || !entry.freshestBeacon) return;
+      activateMarker(entry.freshestBeacon, { focus: true, updateHash: true });
+    });
+  });
+}
+
 function setActiveTrace(marker) {
   state.activeTrace = marker
     ? {
@@ -10693,6 +10834,7 @@ function setActiveTrace(marker) {
   renderJurisdictionSurvey();
   renderWorldBalance();
   renderWitnessRegions();
+  renderWitnessPostures();
   renderWitnessRegister();
   renderWitnessBalance();
   renderBridgeAperturePanel();
@@ -13542,6 +13684,7 @@ async function fetchBeaconComments() {
     renderJurisdictionSurvey();
     renderWorldBalance();
     renderWitnessRegions();
+    renderWitnessPostures();
     renderWitnessRegister();
     renderWitnessBalance();
     return;
@@ -13571,6 +13714,7 @@ async function fetchBeaconComments() {
     renderJurisdictionSurvey();
     renderWorldBalance();
     renderWitnessRegions();
+    renderWitnessPostures();
     renderWitnessRegister();
     renderWitnessBalance();
     return;
@@ -13635,6 +13779,7 @@ async function fetchBeaconComments() {
   renderJurisdictionSurvey();
   renderWorldBalance();
   renderWitnessRegions();
+  renderWitnessPostures();
   renderWitnessRegister();
   renderWitnessBalance();
 }
@@ -15784,6 +15929,7 @@ async function initBeacons() {
     renderJurisdictionSurvey();
     renderWorldBalance();
     renderWitnessRegions();
+    renderWitnessPostures();
     renderWitnessRegister();
     renderWitnessBalance();
     const restoredFromHash = restoreHashSelection();
@@ -15871,6 +16017,7 @@ async function initBeacons() {
     renderJurisdictionSurvey();
     renderWorldBalance();
     renderWitnessRegions();
+    renderWitnessPostures();
     renderWitnessRegister();
     renderWitnessBalance();
     renderBeaconLedger();

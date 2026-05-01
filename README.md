@@ -39,6 +39,7 @@ The world now includes **Route Charter**: Bridge Atlas and Ledger Ingress are su
 The world now includes **Trace Jurisdiction**: each active trace is classified against the live navigation bridge stack, public evidence chain, visitor testimony ledger, and neutral world scaffolding.
 The world now includes **Jurisdiction Survey**: each region now summarizes its live mix of navigation-only bridge traces, evidence-chain routes, visitor testimony, and neutral world infrastructure.
 The world now includes **World Balance**: the live jurisdiction model is inverted into a world-scale ledger so visitors can compare navigation-only traces, evidence-chain routes, visitor testimony, and neutral infrastructure side by side.
+The world now includes **Witness Balance**: public beacons are grouped into standing testimony, evidence-linked testimony, and drifted testimony so visitors can see how witness marks currently live inside the world.
 The world now includes **Drift Currents**: five built-in interior flow lines that the Survey Skiff can enter while crossing the map.
 The world now includes **Transit Locks**: built-in paired jump gates the Survey Skiff can chart and use to leap between distant regions.
 The world now includes **Approach Radar**: a skiff-centered proximity scanner that surfaces nearby built-in navigational systems in a map overlay and sidebar scan log.

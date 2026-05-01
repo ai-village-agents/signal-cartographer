@@ -601,6 +601,7 @@ const state = {
   bridgeLandingsEnabled: true,
   bridgeExchangesEnabled: true,
   bridgeRecoveriesEnabled: true,
+  bridgeCourseEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -702,6 +703,7 @@ const el = {
   toggleBridgeLandings: document.getElementById("toggleBridgeLandings"),
   toggleBridgeExchanges: document.getElementById("toggleBridgeExchanges"),
   toggleBridgeRecoveries: document.getElementById("toggleBridgeRecoveries"),
+  toggleBridgeCourse: document.getElementById("toggleBridgeCourse"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -744,6 +746,7 @@ const el = {
   bridgeLandingsLayer: document.getElementById("bridgeLandingsLayer"),
   bridgeExchangesLayer: document.getElementById("bridgeExchangesLayer"),
   bridgeRecoveriesLayer: document.getElementById("bridgeRecoveriesLayer"),
+  bridgeCourseLayer: document.getElementById("bridgeCourseLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -784,6 +787,7 @@ const el = {
   bridgeLandings: document.getElementById("bridgeLandings"),
   bridgeExchanges: document.getElementById("bridgeExchanges"),
   bridgeRecoveries: document.getElementById("bridgeRecoveries"),
+  bridgeCourse: document.getElementById("bridgeCourse"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -7581,6 +7585,250 @@ function renderBridgeRecoveriesPanel() {
   `;
 }
 
+function compareBridgeCourseEntries(a, b) {
+  const aSourceTitle = String(a && a.source && a.source.title ? a.source.title : "");
+  const bSourceTitle = String(b && b.source && b.source.title ? b.source.title : "");
+  const sourceComparison = aSourceTitle.localeCompare(bSourceTitle);
+  if (sourceComparison !== 0) return sourceComparison;
+
+  const aDestinationTitle = String(a && a.destinationRelay && a.destinationRelay.title ? a.destinationRelay.title : "");
+  const bDestinationTitle = String(b && b.destinationRelay && b.destinationRelay.title ? b.destinationRelay.title : "");
+  const destinationComparison = aDestinationTitle.localeCompare(bDestinationTitle);
+  if (destinationComparison !== 0) return destinationComparison;
+
+  const aKey = String(a && a.key ? a.key : "");
+  const bKey = String(b && b.key ? b.key : "");
+  return aKey.localeCompare(bKey);
+}
+
+function getBridgeCourseEntries() {
+  const entries = getBridgeRecoveryEntries()
+    .map((entry) => {
+      const waypointSpecs = [
+        { node: entry && entry.source, title: entry && entry.source && entry.source.title, type: "landmark" },
+        { node: entry && entry.transitEntry && entry.transitEntry.exitPoint, title: entry && entry.transitEntry && entry.transitEntry.exitLabel, type: "bridge-exit" },
+        { node: entry && entry.transitEntry && entry.transitEntry.relay, title: entry && entry.transitEntry && entry.transitEntry.relay && entry.transitEntry.relay.title, type: "relay" },
+        { node: entry && entry.transitEntry && entry.transitEntry.lock, title: entry && entry.transitEntry && entry.transitEntry.lock && entry.transitEntry.lock.title, type: "transit-lock" },
+        { node: entry && entry.transitEntry && entry.transitEntry.linkedLock, title: entry && entry.transitEntry && entry.transitEntry.linkedLock && entry.transitEntry.linkedLock.title, type: "transit-lock" },
+        { node: entry && entry.rejoinEntry && entry.rejoinEntry.relay, title: entry && entry.rejoinEntry && entry.rejoinEntry.relay && entry.rejoinEntry.relay.title, type: "relay" },
+        { node: entry && entry.ringwayEntry && entry.ringwayEntry.onwardRelay, title: entry && entry.ringwayEntry && entry.ringwayEntry.onwardRelay && entry.ringwayEntry.onwardRelay.title, type: "relay" },
+        { node: entry && entry.landingEntry && entry.landingEntry.lock, title: entry && entry.landingEntry && entry.landingEntry.lock && entry.landingEntry.lock.title, type: "transit-lock" },
+        { node: entry && entry.linkedLock, title: entry && entry.linkedLock && entry.linkedLock.title, type: "transit-lock" },
+        { node: entry && entry.relay, title: entry && entry.relay && entry.relay.title, type: "relay" }
+      ];
+
+      const waypoints = waypointSpecs.map((spec) => {
+        const node = spec && spec.node ? spec.node : null;
+        const title = String(spec && spec.title ? spec.title : "").trim();
+        const x = Number(node && node.x);
+        const y = Number(node && node.y);
+        const waypoint = {
+          id: node && node.id ? String(node.id) : "",
+          title,
+          x,
+          y,
+          type: spec && spec.type ? spec.type : "unknown"
+        };
+        if (!waypoint.id) {
+          delete waypoint.id;
+        }
+        return waypoint;
+      });
+
+      const isComplete = waypoints.length === 10 && waypoints.every((waypoint) => (
+        waypoint &&
+        String(waypoint.title || "").trim() &&
+        Number.isFinite(Number(waypoint.x)) &&
+        Number.isFinite(Number(waypoint.y))
+      ));
+      if (!isComplete) return null;
+
+      const segments = waypoints.slice(0, -1).map((from, index) => [from, waypoints[index + 1]]);
+
+      return {
+        key: String(entry && entry.key ? entry.key : "").trim(),
+        source: entry.source,
+        transitEntry: entry.transitEntry,
+        rejoinEntry: entry.rejoinEntry,
+        ringwayEntry: entry.ringwayEntry,
+        landingEntry: entry.landingEntry,
+        exchangeEntry: entry.exchangeEntry,
+        recoveryEntry: entry,
+        destinationRelay: entry.relay,
+        exitPoint: entry.transitEntry && entry.transitEntry.exitPoint,
+        exitLabel: entry.transitEntry && entry.transitEntry.exitLabel,
+        waypoints,
+        segments
+      };
+    })
+    .filter(Boolean);
+
+  return entries.sort(compareBridgeCourseEntries);
+}
+
+function centerViewportOnBridgeCourse() {
+  const entries = getBridgeCourseEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => Array.isArray(entry && entry.waypoints) ? entry.waypoints : [])
+    .map((waypoint) => ({ x: Number(waypoint && waypoint.x), y: Number(waypoint && waypoint.y) }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToPrimaryBridgeCourseDestination() {
+  const entry = getBridgeCourseEntries()[0];
+  if (!entry || !entry.destinationRelay) return;
+  activateRelayMarkerById(entry.destinationRelay.id);
+}
+
+function renderBridgeCourseOverlay() {
+  if (!el.bridgeCourseLayer) return;
+  const entries = getBridgeCourseEntries();
+  if (!state.bridgeCourseEnabled || entries.length === 0) {
+    el.bridgeCourseLayer.style.display = "none";
+    el.bridgeCourseLayer.replaceChildren();
+    return;
+  }
+
+  const activeWaypointId = state.activeTrace
+    ? state.activeTrace.type === "landmark"
+      ? String(getLandmarkId(state.activeTrace) || "")
+      : String(state.activeTrace.id || "")
+    : "";
+  const group = createSvgNode("g", { class: "bridge-course-overlay" });
+
+  entries.forEach((entry) => {
+    const pathPoints = (Array.isArray(entry && entry.waypoints) ? entry.waypoints : [])
+      .map((waypoint) => ({ ...toWorldCoords(waypoint), id: waypoint.id, title: waypoint.title, type: waypoint.type }))
+      .filter((waypoint) => Number.isFinite(waypoint.x) && Number.isFinite(waypoint.y));
+    if (pathPoints.length < 2) return;
+
+    const isActive = Boolean(
+      activeWaypointId &&
+      pathPoints.some((waypoint) => waypoint.id && String(waypoint.id) === activeWaypointId)
+    );
+    const node = createSvgNode("g", { class: `bridge-course-route${isActive ? " is-active" : ""}` });
+    const polylinePoints = pathPoints.map((waypoint) => `${waypoint.x.toFixed(1)},${waypoint.y.toFixed(1)}`).join(" ");
+    node.appendChild(createSvgNode("polyline", {
+      class: "bridge-course-polyline",
+      points: polylinePoints
+    }));
+    pathPoints.forEach((waypoint) => {
+      node.appendChild(createSvgNode("circle", {
+        class: "bridge-course-node",
+        cx: waypoint.x.toFixed(1),
+        cy: waypoint.y.toFixed(1),
+        r: waypoint.type === "bridge-exit" ? "2.8" : "3.3"
+      }));
+    });
+
+    const destination = pathPoints[pathPoints.length - 1];
+    const isEastHalf = Number(destination.x) > MAP_W / 2;
+    const label = createSvgNode("text", {
+      class: "bridge-course-label",
+      x: (destination.x + (isEastHalf ? -11 : 11)).toFixed(1),
+      y: (destination.y - 8).toFixed(1),
+      "text-anchor": isEastHalf ? "end" : "start"
+    });
+    label.textContent = String(entry && entry.destinationRelay && entry.destinationRelay.title ? entry.destinationRelay.title : "");
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.bridgeCourseLayer.style.display = "none";
+    el.bridgeCourseLayer.replaceChildren();
+    return;
+  }
+
+  el.bridgeCourseLayer.style.display = "block";
+  el.bridgeCourseLayer.replaceChildren(group);
+}
+
+function renderBridgeCoursePanel() {
+  if (!el.bridgeCourse) return;
+  if (!state.bridgeCourseEnabled) {
+    el.bridgeCourse.innerHTML = "<p class=\"bridge-course-line\">Bridge Course is hidden. Re-enable it in Controls to restore complete bridge itineraries.</p>";
+    return;
+  }
+
+  const entries = getBridgeCourseEntries();
+  if (entries.length === 0) {
+    el.bridgeCourse.innerHTML = "<p class=\"bridge-course-line\">Bridge Course appears when every bridge stage can be assembled into a full end-to-end itinerary.</p>";
+    return;
+  }
+
+  const activeWaypointId = state.activeTrace
+    ? state.activeTrace.type === "landmark"
+      ? String(getLandmarkId(state.activeTrace) || "")
+      : String(state.activeTrace.id || "")
+    : "";
+  const totalSegments = entries.reduce((acc, entry) => acc + (Array.isArray(entry && entry.segments) ? entry.segments.length : 0), 0);
+  const totalWaypoints = entries.reduce((acc, entry) => acc + (Array.isArray(entry && entry.waypoints) ? entry.waypoints.length : 0), 0);
+  const trackingLine = entries.length === 1
+    ? "Tracking 1 complete bridge course from Bridge Index Aperture to Ember Shelf Relay."
+    : `Tracking ${entries.length} complete bridge courses from external apertures to recovered destination relays.`;
+
+  const listHtml = entries.map((entry, index) => {
+    const destinationRelayId = String(entry && entry.destinationRelay && entry.destinationRelay.id ? entry.destinationRelay.id : "").trim();
+    const isActive = Boolean(
+      activeWaypointId &&
+      Array.isArray(entry && entry.waypoints) &&
+      entry.waypoints.some((waypoint) => waypoint && waypoint.id && String(waypoint.id) === activeWaypointId)
+    );
+    const strongLine = entries.length === 1
+      ? "#1 · Bridge Index Aperture → Ember Shelf Relay"
+      : `#${index + 1} · ${String(entry && entry.source && entry.source.title ? entry.source.title : "Unknown source")} → ${String(entry && entry.destinationRelay && entry.destinationRelay.title ? entry.destinationRelay.title : "Unknown destination")}`;
+    const contextLine = entries.length === 1
+      ? "South perimeter exit · Beacon Spindle Relay · Beacon Harbor Lock · Vault Spiral · Vault Verge Relay · Delta Relay · Revision Lift · Rumor Sluice"
+      : (Array.isArray(entry && entry.waypoints) ? entry.waypoints.slice(1, -1).map((waypoint) => String(waypoint && waypoint.title ? waypoint.title : "").trim()).filter(Boolean).join(" · ") : "");
+    return `
+      <button type="button" class="bridge-course-item${isActive ? " is-active" : ""}" data-bridge-course-destination-relay-id="${escapeHtml(destinationRelayId)}">
+        <strong>${escapeHtml(strongLine)}</strong>
+        <span>${escapeHtml(contextLine)}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.bridgeCourse.innerHTML = `
+    <p class="bridge-course-line">Bridge Course stitches the full navigation-only bridge stack into one end-to-end itinerary through The Signal Cartographer.</p>
+    <p class="bridge-course-line">${escapeHtml(trackingLine)}</p>
+    <p class="bridge-course-line">This course is travel infrastructure, not part of The Signal Cartographer's evidence chain.</p>
+    <div class="bridge-course-actions">
+      <button type="button" class="bridge-course-action" data-bridge-course-action="center">Center on bridge course</button>
+      <button type="button" class="bridge-course-action" data-bridge-course-action="jump-relay">Jump to destination relay</button>
+    </div>
+    <div class="bridge-course-meta">
+      <span class="bridge-course-pill">Courses: ${entries.length}</span>
+      <span class="bridge-course-pill">Segments: ${totalSegments}</span>
+      <span class="bridge-course-pill">Waypoints: ${totalWaypoints}</span>
+      <span class="bridge-course-pill">Mode: Navigation only</span>
+    </div>
+    <p class="bridge-course-subtitle">End-to-end itinerary</p>
+    <div class="bridge-course-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnBridgeBearings() {
   const entries = getBridgeBearingEntries();
   if (entries.length === 0) return;
@@ -8839,6 +9087,8 @@ function setActiveTrace(marker) {
   renderBridgeExchangesPanel();
   renderBridgeRecoveriesOverlay();
   renderBridgeRecoveriesPanel();
+  renderBridgeCourseOverlay();
+  renderBridgeCoursePanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
@@ -11878,6 +12128,7 @@ function initInteractions() {
   state.bridgeLandingsEnabled = !el.toggleBridgeLandings || el.toggleBridgeLandings.checked;
   state.bridgeExchangesEnabled = !el.toggleBridgeExchanges || el.toggleBridgeExchanges.checked;
   state.bridgeRecoveriesEnabled = !el.toggleBridgeRecoveries || el.toggleBridgeRecoveries.checked;
+  state.bridgeCourseEnabled = !el.toggleBridgeCourse || el.toggleBridgeCourse.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -12349,6 +12600,8 @@ function initInteractions() {
       renderBridgeExchangesPanel();
       renderBridgeRecoveriesOverlay();
       renderBridgeRecoveriesPanel();
+      renderBridgeCourseOverlay();
+      renderBridgeCoursePanel();
     });
   }
 
@@ -12369,6 +12622,8 @@ function initInteractions() {
       renderBridgeExchangesPanel();
       renderBridgeRecoveriesOverlay();
       renderBridgeRecoveriesPanel();
+      renderBridgeCourseOverlay();
+      renderBridgeCoursePanel();
     });
   }
 
@@ -12387,6 +12642,8 @@ function initInteractions() {
       renderBridgeExchangesPanel();
       renderBridgeRecoveriesOverlay();
       renderBridgeRecoveriesPanel();
+      renderBridgeCourseOverlay();
+      renderBridgeCoursePanel();
     });
   }
 
@@ -12403,6 +12660,8 @@ function initInteractions() {
       renderBridgeExchangesPanel();
       renderBridgeRecoveriesOverlay();
       renderBridgeRecoveriesPanel();
+      renderBridgeCourseOverlay();
+      renderBridgeCoursePanel();
     });
   }
 
@@ -12417,6 +12676,8 @@ function initInteractions() {
       renderBridgeExchangesPanel();
       renderBridgeRecoveriesOverlay();
       renderBridgeRecoveriesPanel();
+      renderBridgeCourseOverlay();
+      renderBridgeCoursePanel();
     });
   }
 
@@ -12429,6 +12690,8 @@ function initInteractions() {
       renderBridgeExchangesPanel();
       renderBridgeRecoveriesOverlay();
       renderBridgeRecoveriesPanel();
+      renderBridgeCourseOverlay();
+      renderBridgeCoursePanel();
     });
   }
 
@@ -12439,6 +12702,8 @@ function initInteractions() {
       renderBridgeExchangesPanel();
       renderBridgeRecoveriesOverlay();
       renderBridgeRecoveriesPanel();
+      renderBridgeCourseOverlay();
+      renderBridgeCoursePanel();
     });
   }
 
@@ -12447,6 +12712,16 @@ function initInteractions() {
       state.bridgeRecoveriesEnabled = el.toggleBridgeRecoveries.checked;
       renderBridgeRecoveriesOverlay();
       renderBridgeRecoveriesPanel();
+      renderBridgeCourseOverlay();
+      renderBridgeCoursePanel();
+    });
+  }
+
+  if (el.toggleBridgeCourse) {
+    el.toggleBridgeCourse.addEventListener("change", () => {
+      state.bridgeCourseEnabled = el.toggleBridgeCourse.checked;
+      renderBridgeCourseOverlay();
+      renderBridgeCoursePanel();
     });
   }
 
@@ -13416,6 +13691,31 @@ function initInteractions() {
     });
   }
 
+  if (el.bridgeCourse) {
+    el.bridgeCourse.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-bridge-course-action], [data-bridge-course-destination-relay-id]")
+        : null;
+      if (!actionNode) return;
+
+      const relayId = String(actionNode.getAttribute("data-bridge-course-destination-relay-id") || "").trim();
+      if (relayId) {
+        activateRelayMarkerById(relayId);
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-bridge-course-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnBridgeCourse();
+        return;
+      }
+      if (action === "jump-relay") {
+        jumpToPrimaryBridgeCourseDestination();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -13641,6 +13941,8 @@ function initInteractions() {
   renderBridgeExchangesPanel();
   renderBridgeRecoveriesOverlay();
   renderBridgeRecoveriesPanel();
+  renderBridgeCourseOverlay();
+  renderBridgeCoursePanel();
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
@@ -13738,6 +14040,8 @@ async function initBeacons() {
       renderBridgeExchangesPanel();
       renderBridgeRecoveriesOverlay();
       renderBridgeRecoveriesPanel();
+      renderBridgeCourseOverlay();
+      renderBridgeCoursePanel();
       renderBeaconLedger();
     }
     renderVerificationRoute();

@@ -33,6 +33,7 @@ The world now includes **Bridge Ringways**: destination relays continue onto the
 The world now includes **Bridge Landings**: destination ringway relays continue into the nearest transit lock so cross-world arrivals stay on explicit travel infrastructure after rejoining the relay ring.
 The world now includes **Bridge Exchanges**: landing locks continue through their linked transit gates so destination-side cross-world arrivals stay on explicit travel infrastructure after touching down.
 The world now includes **Bridge Recoveries**: exchange locks reconnect to the nearest built-in relay so destination-side cross-world arrivals visibly recover the local navigation ring after transit.
+The world now includes **Bridge Course**: the full navigation-only bridge stack is stitched into one end-to-end itinerary from Bridge Index Aperture to the recovered destination relay ring.
 The world now includes **Drift Currents**: five built-in interior flow lines that the Survey Skiff can enter while crossing the map.
 The world now includes **Transit Locks**: built-in paired jump gates the Survey Skiff can chart and use to leap between distant regions.
 The world now includes **Approach Radar**: a skiff-centered proximity scanner that surfaces nearby built-in navigational systems in a map overlay and sidebar scan log.

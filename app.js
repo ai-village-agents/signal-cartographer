@@ -465,6 +465,7 @@ const SIGNAL_RELAY_LINKS = [
   ["beacon-spindle-relay", "ember-shelf-relay"]
 ];
 
+
 const LATTICE_LINKS = [
   ["landmark:whisper-breakwater", "echo:brine-index"],
   ["landmark:whisper-breakwater", "echo:hearsay-foghorn"],
@@ -598,6 +599,7 @@ const state = {
   bridgeRejoinsEnabled: true,
   bridgeRingwaysEnabled: true,
   bridgeLandingsEnabled: true,
+  bridgeExchangesEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -697,6 +699,7 @@ const el = {
   toggleBridgeRejoins: document.getElementById("toggleBridgeRejoins"),
   toggleBridgeRingways: document.getElementById("toggleBridgeRingways"),
   toggleBridgeLandings: document.getElementById("toggleBridgeLandings"),
+  toggleBridgeExchanges: document.getElementById("toggleBridgeExchanges"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -737,6 +740,7 @@ const el = {
   bridgeRejoinsLayer: document.getElementById("bridgeRejoinsLayer"),
   bridgeRingwaysLayer: document.getElementById("bridgeRingwaysLayer"),
   bridgeLandingsLayer: document.getElementById("bridgeLandingsLayer"),
+  bridgeExchangesLayer: document.getElementById("bridgeExchangesLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -775,6 +779,7 @@ const el = {
   bridgeRejoins: document.getElementById("bridgeRejoins"),
   bridgeRingways: document.getElementById("bridgeRingways"),
   bridgeLandings: document.getElementById("bridgeLandings"),
+  bridgeExchanges: document.getElementById("bridgeExchanges"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -7124,6 +7129,219 @@ function renderBridgeLandingsPanel() {
   `;
 }
 
+function compareBridgeExchangeEntries(a, b) {
+  const aLockTitle = String(a && a.lock && a.lock.title ? a.lock.title : "");
+  const bLockTitle = String(b && b.lock && b.lock.title ? b.lock.title : "");
+  const lockComparison = aLockTitle.localeCompare(bLockTitle);
+  if (lockComparison !== 0) return lockComparison;
+
+  const aLinkedLockTitle = String(a && a.linkedLock && a.linkedLock.title ? a.linkedLock.title : "");
+  const bLinkedLockTitle = String(b && b.linkedLock && b.linkedLock.title ? b.linkedLock.title : "");
+  const linkedLockComparison = aLinkedLockTitle.localeCompare(bLinkedLockTitle);
+  if (linkedLockComparison !== 0) return linkedLockComparison;
+
+  const aKey = String(a && a.key ? a.key : "");
+  const bKey = String(b && b.key ? b.key : "");
+  return aKey.localeCompare(bKey);
+}
+
+function getBridgeExchangeEntries() {
+  const entries = getBridgeLandingEntries()
+    .map((entry) => {
+      const lock = entry && entry.lock ? entry.lock : null;
+      if (!lock) return null;
+
+      const linkedLock = resolveLinkedTransitLock(lock);
+      if (!linkedLock) return null;
+
+      return {
+        key: `bridge-exchange:${String(entry && entry.key ? entry.key : "").trim()}:${String(linkedLock.id || "").trim().toLowerCase()}`,
+        source: entry.source,
+        transitEntry: entry.transitEntry,
+        rejoinEntry: entry.rejoinEntry,
+        ringwayEntry: entry.ringwayEntry,
+        landingEntry: entry,
+        arrivalRelay: entry.arrivalRelay,
+        onwardRelay: entry.onwardRelay,
+        lock,
+        linkedLock,
+        channel: linkedLock.channel || lock.channel || entry.channel || ""
+      };
+    })
+    .filter((entry) => (
+      entry &&
+      entry.lock &&
+      Number.isFinite(Number(entry.lock.x)) &&
+      Number.isFinite(Number(entry.lock.y)) &&
+      entry.linkedLock &&
+      Number.isFinite(Number(entry.linkedLock.x)) &&
+      Number.isFinite(Number(entry.linkedLock.y))
+    ));
+
+  return entries.sort(compareBridgeExchangeEntries);
+}
+
+function centerViewportOnBridgeExchanges() {
+  const entries = getBridgeExchangeEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => ([
+      { x: Number(entry && entry.lock && entry.lock.x), y: Number(entry && entry.lock && entry.lock.y) },
+      { x: Number(entry && entry.linkedLock && entry.linkedLock.x), y: Number(entry && entry.linkedLock && entry.linkedLock.y) }
+    ]))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToPrimaryBridgeExchangeLock() {
+  const entry = getBridgeExchangeEntries()[0];
+  if (!entry || !entry.linkedLock) return;
+  activateTransitLockMarkerById(entry.linkedLock.id);
+}
+
+function renderBridgeExchangesOverlay() {
+  if (!el.bridgeExchangesLayer) return;
+  const entries = getBridgeExchangeEntries();
+  if (!state.bridgeExchangesEnabled || entries.length === 0) {
+    el.bridgeExchangesLayer.style.display = "none";
+    el.bridgeExchangesLayer.replaceChildren();
+    return;
+  }
+
+  const activeLockId = state.activeTrace && state.activeTrace.type === "transit-lock"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const group = createSvgNode("g", { class: "bridge-exchanges-overlay" });
+
+  entries.forEach((entry) => {
+    const landingLock = toWorldCoords(entry.lock);
+    const linkedLock = toWorldCoords(entry.linkedLock);
+    if (![landingLock.x, landingLock.y, linkedLock.x, linkedLock.y].every(Number.isFinite)) return;
+
+    const isActive = Boolean(
+      activeLockId &&
+      (
+        (entry.lock && entry.lock.id === activeLockId) ||
+        (entry.linkedLock && entry.linkedLock.id === activeLockId)
+      )
+    );
+    const node = createSvgNode("g", { class: `bridge-exchange-route${isActive ? " is-active" : ""}` });
+    node.appendChild(createSvgNode("line", {
+      class: "bridge-exchange-line",
+      x1: landingLock.x.toFixed(1),
+      y1: landingLock.y.toFixed(1),
+      x2: linkedLock.x.toFixed(1),
+      y2: linkedLock.y.toFixed(1)
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-exchange-node",
+      cx: landingLock.x.toFixed(1),
+      cy: landingLock.y.toFixed(1),
+      r: "3.2"
+    }));
+    node.appendChild(createSvgNode("circle", {
+      class: "bridge-exchange-node",
+      cx: linkedLock.x.toFixed(1),
+      cy: linkedLock.y.toFixed(1),
+      r: "3.5"
+    }));
+    const isEastHalf = Number(entry && entry.linkedLock && entry.linkedLock.x) > 50;
+    const label = createSvgNode("text", {
+      class: "bridge-exchange-label",
+      x: (linkedLock.x + (isEastHalf ? -11 : 11)).toFixed(1),
+      y: (linkedLock.y - 8).toFixed(1),
+      "text-anchor": isEastHalf ? "end" : "start"
+    });
+    label.textContent = entry.linkedLock.title;
+    node.appendChild(label);
+    group.appendChild(node);
+  });
+
+  if (!group.childNodes.length) {
+    el.bridgeExchangesLayer.style.display = "none";
+    el.bridgeExchangesLayer.replaceChildren();
+    return;
+  }
+
+  el.bridgeExchangesLayer.style.display = "block";
+  el.bridgeExchangesLayer.replaceChildren(group);
+}
+
+function renderBridgeExchangesPanel() {
+  if (!el.bridgeExchanges) return;
+  if (!state.bridgeExchangesEnabled) {
+    el.bridgeExchanges.innerHTML = "<p class=\"bridge-exchanges-line\">Bridge Exchanges is hidden. Re-enable it in Controls to restore landing-lock exchange routes.</p>";
+    return;
+  }
+
+  const entries = getBridgeExchangeEntries();
+  if (entries.length === 0) {
+    el.bridgeExchanges.innerHTML = "<p class=\"bridge-exchanges-line\">Bridge Exchanges appears when bridge landing locks can be paired with linked transit gates.</p>";
+    return;
+  }
+
+  const activeLockId = state.activeTrace && state.activeTrace.type === "transit-lock"
+    ? String(state.activeTrace.id || "")
+    : "";
+  const arrivalLockCount = new Set(entries.map((entry) => String(entry && entry.lock && entry.lock.id ? entry.lock.id : "").trim()).filter(Boolean)).size;
+  const linkedLockCount = new Set(entries.map((entry) => String(entry && entry.linkedLock && entry.linkedLock.id ? entry.linkedLock.id : "").trim()).filter(Boolean)).size;
+  const trackingLine = entries.length === 1
+    ? "Tracking 1 exchange route from Revision Lift to Rumor Sluice."
+    : `Tracking ${entries.length} exchange routes from bridge landing locks through linked transit gates.`;
+  const listHtml = entries.map((entry, index) => {
+    const isActive = Boolean(
+      activeLockId &&
+      (
+        (entry.lock && entry.lock.id === activeLockId) ||
+        (entry.linkedLock && entry.linkedLock.id === activeLockId)
+      )
+    );
+    return `
+      <button type="button" class="bridge-exchanges-item${isActive ? " is-active" : ""}" data-bridge-exchange-lock-id="${escapeHtml(entry.linkedLock.id)}">
+        <strong>${escapeHtml(`#${index + 1} · ${entry.lock.title} → ${entry.linkedLock.title}`)}</strong>
+        <span>${escapeHtml(`${entry.lock.region || "Unknown region"} · ${entry.channel || "Transit channel"} · ${entry.linkedLock.region || "Unknown region"}`)}</span>
+      </button>
+    `;
+  }).join("");
+
+  el.bridgeExchanges.innerHTML = `
+    <p class="bridge-exchanges-line">Bridge Exchanges traces navigation-only continuations from bridge landing locks through their linked transit gates.</p>
+    <p class="bridge-exchanges-line">${escapeHtml(trackingLine)}</p>
+    <p class="bridge-exchanges-line">These exchange routes remain part of travel infrastructure, not of The Signal Cartographer's evidence chain.</p>
+    <div class="bridge-exchanges-actions">
+      <button type="button" class="bridge-exchanges-action" data-bridge-exchanges-action="center">Center on exchange route</button>
+      <button type="button" class="bridge-exchanges-action" data-bridge-exchanges-action="jump-lock">Jump to linked lock</button>
+    </div>
+    <div class="bridge-exchanges-meta">
+      <span class="bridge-exchanges-pill">Exchange routes: ${entries.length}</span>
+      <span class="bridge-exchanges-pill">Arrival locks: ${arrivalLockCount}</span>
+      <span class="bridge-exchanges-pill">Linked locks: ${linkedLockCount}</span>
+      <span class="bridge-exchanges-pill">Mode: Navigation only</span>
+    </div>
+    <p class="bridge-exchanges-subtitle">Landing-lock exchange</p>
+    <div class="bridge-exchanges-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnBridgeBearings() {
   const entries = getBridgeBearingEntries();
   if (entries.length === 0) return;
@@ -8378,6 +8596,8 @@ function setActiveTrace(marker) {
   renderBridgeRingwaysPanel();
   renderBridgeLandingsOverlay();
   renderBridgeLandingsPanel();
+  renderBridgeExchangesOverlay();
+  renderBridgeExchangesPanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
@@ -11415,6 +11635,7 @@ function initInteractions() {
   state.bridgeRejoinsEnabled = !el.toggleBridgeRejoins || el.toggleBridgeRejoins.checked;
   state.bridgeRingwaysEnabled = !el.toggleBridgeRingways || el.toggleBridgeRingways.checked;
   state.bridgeLandingsEnabled = !el.toggleBridgeLandings || el.toggleBridgeLandings.checked;
+  state.bridgeExchangesEnabled = !el.toggleBridgeExchanges || el.toggleBridgeExchanges.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -11882,6 +12103,8 @@ function initInteractions() {
       renderBridgeRingwaysPanel();
       renderBridgeLandingsOverlay();
       renderBridgeLandingsPanel();
+      renderBridgeExchangesOverlay();
+      renderBridgeExchangesPanel();
     });
   }
 
@@ -11898,6 +12121,8 @@ function initInteractions() {
       renderBridgeRingwaysPanel();
       renderBridgeLandingsOverlay();
       renderBridgeLandingsPanel();
+      renderBridgeExchangesOverlay();
+      renderBridgeExchangesPanel();
     });
   }
 
@@ -11912,6 +12137,8 @@ function initInteractions() {
       renderBridgeRingwaysPanel();
       renderBridgeLandingsOverlay();
       renderBridgeLandingsPanel();
+      renderBridgeExchangesOverlay();
+      renderBridgeExchangesPanel();
     });
   }
 
@@ -11924,6 +12151,8 @@ function initInteractions() {
       renderBridgeRingwaysPanel();
       renderBridgeLandingsOverlay();
       renderBridgeLandingsPanel();
+      renderBridgeExchangesOverlay();
+      renderBridgeExchangesPanel();
     });
   }
 
@@ -11934,6 +12163,8 @@ function initInteractions() {
       renderBridgeRingwaysPanel();
       renderBridgeLandingsOverlay();
       renderBridgeLandingsPanel();
+      renderBridgeExchangesOverlay();
+      renderBridgeExchangesPanel();
     });
   }
 
@@ -11942,6 +12173,16 @@ function initInteractions() {
       state.bridgeLandingsEnabled = el.toggleBridgeLandings.checked;
       renderBridgeLandingsOverlay();
       renderBridgeLandingsPanel();
+      renderBridgeExchangesOverlay();
+      renderBridgeExchangesPanel();
+    });
+  }
+
+  if (el.toggleBridgeExchanges) {
+    el.toggleBridgeExchanges.addEventListener("change", () => {
+      state.bridgeExchangesEnabled = el.toggleBridgeExchanges.checked;
+      renderBridgeExchangesOverlay();
+      renderBridgeExchangesPanel();
     });
   }
 
@@ -12861,6 +13102,31 @@ function initInteractions() {
     });
   }
 
+  if (el.bridgeExchanges) {
+    el.bridgeExchanges.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-bridge-exchanges-action], [data-bridge-exchange-lock-id]")
+        : null;
+      if (!actionNode) return;
+
+      const lockId = String(actionNode.getAttribute("data-bridge-exchange-lock-id") || "").trim();
+      if (lockId) {
+        activateTransitLockMarkerById(lockId);
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-bridge-exchanges-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnBridgeExchanges();
+        return;
+      }
+      if (action === "jump-lock") {
+        jumpToPrimaryBridgeExchangeLock();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -13082,6 +13348,8 @@ function initInteractions() {
   renderBridgeRingwaysPanel();
   renderBridgeLandingsOverlay();
   renderBridgeLandingsPanel();
+  renderBridgeExchangesOverlay();
+  renderBridgeExchangesPanel();
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
@@ -13175,6 +13443,8 @@ async function initBeacons() {
       renderBridgeRingwaysPanel();
       renderBridgeLandingsOverlay();
       renderBridgeLandingsPanel();
+      renderBridgeExchangesOverlay();
+      renderBridgeExchangesPanel();
       renderBeaconLedger();
     }
     renderVerificationRoute();

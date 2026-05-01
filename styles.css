@@ -3358,6 +3358,7 @@ button:hover {
 .bridge-ringways-layer,
 .bridge-landings-layer,
 .bridge-exchanges-layer,
+.bridge-recoveries-layer,
 .traverse-lattice-layer,
 .drift-current-layer,
 .signal-relay-layer,
@@ -3616,6 +3617,14 @@ button:hover {
 }
 
 .bridge-exchanges-layer {
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.bridge-recoveries-layer {
   z-index: 5;
   width: 100%;
   height: 100%;
@@ -5913,6 +5922,51 @@ button:hover {
   filter: drop-shadow(0 0 9px rgba(172, 244, 219, 0.58));
 }
 
+.bridge-recovery-route {
+  pointer-events: none;
+}
+
+.bridge-recovery-line {
+  fill: none;
+  stroke: rgba(154, 239, 255, 0.9);
+  stroke-width: 1.62;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 5.4 4.4;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 8px rgba(131, 230, 255, 0.34));
+}
+
+.bridge-recovery-node {
+  fill: rgba(237, 253, 255, 0.97);
+  stroke: rgba(179, 243, 255, 0.98);
+  stroke-width: 1.05;
+  vector-effect: non-scaling-stroke;
+}
+
+.bridge-recovery-label {
+  fill: rgba(217, 248, 255, 0.97);
+  font-size: 11px;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+  letter-spacing: 0.01em;
+  paint-order: stroke;
+  stroke: rgba(6, 29, 37, 0.94);
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+}
+
+.bridge-recovery-route.is-active .bridge-recovery-line {
+  stroke: rgba(234, 252, 255, 1);
+  stroke-width: 2.02;
+  filter: drop-shadow(0 0 10px rgba(178, 240, 255, 0.56));
+}
+
+.bridge-recovery-route.is-active .bridge-recovery-node {
+  fill: rgba(248, 254, 255, 0.99);
+  stroke: rgba(224, 249, 255, 1);
+  filter: drop-shadow(0 0 9px rgba(171, 237, 255, 0.58));
+}
+
 .survey-grid-current-label {
   fill: rgba(216, 255, 255, 0.95);
   font-size: 13px;
@@ -6887,4 +6941,102 @@ button:hover {
   border-color: rgba(232, 254, 247, 0.95);
   background: rgba(41, 137, 111, 0.92);
   box-shadow: 0 0 16px rgba(164, 244, 220, 0.24);
+}
+
+.bridge-recoveries-panel {
+  border: 1px solid rgba(170, 235, 255, 0.36);
+  background: rgba(14, 54, 68, 0.86);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  min-height: 7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.bridge-recoveries-line {
+  margin: 0;
+  line-height: 1.34;
+  color: #ddf6ff;
+}
+
+.bridge-recoveries-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.32rem;
+}
+
+.bridge-recoveries-action {
+  padding: 0.38rem 0.45rem;
+  border: 1px solid rgba(183, 242, 255, 0.54);
+  background: rgba(44, 134, 160, 0.9);
+  color: #effbff;
+  font-size: 0.78rem;
+}
+
+.bridge-recoveries-action:hover,
+.bridge-recoveries-action:focus-visible {
+  border-color: rgba(230, 250, 255, 0.95);
+  background: rgba(53, 153, 183, 0.94);
+}
+
+.bridge-recoveries-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.bridge-recoveries-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(187, 243, 255, 0.52);
+  background: rgba(67, 154, 181, 0.44);
+  color: #def8ff;
+  font-size: 0.75rem;
+  font-family: "Consolas", "Menlo", "Monaco", monospace;
+}
+
+.bridge-recoveries-subtitle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(207, 245, 255, 0.84);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bridge-recoveries-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.bridge-recoveries-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.42rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(193, 245, 255, 0.44);
+  background: rgba(29, 107, 129, 0.84);
+  color: #eefbff;
+}
+
+.bridge-recoveries-item strong {
+  font-size: 0.84rem;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.bridge-recoveries-item span {
+  font-size: 0.76rem;
+  color: rgba(215, 246, 255, 0.9);
+  line-height: 1.32;
+}
+
+.bridge-recoveries-item:hover,
+.bridge-recoveries-item:focus-visible,
+.bridge-recoveries-item.is-active {
+  border-color: rgba(231, 251, 255, 0.95);
+  background: rgba(42, 128, 154, 0.92);
+  box-shadow: 0 0 16px rgba(165, 233, 255, 0.24);
 }

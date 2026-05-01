@@ -602,6 +602,7 @@ const state = {
   bridgeExchangesEnabled: true,
   bridgeRecoveriesEnabled: true,
   bridgeCourseEnabled: true,
+  bridgeAtlasEnabled: true,
   currentTriangulationFix: null,
   triangulationLog: [],
   currentApproachRadarScan: null,
@@ -704,6 +705,7 @@ const el = {
   toggleBridgeExchanges: document.getElementById("toggleBridgeExchanges"),
   toggleBridgeRecoveries: document.getElementById("toggleBridgeRecoveries"),
   toggleBridgeCourse: document.getElementById("toggleBridgeCourse"),
+  toggleBridgeAtlas: document.getElementById("toggleBridgeAtlas"),
   toggleSignalRelays: document.getElementById("toggleSignalRelays"),
   toggleDriftCurrents: document.getElementById("toggleDriftCurrents"),
   toggleTransitLocks: document.getElementById("toggleTransitLocks"),
@@ -747,6 +749,7 @@ const el = {
   bridgeExchangesLayer: document.getElementById("bridgeExchangesLayer"),
   bridgeRecoveriesLayer: document.getElementById("bridgeRecoveriesLayer"),
   bridgeCourseLayer: document.getElementById("bridgeCourseLayer"),
+  bridgeAtlasLayer: document.getElementById("bridgeAtlasLayer"),
   traverseLatticeLayer: document.getElementById("traverseLatticeLayer"),
   driftCurrentLayer: document.getElementById("driftCurrentLayer"),
   signalRelayLayer: document.getElementById("signalRelayLayer"),
@@ -788,6 +791,7 @@ const el = {
   bridgeExchanges: document.getElementById("bridgeExchanges"),
   bridgeRecoveries: document.getElementById("bridgeRecoveries"),
   bridgeCourse: document.getElementById("bridgeCourse"),
+  bridgeAtlas: document.getElementById("bridgeAtlas"),
   signalRelays: document.getElementById("signalRelays"),
   driftCurrents: document.getElementById("driftCurrents"),
   transitLocks: document.getElementById("transitLocks")
@@ -7829,6 +7833,331 @@ function renderBridgeCoursePanel() {
   `;
 }
 
+const BRIDGE_ATLAS_STAGE_BLUEPRINT = [
+  {
+    key: "bearing",
+    label: "Bearing · Bridge Index Aperture → South perimeter exit",
+    shortLabel: "Bearing"
+  },
+  {
+    key: "handoff",
+    label: "Handoff · South perimeter exit → Beacon Spindle Relay",
+    shortLabel: "Handoff"
+  },
+  {
+    key: "lock-continuation",
+    label: "Lock continuation · Beacon Spindle Relay → Beacon Harbor Lock",
+    shortLabel: "Lock continuation"
+  },
+  {
+    key: "lock-transit",
+    label: "Lock transit · Beacon Harbor Lock → Vault Spiral",
+    shortLabel: "Lock transit"
+  },
+  {
+    key: "relay-rejoin",
+    label: "Relay rejoin · Vault Spiral → Vault Verge Relay",
+    shortLabel: "Relay rejoin"
+  },
+  {
+    key: "ringway-span",
+    label: "Ringway span · Vault Verge Relay → Delta Relay",
+    shortLabel: "Ringway span"
+  },
+  {
+    key: "landing-route",
+    label: "Landing route · Delta Relay → Revision Lift",
+    shortLabel: "Landing route"
+  },
+  {
+    key: "exchange-route",
+    label: "Exchange route · Revision Lift → Rumor Sluice",
+    shortLabel: "Exchange route"
+  },
+  {
+    key: "recovery-route",
+    label: "Recovery route · Rumor Sluice → Ember Shelf Relay",
+    shortLabel: "Recovery route"
+  }
+];
+
+function compareBridgeAtlasEntries(a, b) {
+  const aSourceTitle = String(a && a.source && a.source.title ? a.source.title : "");
+  const bSourceTitle = String(b && b.source && b.source.title ? b.source.title : "");
+  const sourceComparison = aSourceTitle.localeCompare(bSourceTitle);
+  if (sourceComparison !== 0) return sourceComparison;
+
+  const aDestinationTitle = String(a && a.destinationRelay && a.destinationRelay.title ? a.destinationRelay.title : "");
+  const bDestinationTitle = String(b && b.destinationRelay && b.destinationRelay.title ? b.destinationRelay.title : "");
+  const destinationComparison = aDestinationTitle.localeCompare(bDestinationTitle);
+  if (destinationComparison !== 0) return destinationComparison;
+
+  const aKey = String(a && a.key ? a.key : "");
+  const bKey = String(b && b.key ? b.key : "");
+  return aKey.localeCompare(bKey);
+}
+
+function getBridgeAtlasEntries() {
+  const entries = getBridgeCourseEntries()
+    .map((courseEntry) => {
+      const waypoints = Array.isArray(courseEntry && courseEntry.waypoints) ? courseEntry.waypoints : [];
+      const segments = Array.isArray(courseEntry && courseEntry.segments) ? courseEntry.segments : [];
+      if (waypoints.length !== 10 || segments.length !== BRIDGE_ATLAS_STAGE_BLUEPRINT.length) {
+        return null;
+      }
+
+      const stages = segments.map((segment, index) => {
+        const source = segment && segment[0] ? segment[0] : null;
+        const destination = segment && segment[1] ? segment[1] : null;
+        const sourceX = Number(source && source.x);
+        const sourceY = Number(source && source.y);
+        const destinationX = Number(destination && destination.x);
+        const destinationY = Number(destination && destination.y);
+        if (![sourceX, sourceY, destinationX, destinationY].every(Number.isFinite)) {
+          return null;
+        }
+        const blueprint = BRIDGE_ATLAS_STAGE_BLUEPRINT[index];
+        if (!blueprint) return null;
+        return {
+          key: `${String(courseEntry && courseEntry.key ? courseEntry.key : "").trim()}:stage:${blueprint.key}`,
+          order: index + 1,
+          label: blueprint.label,
+          shortLabel: blueprint.shortLabel,
+          source,
+          destination,
+          midpoint: {
+            x: (sourceX + destinationX) / 2,
+            y: (sourceY + destinationY) / 2
+          },
+          sourceId: String(source && source.id ? source.id : "").trim(),
+          destinationId: String(destination && destination.id ? destination.id : "").trim()
+        };
+      });
+
+      if (stages.length !== BRIDGE_ATLAS_STAGE_BLUEPRINT.length || stages.some((stage) => !stage)) {
+        return null;
+      }
+
+      return {
+        key: `bridge-atlas:${String(courseEntry && courseEntry.key ? courseEntry.key : "").trim()}`,
+        courseEntry,
+        source: courseEntry.source,
+        destinationRelay: courseEntry.destinationRelay,
+        waypoints,
+        segments,
+        stages
+      };
+    })
+    .filter(Boolean);
+
+  return entries.sort(compareBridgeAtlasEntries);
+}
+
+function centerViewportOnBridgeAtlas() {
+  const entries = getBridgeAtlasEntries();
+  if (entries.length === 0) return;
+  const coords = entries
+    .flatMap((entry) => Array.isArray(entry && entry.waypoints) ? entry.waypoints : [])
+    .map((waypoint) => ({ x: Number(waypoint && waypoint.x), y: Number(waypoint && waypoint.y) }))
+    .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+  if (coords.length === 0) return;
+
+  const bounds = coords.reduce((acc, coord) => ({
+    minX: Math.min(acc.minX, coord.x),
+    maxX: Math.max(acc.maxX, coord.x),
+    minY: Math.min(acc.minY, coord.y),
+    maxY: Math.max(acc.maxY, coord.y)
+  }), {
+    minX: coords[0].x,
+    maxX: coords[0].x,
+    minY: coords[0].y,
+    maxY: coords[0].y
+  });
+
+  centerViewportOnPercentCoord({
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  }, { scale: state.scale });
+}
+
+function jumpToPrimaryBridgeAtlasDestination() {
+  const entry = getBridgeAtlasEntries()[0];
+  if (!entry || !entry.destinationRelay) return;
+  activateRelayMarkerById(entry.destinationRelay.id);
+}
+
+function renderBridgeAtlasOverlay() {
+  if (!el.bridgeAtlasLayer) return;
+  const entries = getBridgeAtlasEntries();
+  if (!state.bridgeAtlasEnabled || entries.length === 0) {
+    el.bridgeAtlasLayer.style.display = "none";
+    el.bridgeAtlasLayer.replaceChildren();
+    return;
+  }
+
+  const activeWaypointId = state.activeTrace
+    ? state.activeTrace.type === "landmark"
+      ? String(getLandmarkId(state.activeTrace) || "")
+      : String(state.activeTrace.id || "")
+    : "";
+  const group = createSvgNode("g", { class: "bridge-atlas-overlay" });
+
+  entries.forEach((entry) => {
+    const waypoints = Array.isArray(entry && entry.waypoints) ? entry.waypoints : [];
+    const isActive = Boolean(
+      activeWaypointId &&
+      waypoints.some((waypoint) => waypoint && waypoint.id && String(waypoint.id) === activeWaypointId)
+    );
+    const routeNode = createSvgNode("g", { class: `bridge-atlas-route${isActive ? " is-active" : ""}` });
+
+    (Array.isArray(entry && entry.stages) ? entry.stages : []).forEach((stage) => {
+      const source = toWorldCoords(stage.source);
+      const destination = toWorldCoords(stage.destination);
+      const midpoint = toWorldCoords(stage.midpoint);
+      if (![source.x, source.y, destination.x, destination.y, midpoint.x, midpoint.y].every(Number.isFinite)) return;
+
+      routeNode.appendChild(createSvgNode("line", {
+        class: "bridge-atlas-segment",
+        x1: source.x.toFixed(1),
+        y1: source.y.toFixed(1),
+        x2: destination.x.toFixed(1),
+        y2: destination.y.toFixed(1)
+      }));
+
+      const isStageActive = Boolean(
+        activeWaypointId &&
+        (
+          (stage.sourceId && stage.sourceId === activeWaypointId) ||
+          (stage.destinationId && stage.destinationId === activeWaypointId)
+        )
+      );
+      routeNode.appendChild(createSvgNode("circle", {
+        class: `bridge-atlas-badge${isStageActive ? " is-active" : ""}`,
+        cx: midpoint.x.toFixed(1),
+        cy: midpoint.y.toFixed(1),
+        r: "8.6"
+      }));
+      const badgeText = createSvgNode("text", {
+        class: "bridge-atlas-badge-text",
+        x: midpoint.x.toFixed(1),
+        y: midpoint.y.toFixed(1)
+      });
+      badgeText.textContent = String(stage.order);
+      routeNode.appendChild(badgeText);
+
+      const isEastHalf = Number(stage && stage.midpoint && stage.midpoint.x) > 50;
+      const label = createSvgNode("text", {
+        class: "bridge-atlas-label",
+        x: (midpoint.x + (isEastHalf ? -11 : 11)).toFixed(1),
+        y: (midpoint.y - 11).toFixed(1),
+        "text-anchor": isEastHalf ? "end" : "start"
+      });
+      label.textContent = String(stage && stage.shortLabel ? stage.shortLabel : "");
+      routeNode.appendChild(label);
+    });
+
+    if (routeNode.childNodes.length > 0) {
+      group.appendChild(routeNode);
+    }
+  });
+
+  if (!group.childNodes.length) {
+    el.bridgeAtlasLayer.style.display = "none";
+    el.bridgeAtlasLayer.replaceChildren();
+    return;
+  }
+
+  el.bridgeAtlasLayer.style.display = "block";
+  el.bridgeAtlasLayer.replaceChildren(group);
+}
+
+function renderBridgeAtlasPanel() {
+  if (!el.bridgeAtlas) return;
+  if (!state.bridgeAtlasEnabled) {
+    el.bridgeAtlas.innerHTML = "<p class=\"bridge-atlas-line\">Bridge Atlas is hidden. Re-enable it in Controls to restore the stage-by-stage bridge guide.</p>";
+    return;
+  }
+
+  const entries = getBridgeAtlasEntries();
+  if (entries.length === 0) {
+    el.bridgeAtlas.innerHTML = "<p class=\"bridge-atlas-line\">Bridge Atlas appears when Bridge Course can be decomposed into named stages.</p>";
+    return;
+  }
+
+  const activeWaypointId = state.activeTrace
+    ? state.activeTrace.type === "landmark"
+      ? String(getLandmarkId(state.activeTrace) || "")
+      : String(state.activeTrace.id || "")
+    : "";
+  const totalStages = entries.reduce((acc, entry) => acc + (Array.isArray(entry && entry.stages) ? entry.stages.length : 0), 0);
+  const totalWaypoints = entries.reduce((acc, entry) => acc + (Array.isArray(entry && entry.waypoints) ? entry.waypoints.length : 0), 0);
+  const introTrackingLine = entries.length === 1
+    ? "Tracking 1 bridge atlas from Bridge Index Aperture to Ember Shelf Relay across 9 named stages."
+    : `Tracking ${entries.length} bridge atlases from external apertures to recovered destination relays across ${totalStages} named stages.`;
+
+  const listHtml = entries.map((entry, index) => {
+    const entryStages = Array.isArray(entry && entry.stages) ? entry.stages : [];
+    const entryIsActive = Boolean(
+      activeWaypointId &&
+      entryStages.some((stage) => (
+        (stage && stage.sourceId && stage.sourceId === activeWaypointId) ||
+        (stage && stage.destinationId && stage.destinationId === activeWaypointId)
+      ))
+    );
+    const strongLine = entries.length === 1
+      ? "#1 · Bridge Index Aperture → Ember Shelf Relay"
+      : `#${index + 1} · ${String(entry && entry.source && entry.source.title ? entry.source.title : "Unknown source")} → ${String(entry && entry.destinationRelay && entry.destinationRelay.title ? entry.destinationRelay.title : "Unknown destination")}`;
+    const contextLine = entries.length === 1
+      ? "Bearing · Handoff · Lock continuation · Lock transit · Relay rejoin · Ringway span · Landing route · Exchange route · Recovery route"
+      : entryStages.map((stage) => String(stage && stage.shortLabel ? stage.shortLabel : "").trim()).filter(Boolean).join(" · ");
+    const stageHtml = entryStages.map((stage) => {
+      const isStageActive = Boolean(
+        activeWaypointId &&
+        (
+          (stage.sourceId && stage.sourceId === activeWaypointId) ||
+          (stage.destinationId && stage.destinationId === activeWaypointId)
+        )
+      );
+      return `
+        <button type="button" class="bridge-atlas-stage${isStageActive ? " is-active" : ""}" data-bridge-atlas-stage-key="${escapeHtml(stage.key)}">
+          <span>${escapeHtml(`${stage.order}.`)}</span>
+          <span>${escapeHtml(stage.label)}</span>
+        </button>
+      `;
+    }).join("");
+
+    return `
+      <div class="bridge-atlas-item${entryIsActive ? " is-active" : ""}">
+        <strong>${escapeHtml(strongLine)}</strong>
+        <span>${escapeHtml(contextLine)}</span>
+        <div class="bridge-atlas-stage-list">
+          ${stageHtml}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  el.bridgeAtlas.innerHTML = `
+    <p class="bridge-atlas-line">Bridge Atlas unpacks the full navigation-only bridge course into a stage-by-stage guide through The Signal Cartographer.</p>
+    <p class="bridge-atlas-line">${escapeHtml(introTrackingLine)}</p>
+    <p class="bridge-atlas-line">These atlas stages are travel infrastructure, not part of The Signal Cartographer's evidence chain.</p>
+    <div class="bridge-atlas-actions">
+      <button type="button" class="bridge-atlas-action" data-bridge-atlas-action="center">Center on bridge atlas</button>
+      <button type="button" class="bridge-atlas-action" data-bridge-atlas-action="jump-relay">Jump to destination relay</button>
+    </div>
+    <div class="bridge-atlas-meta">
+      <span class="bridge-atlas-pill">Atlases: ${entries.length}</span>
+      <span class="bridge-atlas-pill">Stages: ${totalStages}</span>
+      <span class="bridge-atlas-pill">Waypoints: ${totalWaypoints}</span>
+      <span class="bridge-atlas-pill">Mode: Navigation only</span>
+    </div>
+    <p class="bridge-atlas-subtitle">Stage-by-stage guide</p>
+    <div class="bridge-atlas-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
 function centerViewportOnBridgeBearings() {
   const entries = getBridgeBearingEntries();
   if (entries.length === 0) return;
@@ -9089,6 +9418,8 @@ function setActiveTrace(marker) {
   renderBridgeRecoveriesPanel();
   renderBridgeCourseOverlay();
   renderBridgeCoursePanel();
+  renderBridgeAtlasOverlay();
+  renderBridgeAtlasPanel();
   renderVerificationChain();
   renderBeaconLedger();
   renderEchoMarkers();
@@ -12129,6 +12460,7 @@ function initInteractions() {
   state.bridgeExchangesEnabled = !el.toggleBridgeExchanges || el.toggleBridgeExchanges.checked;
   state.bridgeRecoveriesEnabled = !el.toggleBridgeRecoveries || el.toggleBridgeRecoveries.checked;
   state.bridgeCourseEnabled = !el.toggleBridgeCourse || el.toggleBridgeCourse.checked;
+  state.bridgeAtlasEnabled = !el.toggleBridgeAtlas || el.toggleBridgeAtlas.checked;
   state.signalRelaysEnabled = !el.toggleSignalRelays || el.toggleSignalRelays.checked;
   state.driftCurrentsEnabled = !el.toggleDriftCurrents || el.toggleDriftCurrents.checked;
   state.transitLocksEnabled = !el.toggleTransitLocks || el.toggleTransitLocks.checked;
@@ -12602,6 +12934,8 @@ function initInteractions() {
       renderBridgeRecoveriesPanel();
       renderBridgeCourseOverlay();
       renderBridgeCoursePanel();
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
     });
   }
 
@@ -12624,6 +12958,8 @@ function initInteractions() {
       renderBridgeRecoveriesPanel();
       renderBridgeCourseOverlay();
       renderBridgeCoursePanel();
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
     });
   }
 
@@ -12644,6 +12980,8 @@ function initInteractions() {
       renderBridgeRecoveriesPanel();
       renderBridgeCourseOverlay();
       renderBridgeCoursePanel();
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
     });
   }
 
@@ -12662,6 +13000,8 @@ function initInteractions() {
       renderBridgeRecoveriesPanel();
       renderBridgeCourseOverlay();
       renderBridgeCoursePanel();
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
     });
   }
 
@@ -12678,6 +13018,8 @@ function initInteractions() {
       renderBridgeRecoveriesPanel();
       renderBridgeCourseOverlay();
       renderBridgeCoursePanel();
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
     });
   }
 
@@ -12692,6 +13034,8 @@ function initInteractions() {
       renderBridgeRecoveriesPanel();
       renderBridgeCourseOverlay();
       renderBridgeCoursePanel();
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
     });
   }
 
@@ -12704,6 +13048,8 @@ function initInteractions() {
       renderBridgeRecoveriesPanel();
       renderBridgeCourseOverlay();
       renderBridgeCoursePanel();
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
     });
   }
 
@@ -12714,6 +13060,8 @@ function initInteractions() {
       renderBridgeRecoveriesPanel();
       renderBridgeCourseOverlay();
       renderBridgeCoursePanel();
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
     });
   }
 
@@ -12722,6 +13070,16 @@ function initInteractions() {
       state.bridgeCourseEnabled = el.toggleBridgeCourse.checked;
       renderBridgeCourseOverlay();
       renderBridgeCoursePanel();
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
+    });
+  }
+
+  if (el.toggleBridgeAtlas) {
+    el.toggleBridgeAtlas.addEventListener("change", () => {
+      state.bridgeAtlasEnabled = el.toggleBridgeAtlas.checked;
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
     });
   }
 
@@ -13716,6 +14074,43 @@ function initInteractions() {
     });
   }
 
+  if (el.bridgeAtlas) {
+    el.bridgeAtlas.addEventListener("click", (ev) => {
+      const actionNode = ev.target instanceof Element
+        ? ev.target.closest("[data-bridge-atlas-action], [data-bridge-atlas-stage-key]")
+        : null;
+      if (!actionNode) return;
+
+      const stageKey = String(actionNode.getAttribute("data-bridge-atlas-stage-key") || "").trim();
+      if (stageKey) {
+        const stage = getBridgeAtlasEntries()
+          .flatMap((entry) => (Array.isArray(entry && entry.stages) ? entry.stages : []))
+          .find((entryStage) => String(entryStage && entryStage.key ? entryStage.key : "").trim() === stageKey);
+        if (!stage || !stage.midpoint) return;
+        centerViewportOnPercentCoord(stage.midpoint, { scale: state.scale });
+        if (!stage.destination || stage.destination.type === "bridge-exit") return;
+        if (stage.destination.type === "relay" && stage.destinationId) {
+          activateRelayMarkerById(stage.destinationId);
+          return;
+        }
+        if (stage.destination.type === "transit-lock" && stage.destinationId) {
+          activateTransitLockMarkerById(stage.destinationId);
+        }
+        return;
+      }
+
+      const action = actionNode.getAttribute("data-bridge-atlas-action");
+      if (!action || (actionNode instanceof HTMLButtonElement && actionNode.disabled)) return;
+      if (action === "center") {
+        centerViewportOnBridgeAtlas();
+        return;
+      }
+      if (action === "jump-relay") {
+        jumpToPrimaryBridgeAtlasDestination();
+      }
+    });
+  }
+
   if (el.signalRelays) {
     el.signalRelays.addEventListener("click", (ev) => {
       const actionNode = ev.target instanceof Element ? ev.target.closest("[data-relay-action], [data-relay-id]") : null;
@@ -13943,6 +14338,8 @@ function initInteractions() {
   renderBridgeRecoveriesPanel();
   renderBridgeCourseOverlay();
   renderBridgeCoursePanel();
+  renderBridgeAtlasOverlay();
+  renderBridgeAtlasPanel();
   renderVerificationChain();
   renderVerificationRoute();
   renderEchoMarkers();
@@ -14042,6 +14439,8 @@ async function initBeacons() {
       renderBridgeRecoveriesPanel();
       renderBridgeCourseOverlay();
       renderBridgeCoursePanel();
+      renderBridgeAtlasOverlay();
+      renderBridgeAtlasPanel();
       renderBeaconLedger();
     }
     renderVerificationRoute();

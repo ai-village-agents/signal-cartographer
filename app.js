@@ -669,6 +669,7 @@ const el = {
   beaconLedger: document.getElementById("beaconLedger"),
   accountabilityCensus: document.getElementById("accountabilityCensus"),
   regionSurvey: document.getElementById("regionSurvey"),
+  jurisdictionSurvey: document.getElementById("jurisdictionSurvey"),
   recenterBtn: document.getElementById("recenterBtn"),
   toggleLandmarks: document.getElementById("toggleLandmarks"),
   toggleBeacons: document.getElementById("toggleBeacons"),
@@ -1256,6 +1257,7 @@ function setRegionDetail(regionName) {
   }
   state.activeRegion = regionName;
   renderRegionSurvey();
+  renderJurisdictionSurvey();
 }
 
 function focusRegion(regionName) {
@@ -8606,48 +8608,14 @@ function renderBridgeAperturePanel() {
   `;
 }
 
-function renderTraceJurisdictionPanel() {
-  if (!el.traceJurisdiction) return;
-  const trace = state.activeTrace;
-  if (!trace) {
-    el.traceJurisdiction.innerHTML = "<p class=\"small\">Select a trace to inspect whether it belongs to navigation-only bridge infrastructure, the public evidence chain, visitor testimony, or neutral world scaffolding.</p>";
-    return;
-  }
-
-  const activeRef = markerRef(trace);
-  const activeIssue = parseIssueNumber(trace && trace.issueNumber);
-  const activeLandmarkId = trace && trace.type === "landmark" ? String(getLandmarkId(trace) || "").trim() : "";
-  const activeNodeId = trace && trace.type !== "landmark" ? String(trace.id || "").trim() : "";
-  const isBeacon = trace && trace.type === "beacon";
-  const isDriftSignal = Boolean(isBeacon && trace.isDriftSignal);
-
+function getTraceJurisdictionClassificationContext() {
   const bridgeEntries = getBridgeAtlasEntries();
-  const getBridgeWaypointRef = (waypoint) => {
-    if (!waypoint || !waypoint.id) return "";
-    if (waypoint.type === "landmark") return `landmark:${String(waypoint.id)}`;
-    if (waypoint.type === "relay") return `relay:${String(waypoint.id)}`;
-    if (waypoint.type === "transit-lock") return `transit-lock:${String(waypoint.id)}`;
-    return "";
-  };
-  const isInBridgeAtlas = Boolean(
-    activeRef
-    && bridgeEntries.some((entry) => (
-      Array.isArray(entry && entry.waypoints)
-      && entry.waypoints.some((waypoint) => getBridgeWaypointRef(waypoint) === activeRef)
-    ))
-  );
-
   const charterEntry = getRouteCharterEntry();
-  const activeAnchorKey = charterEntry ? getActiveRouteCharterAnchorKey(charterEntry) : "";
-  const charterSideLabel = activeAnchorKey.startsWith("navigation:")
-    ? "Navigation side"
-    : activeAnchorKey.startsWith("evidence:")
-      ? "Evidence side"
-      : "Outside charter";
-  const isBridgeIndexApertureAnchor = activeAnchorKey === "navigation:bridge-index-aperture";
 
-  let verificationEntries = getVerificationSpurEntries();
-  if (!state.revisionDeltaEnabled) {
+  let verificationEntries;
+  if (state.revisionDeltaEnabled) {
+    verificationEntries = getVerificationSpurEntries();
+  } else {
     const previousRevisionDeltaEnabled = state.revisionDeltaEnabled;
     state.revisionDeltaEnabled = true;
     try {
@@ -8656,31 +8624,105 @@ function renderTraceJurisdictionPanel() {
       state.revisionDeltaEnabled = previousRevisionDeltaEnabled;
     }
   }
-  const accountabilityEntries = getAccountabilitySpineEntries();
-  const ledgerEntries = getLedgerIngressEntries();
 
-  const includesIssue = (entries) => (
+  return {
+    bridgeEntries,
+    charterEntry,
+    verificationEntries,
+    accountabilityEntries: getAccountabilitySpineEntries(),
+    ledgerEntries: getLedgerIngressEntries()
+  };
+}
+
+function getRouteCharterAnchorKeyForTrace(trace, charterEntry) {
+  if (!charterEntry || !trace) return "";
+  const traceType = String(trace.type || "").trim();
+  if (traceType === "landmark") {
+    const landmarkId = String(getLandmarkId(trace) || "");
+    if (!landmarkId) return "";
+    const match = charterEntry.anchors.find((anchor) => anchor.type === "landmark" && anchor.id === landmarkId);
+    return match ? match.key : "";
+  }
+  if (traceType === "relay") {
+    const relayId = String(trace.id || "");
+    if (!relayId) return "";
+    const match = charterEntry.anchors.find((anchor) => anchor.type === "relay" && anchor.id === relayId);
+    return match ? match.key : "";
+  }
+  return "";
+}
+
+function getTraceJurisdictionClassificationDetails(trace, context = null) {
+  if (!trace) return null;
+
+  const activeRef = markerRef(trace);
+  const activeIssue = parseIssueNumber(trace && trace.issueNumber);
+  const activeLandmarkId = trace && trace.type === "landmark" ? String(getLandmarkId(trace) || "").trim() : "";
+  const activeNodeId = trace && trace.type !== "landmark" ? String(trace.id || "").trim() : "";
+  const isBeacon = trace && trace.type === "beacon";
+  const isDriftSignal = Boolean(isBeacon && trace.isDriftSignal);
+  const jurisdictionContext = context || getTraceJurisdictionClassificationContext();
+  const bridgeEntries = jurisdictionContext.bridgeEntries;
+  const charterEntry = jurisdictionContext.charterEntry;
+  const verificationEntries = jurisdictionContext.verificationEntries;
+  const accountabilityEntries = jurisdictionContext.accountabilityEntries;
+  const ledgerEntries = jurisdictionContext.ledgerEntries;
+
+  const getBridgeWaypointRef = (waypoint) => {
+    if (!waypoint || !waypoint.id) return "";
+    if (waypoint.type === "landmark") return `landmark:${String(waypoint.id)}`;
+    if (waypoint.type === "relay") return `relay:${String(waypoint.id)}`;
+    if (waypoint.type === "transit-lock") return `transit-lock:${String(waypoint.id)}`;
+    return "";
+  };
+
+  const isInBridgeAtlas = Boolean(
+    activeRef
+    && bridgeEntries.some((entry) => (
+      Array.isArray(entry && entry.waypoints)
+      && entry.waypoints.some((waypoint) => getBridgeWaypointRef(waypoint) === activeRef)
+    ))
+  );
+
+  const activeAnchorKey = getRouteCharterAnchorKeyForTrace(trace, charterEntry);
+  const charterSideLabel = activeAnchorKey.startsWith("navigation:")
+    ? "Navigation side"
+    : activeAnchorKey.startsWith("evidence:")
+      ? "Evidence side"
+      : "Outside charter";
+  const isBridgeIndexApertureAnchor = activeAnchorKey === "navigation:bridge-index-aperture";
+
+  const matchesIssue = (entry) => (
     activeIssue !== null
-    && entries.some((entry) => parseIssueNumber(entry && entry.issueNumber) === activeIssue)
+    && parseIssueNumber(entry && entry.issueNumber) === activeIssue
   );
-  const includesLandmarkRef = (entries, fields) => (
+  const matchesLandmarkFields = (entry, fields) => (
     Boolean(activeRef && activeLandmarkId)
-    && entries.some((entry) => fields.some((field) => markerRef(entry && entry[field]) === activeRef))
+    && fields.some((field) => markerRef(entry && entry[field]) === activeRef)
   );
-  const includesNodeId = (entries, field) => (
+  const matchesNodeField = (entry, field) => (
     Boolean(activeNodeId && field)
-    && entries.some((entry) => String(entry && entry[field] && entry[field].id ? entry[field].id : "").trim() === activeNodeId)
+    && String(entry && entry[field] && entry[field].id ? entry[field].id : "").trim() === activeNodeId
   );
 
-  const inVerificationSpurs = includesIssue(verificationEntries)
-    || includesLandmarkRef(verificationEntries, ["outletLandmark", "railLandmark"]);
-  const inAccountabilitySpine = includesIssue(accountabilityEntries)
-    || includesLandmarkRef(accountabilityEntries, ["outletLandmark", "railLandmark"])
-    || includesNodeId(accountabilityEntries, "beacon");
-  const inLedgerIngress = includesIssue(ledgerEntries)
-    || includesLandmarkRef(ledgerEntries, ["outletLandmark", "railLandmark", "ledgerLandmark"])
-    || includesNodeId(ledgerEntries, "beacon");
+  const matchedVerificationEntries = verificationEntries.filter((entry) => (
+    matchesIssue(entry)
+    || matchesLandmarkFields(entry, ["outletLandmark", "railLandmark"])
+  ));
+  const matchedAccountabilityEntries = accountabilityEntries.filter((entry) => (
+    matchesIssue(entry)
+    || matchesLandmarkFields(entry, ["outletLandmark", "railLandmark"])
+    || matchesNodeField(entry, "beacon")
+  ));
+  const matchedLedgerEntries = ledgerEntries.filter((entry) => (
+    matchesIssue(entry)
+    || matchesLandmarkFields(entry, ["outletLandmark", "railLandmark", "ledgerLandmark"])
+    || matchesNodeField(entry, "beacon")
+  ));
 
+  const inVerificationSpurs = matchedVerificationEntries.length > 0;
+  const inAccountabilitySpine = matchedAccountabilityEntries.length > 0;
+  const inLedgerIngress = matchedLedgerEntries.length > 0;
   const isInEvidenceChain = Boolean(inVerificationSpurs || inAccountabilitySpine || inLedgerIngress);
 
   const primaryJurisdiction = isInBridgeAtlas
@@ -8690,13 +8732,6 @@ function renderTraceJurisdictionPanel() {
       : isBeacon
         ? "Visitor testimony"
         : "Neutral infrastructure";
-
-  const summaryByPrimary = {
-    "Navigation only": "This trace belongs to the navigation-only bridge stack. Route Charter treats it as travel infrastructure rather than part of The Signal Cartographer's evidence chain.",
-    "Evidence chain": "This trace belongs to the public evidence chain. Its visible route carries public records toward Witness Ledger rather than serving as navigation-only bridge infrastructure.",
-    "Visitor testimony": "This trace is a visitor-submitted public mark. It remains permanent testimony in the Beacon Ledger even when it is not currently routed into the live evidence chain.",
-    "Neutral infrastructure": "This trace is part of the built-in world. It supports exploration or map structure without currently belonging to the bridge charter or the public evidence chain."
-  };
 
   const secondaryPills = [];
   if (primaryJurisdiction === "Evidence chain" && isBeacon) {
@@ -8709,17 +8744,12 @@ function renderTraceJurisdictionPanel() {
     secondaryPills.push("External navigation hub");
   }
 
-  const membershipItems = [];
+  const memberships = [];
   const seenMemberships = new Set();
   const addMembership = (key, title, detail) => {
     if (seenMemberships.has(key)) return;
     seenMemberships.add(key);
-    membershipItems.push(`
-      <div class="trace-jurisdiction-item">
-        <strong>${escapeHtml(title)}</strong>
-        <span>${escapeHtml(detail)}</span>
-      </div>
-    `);
+    memberships.push({ key, title, detail });
   };
 
   if (isBeacon) {
@@ -8773,13 +8803,70 @@ function renderTraceJurisdictionPanel() {
       "Assigned to a deterministic perimeter berth until usable x/y coordinates are published."
     );
   }
-  if (membershipItems.length === 0) {
+  if (memberships.length === 0) {
     addMembership(
       "base-world",
       "Base world",
       "This trace currently sits outside the bridge charter and the live public evidence chain."
     );
   }
+
+  const allEvidenceMatches = matchedVerificationEntries
+    .concat(matchedAccountabilityEntries)
+    .concat(matchedLedgerEntries);
+  const evidenceFreshestActivityTs = allEvidenceMatches.reduce((maxTs, entry) => {
+    const ts = Number.isFinite(entry && entry.latestActivityTs) ? Number(entry.latestActivityTs) : null;
+    if (ts === null) return maxTs;
+    return maxTs === null ? ts : Math.max(maxTs, ts);
+  }, null);
+
+  return {
+    activeAnchorKey,
+    charterSideLabel,
+    isInBridgeAtlas,
+    isInEvidenceChain,
+    inVerificationSpurs,
+    inAccountabilitySpine,
+    inLedgerIngress,
+    isBeacon,
+    isDriftSignal,
+    primaryJurisdiction,
+    secondaryPills,
+    memberships,
+    evidenceFreshestActivityTs
+  };
+}
+
+function renderTraceJurisdictionPanel() {
+  if (!el.traceJurisdiction) return;
+  const trace = state.activeTrace;
+  if (!trace) {
+    el.traceJurisdiction.innerHTML = "<p class=\"small\">Select a trace to inspect whether it belongs to navigation-only bridge infrastructure, the public evidence chain, visitor testimony, or neutral world scaffolding.</p>";
+    return;
+  }
+
+  const context = getTraceJurisdictionClassificationContext();
+  const details = getTraceJurisdictionClassificationDetails(trace, context);
+  if (!details) return;
+  const {
+    primaryJurisdiction,
+    charterSideLabel,
+    secondaryPills
+  } = details;
+
+  const summaryByPrimary = {
+    "Navigation only": "This trace belongs to the navigation-only bridge stack. Route Charter treats it as travel infrastructure rather than part of The Signal Cartographer's evidence chain.",
+    "Evidence chain": "This trace belongs to the public evidence chain. Its visible route carries public records toward Witness Ledger rather than serving as navigation-only bridge infrastructure.",
+    "Visitor testimony": "This trace is a visitor-submitted public mark. It remains permanent testimony in the Beacon Ledger even when it is not currently routed into the live evidence chain.",
+    "Neutral infrastructure": "This trace is part of the built-in world. It supports exploration or map structure without currently belonging to the bridge charter or the public evidence chain."
+  };
+
+  const membershipItems = details.memberships.map((membership) => `
+    <div class="trace-jurisdiction-item">
+      <strong>${escapeHtml(membership.title)}</strong>
+      <span>${escapeHtml(membership.detail)}</span>
+    </div>
+  `);
 
   const pills = [
     `<span class="trace-jurisdiction-pill">${escapeHtml(primaryJurisdiction)}</span>`,
@@ -9836,6 +9923,161 @@ function renderRegionSurvey() {
   });
 }
 
+function renderJurisdictionSurvey() {
+  if (!el.jurisdictionSurvey) return;
+
+  const regionNames = Object.keys(REGION_COPY);
+  const regionRows = new Map(regionNames.map((regionName) => [regionName, []]));
+  const jurisdictionContext = getTraceJurisdictionClassificationContext();
+  const traceRows = []
+    .concat(BUILTIN_LANDMARKS.map((landmark) => ({ ...landmark, type: "landmark" })))
+    .concat(ECHO_SITES.map((echo) => ({ ...echo, type: "echo" })))
+    .concat(LATTICE_STATIONS.map((station) => ({ ...station, type: "lattice" })))
+    .concat(SIGNAL_RELAYS.map((relay) => ({ ...relay, type: "relay" })))
+    .concat(DRIFT_CURRENTS.map((current) => ({ ...current, type: "current" })))
+    .concat(TRANSIT_LOCKS.map((lock) => ({ ...lock, type: "transit-lock" })))
+    .concat((Array.isArray(state.beacons) ? state.beacons : []).map((beacon) => ({ ...beacon, type: "beacon" })))
+    .map((trace) => {
+      const regionName = String(trace && trace.region ? trace.region : "").trim();
+      const details = getTraceJurisdictionClassificationDetails(trace, jurisdictionContext);
+      if (!details || !regionRows.has(regionName)) return null;
+      return {
+        trace,
+        regionName,
+        details
+      };
+    })
+    .filter(Boolean);
+
+  traceRows.forEach((row) => {
+    regionRows.get(row.regionName).push(row);
+  });
+
+  const representativeEvidenceByRegion = new Map();
+  const listHtml = regionNames
+    .map((regionName) => {
+      const rows = regionRows.get(regionName) || [];
+      const totalCount = rows.length;
+      const counts = rows.reduce((acc, row) => {
+        const key = row && row.details ? row.details.primaryJurisdiction : "";
+        if (Object.prototype.hasOwnProperty.call(acc, key)) {
+          acc[key] += 1;
+        }
+        return acc;
+      }, {
+        "Navigation only": 0,
+        "Evidence chain": 0,
+        "Visitor testimony": 0,
+        "Neutral infrastructure": 0
+      });
+
+      const dominantEntries = Object.entries(counts)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      const dominantCount = dominantEntries.length > 0 ? dominantEntries[0][1] : 0;
+      const dominantJurisdictions = dominantEntries
+        .filter((entry) => entry[1] === dominantCount && dominantCount > 0)
+        .map((entry) => entry[0]);
+      const dominantLine = totalCount === 0
+        ? "No activatable traces are currently mapped in this region."
+        : dominantJurisdictions.length === 1
+          ? `${dominantJurisdictions[0]} currently leads this region (${dominantCount} of ${totalCount} traces).`
+          : `This region is evenly split at the top across ${dominantJurisdictions.join(", ")} (${dominantCount} each).`;
+
+      const evidenceBeaconCandidates = rows
+        .filter((row) => row && row.details && row.details.primaryJurisdiction === "Evidence chain" && row.trace.type === "beacon")
+        .map((row) => row.trace);
+      const evidenceNonBeaconCandidates = rows
+        .filter((row) => row && row.details && row.details.primaryJurisdiction === "Evidence chain" && row.trace.type !== "beacon")
+        .map((row) => row.trace);
+      const representativeEvidenceBeacon = evidenceBeaconCandidates.slice().sort(compareBeaconLedger)[0] || null;
+      const representativeEvidenceNonBeacon = evidenceNonBeaconCandidates
+        .slice()
+        .sort((a, b) => markerRef(a).localeCompare(markerRef(b)) || traceKey(a).localeCompare(traceKey(b)))[0] || null;
+      const representativeEvidence = representativeEvidenceBeacon || representativeEvidenceNonBeacon || null;
+
+      if (representativeEvidence) {
+        representativeEvidenceByRegion.set(regionName, representativeEvidence);
+      }
+
+      const actions = [
+        `<button type="button" class="survey-action" data-jurisdiction-survey-focus="${escapeHtml(regionName)}">Focus region</button>`,
+        `<button type="button" class="survey-action" data-jurisdiction-survey-ledger-region="${escapeHtml(regionName)}">Browse visitor testimony</button>`
+      ];
+      if (representativeEvidenceByRegion.has(regionName)) {
+        actions.push(`<button type="button" class="survey-action" data-jurisdiction-survey-evidence-region="${escapeHtml(regionName)}">Inspect evidence chain</button>`);
+      }
+
+      return `
+        <li>
+          <button type="button" class="survey-item${state.activeRegion === regionName ? " is-active" : ""}" data-jurisdiction-survey-region="${escapeHtml(regionName)}">
+            <span class="survey-header">${escapeHtml(regionName)}</span>
+            <span class="survey-copy">${escapeHtml(REGION_COPY[regionName] || "")}</span>
+            <span class="survey-meta">
+              <span class="survey-pill">Total traces: ${totalCount}</span>
+              <span class="survey-pill">Navigation only: ${counts["Navigation only"]}</span>
+              <span class="survey-pill">Evidence chain: ${counts["Evidence chain"]}</span>
+              <span class="survey-pill">Visitor testimony: ${counts["Visitor testimony"]}</span>
+              <span class="survey-pill">Neutral infrastructure: ${counts["Neutral infrastructure"]}</span>
+            </span>
+            <span class="survey-accountability">${escapeHtml(dominantLine)}</span>
+          </button>
+          <div class="survey-actions">
+            ${actions.join("")}
+          </div>
+        </li>
+      `;
+    })
+    .join("");
+
+  el.jurisdictionSurvey.innerHTML = `<ul class="survey-list">${listHtml}</ul>`;
+
+  el.jurisdictionSurvey.querySelectorAll("[data-jurisdiction-survey-region]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const regionName = node.dataset.jurisdictionSurveyRegion;
+      if (!regionName) return;
+      activateRegion(regionName, { updateHash: true });
+    });
+  });
+
+  el.jurisdictionSurvey.querySelectorAll("[data-jurisdiction-survey-focus]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const regionName = node.dataset.jurisdictionSurveyFocus;
+      if (!regionName) return;
+      activateRegion(regionName, { updateHash: true });
+    });
+  });
+
+  el.jurisdictionSurvey.querySelectorAll("[data-jurisdiction-survey-ledger-region]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const regionName = node.dataset.jurisdictionSurveyLedgerRegion;
+      if (!regionName) return;
+      if (el.ledgerRegionFilter) {
+        el.ledgerRegionFilter.value = regionName;
+      }
+      if (el.ledgerPostureFilter) {
+        el.ledgerPostureFilter.value = "All postures";
+      }
+      handleLedgerFilterChange();
+    });
+  });
+
+  el.jurisdictionSurvey.querySelectorAll("[data-jurisdiction-survey-evidence-region]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const regionName = node.dataset.jurisdictionSurveyEvidenceRegion;
+      if (!regionName) return;
+      const representative = representativeEvidenceByRegion.get(regionName);
+      if (!representative) return;
+      activateMarker(representative, { focus: true, updateHash: true });
+    });
+  });
+}
+
 function setActiveTrace(marker) {
   state.activeTrace = marker
     ? {
@@ -9855,6 +10097,7 @@ function setActiveTrace(marker) {
   renderTransitLockOverlay();
   renderVerificationRoute();
   renderTracePanel();
+  renderJurisdictionSurvey();
   renderBridgeAperturePanel();
   renderBridgeBearingsOverlay();
   renderBridgeBearingsPanel();
@@ -12699,6 +12942,7 @@ async function fetchBeaconComments() {
     renderRevisionEstuaryPanel();
     renderRevisionDeltaOverlay();
     renderRevisionDeltaPanel();
+    renderJurisdictionSurvey();
     return;
   }
 
@@ -12723,6 +12967,7 @@ async function fetchBeaconComments() {
     renderRevisionEstuaryPanel();
     renderRevisionDeltaOverlay();
     renderRevisionDeltaPanel();
+    renderJurisdictionSurvey();
     return;
   }
 
@@ -12782,6 +13027,7 @@ async function fetchBeaconComments() {
   renderRevisionEstuaryPanel();
   renderRevisionDeltaOverlay();
   renderRevisionDeltaPanel();
+  renderJurisdictionSurvey();
 }
 
 function scheduleBeaconCommentRefresh() {
@@ -14926,6 +15172,7 @@ async function initBeacons() {
     const beacons = await fetchBeaconIssues();
     state.beacons = beacons;
     renderRegionSurvey();
+    renderJurisdictionSurvey();
     const restoredFromHash = restoreHashSelection();
     if (restoredFromHash) {
       state.restoredHashSelection = true;
@@ -15008,6 +15255,7 @@ async function initBeacons() {
     console.error(err);
     state.beacons = [];
     renderRegionSurvey();
+    renderJurisdictionSurvey();
     renderBeaconLedger();
     renderVerificationRoute();
     renderVerificationChain();

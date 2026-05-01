@@ -655,6 +655,7 @@ const el = {
   beaconColor: document.getElementById("beaconColor"),
   statusMsg: document.getElementById("statusMsg"),
   tracePanel: document.getElementById("tracePanel"),
+  traceJurisdiction: document.getElementById("traceJurisdiction"),
   bridgeAperture: document.getElementById("bridgeAperture"),
   verificationChain: document.getElementById("verificationChain"),
   permalinkStatus: document.getElementById("permalinkStatus"),
@@ -8605,11 +8606,203 @@ function renderBridgeAperturePanel() {
   `;
 }
 
+function renderTraceJurisdictionPanel() {
+  if (!el.traceJurisdiction) return;
+  const trace = state.activeTrace;
+  if (!trace) {
+    el.traceJurisdiction.innerHTML = "<p class=\"small\">Select a trace to inspect whether it belongs to navigation-only bridge infrastructure, the public evidence chain, visitor testimony, or neutral world scaffolding.</p>";
+    return;
+  }
+
+  const activeRef = markerRef(trace);
+  const activeIssue = parseIssueNumber(trace && trace.issueNumber);
+  const activeLandmarkId = trace && trace.type === "landmark" ? String(getLandmarkId(trace) || "").trim() : "";
+  const activeNodeId = trace && trace.type !== "landmark" ? String(trace.id || "").trim() : "";
+  const isBeacon = trace && trace.type === "beacon";
+  const isDriftSignal = Boolean(isBeacon && trace.isDriftSignal);
+
+  const bridgeEntries = getBridgeAtlasEntries();
+  const getBridgeWaypointRef = (waypoint) => {
+    if (!waypoint || !waypoint.id) return "";
+    if (waypoint.type === "landmark") return `landmark:${String(waypoint.id)}`;
+    if (waypoint.type === "relay") return `relay:${String(waypoint.id)}`;
+    if (waypoint.type === "transit-lock") return `transit-lock:${String(waypoint.id)}`;
+    return "";
+  };
+  const isInBridgeAtlas = Boolean(
+    activeRef
+    && bridgeEntries.some((entry) => (
+      Array.isArray(entry && entry.waypoints)
+      && entry.waypoints.some((waypoint) => getBridgeWaypointRef(waypoint) === activeRef)
+    ))
+  );
+
+  const charterEntry = getRouteCharterEntry();
+  const activeAnchorKey = charterEntry ? getActiveRouteCharterAnchorKey(charterEntry) : "";
+  const charterSideLabel = activeAnchorKey.startsWith("navigation:")
+    ? "Navigation side"
+    : activeAnchorKey.startsWith("evidence:")
+      ? "Evidence side"
+      : "Outside charter";
+  const isBridgeIndexApertureAnchor = activeAnchorKey === "navigation:bridge-index-aperture";
+
+  let verificationEntries = getVerificationSpurEntries();
+  if (!state.revisionDeltaEnabled) {
+    const previousRevisionDeltaEnabled = state.revisionDeltaEnabled;
+    state.revisionDeltaEnabled = true;
+    try {
+      verificationEntries = getVerificationSpurEntries();
+    } finally {
+      state.revisionDeltaEnabled = previousRevisionDeltaEnabled;
+    }
+  }
+  const accountabilityEntries = getAccountabilitySpineEntries();
+  const ledgerEntries = getLedgerIngressEntries();
+
+  const includesIssue = (entries) => (
+    activeIssue !== null
+    && entries.some((entry) => parseIssueNumber(entry && entry.issueNumber) === activeIssue)
+  );
+  const includesLandmarkRef = (entries, fields) => (
+    Boolean(activeRef && activeLandmarkId)
+    && entries.some((entry) => fields.some((field) => markerRef(entry && entry[field]) === activeRef))
+  );
+  const includesNodeId = (entries, field) => (
+    Boolean(activeNodeId && field)
+    && entries.some((entry) => String(entry && entry[field] && entry[field].id ? entry[field].id : "").trim() === activeNodeId)
+  );
+
+  const inVerificationSpurs = includesIssue(verificationEntries)
+    || includesLandmarkRef(verificationEntries, ["outletLandmark", "railLandmark"]);
+  const inAccountabilitySpine = includesIssue(accountabilityEntries)
+    || includesLandmarkRef(accountabilityEntries, ["outletLandmark", "railLandmark"])
+    || includesNodeId(accountabilityEntries, "beacon");
+  const inLedgerIngress = includesIssue(ledgerEntries)
+    || includesLandmarkRef(ledgerEntries, ["outletLandmark", "railLandmark", "ledgerLandmark"])
+    || includesNodeId(ledgerEntries, "beacon");
+
+  const isInEvidenceChain = Boolean(inVerificationSpurs || inAccountabilitySpine || inLedgerIngress);
+
+  const primaryJurisdiction = isInBridgeAtlas
+    ? "Navigation only"
+    : isInEvidenceChain
+      ? "Evidence chain"
+      : isBeacon
+        ? "Visitor testimony"
+        : "Neutral infrastructure";
+
+  const summaryByPrimary = {
+    "Navigation only": "This trace belongs to the navigation-only bridge stack. Route Charter treats it as travel infrastructure rather than part of The Signal Cartographer's evidence chain.",
+    "Evidence chain": "This trace belongs to the public evidence chain. Its visible route carries public records toward Witness Ledger rather than serving as navigation-only bridge infrastructure.",
+    "Visitor testimony": "This trace is a visitor-submitted public mark. It remains permanent testimony in the Beacon Ledger even when it is not currently routed into the live evidence chain.",
+    "Neutral infrastructure": "This trace is part of the built-in world. It supports exploration or map structure without currently belonging to the bridge charter or the public evidence chain."
+  };
+
+  const secondaryPills = [];
+  if (primaryJurisdiction === "Evidence chain" && isBeacon) {
+    secondaryPills.push("Visitor testimony");
+  }
+  if (primaryJurisdiction === "Visitor testimony" && isDriftSignal) {
+    secondaryPills.push("Drift berth");
+  }
+  if (isBridgeIndexApertureAnchor) {
+    secondaryPills.push("External navigation hub");
+  }
+
+  const membershipItems = [];
+  const seenMemberships = new Set();
+  const addMembership = (key, title, detail) => {
+    if (seenMemberships.has(key)) return;
+    seenMemberships.add(key);
+    membershipItems.push(`
+      <div class="trace-jurisdiction-item">
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(detail)}</span>
+      </div>
+    `);
+  };
+
+  if (isBeacon) {
+    addMembership(
+      "beacon-ledger",
+      "Beacon Ledger",
+      "Public GitHub issue-backed permanent mark that remains part of the visitor testimony record."
+    );
+  }
+  if (isInBridgeAtlas) {
+    addMembership(
+      "bridge-atlas",
+      "Bridge Atlas",
+      "Part of the navigation-only itinerary waypoint stack used for bridge travel infrastructure."
+    );
+  }
+  if (activeAnchorKey) {
+    addMembership(
+      "route-charter",
+      "Route Charter",
+      activeAnchorKey.startsWith("navigation:")
+        ? "This anchor sits on the navigation side of the charter boundary."
+        : "This anchor sits on the evidence side of the charter boundary."
+    );
+  }
+  if (inVerificationSpurs) {
+    addMembership(
+      "verification-spurs",
+      "Verification Spurs",
+      "Participates in outlet-to-rail handoff routes that feed the live public evidence chain."
+    );
+  }
+  if (inAccountabilitySpine) {
+    addMembership(
+      "accountability-spine",
+      "Accountability Spine",
+      "Participates in commenter-to-rail provenance routes across the live evidence chain."
+    );
+  }
+  if (inLedgerIngress) {
+    addMembership(
+      "ledger-ingress",
+      "Ledger Ingress",
+      "Participates in visible deposit flow from Public Rails toward Witness Ledger."
+    );
+  }
+  if (isDriftSignal) {
+    addMembership(
+      "drift-signals",
+      "Drift Signals",
+      "Assigned to a deterministic perimeter berth until usable x/y coordinates are published."
+    );
+  }
+  if (membershipItems.length === 0) {
+    addMembership(
+      "base-world",
+      "Base world",
+      "This trace currently sits outside the bridge charter and the live public evidence chain."
+    );
+  }
+
+  const pills = [
+    `<span class="trace-jurisdiction-pill">${escapeHtml(primaryJurisdiction)}</span>`,
+    `<span class="trace-jurisdiction-pill">${escapeHtml(charterSideLabel)}</span>`,
+    ...secondaryPills.map((label) => `<span class="trace-jurisdiction-pill">${escapeHtml(label)}</span>`)
+  ];
+
+  el.traceJurisdiction.innerHTML = `
+    <p class="trace-jurisdiction-line">${escapeHtml(summaryByPrimary[primaryJurisdiction])}</p>
+    <div class="trace-jurisdiction-meta">${pills.join("")}</div>
+    <p class="trace-jurisdiction-subtitle">System memberships</p>
+    <div class="trace-jurisdiction-list">
+      ${membershipItems.join("")}
+    </div>
+  `;
+}
+
 function renderTracePanel() {
   if (!el.tracePanel) return;
   const trace = state.activeTrace;
   if (!trace) {
     el.tracePanel.innerHTML = '<p class="small">Click a landmark or visitor beacon to inspect it here.</p>';
+    renderTraceJurisdictionPanel();
     return;
   }
 
@@ -8758,6 +8951,7 @@ Assigned berth: x ${Number(trace.x).toFixed(1)} · y ${Number(trace.y).toFixed(1
     ${transitLockSection}
     ${link}
   `;
+  renderTraceJurisdictionPanel();
 }
 
 function measurePercentDistance(a, b) {

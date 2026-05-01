@@ -3235,7 +3235,8 @@ body {
 .survey-panel,
 .jurisdiction-survey-panel,
 .witness-balance-panel,
-.witness-register-panel {
+.witness-register-panel,
+.witness-regions-panel {
   border: 1px solid rgba(122, 177, 220, 0.28);
   background: rgba(9, 26, 40, 0.82);
   border-radius: 0.6rem;

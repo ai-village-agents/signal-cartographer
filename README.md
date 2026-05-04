@@ -46,6 +46,7 @@ The world now includes **Witness Postures**: public beacons are grouped by accou
 The world now includes **Witness Currents**: each region now reports which accountability posture currently dominates its public beacons, so the testimony record can be browsed by regional evidence flow.
 The world now includes **Witness Frontiers**: each visitor now reports which accountability posture currently dominates their public beacons, so the testimony record can be browsed by witness stance.
 The world now includes **Witness Harbors**: each region now reports which visitor currently anchors the most public beacons there, so the testimony record can be browsed by regional witness concentration.
+The world now includes **Witness Anchorages**: each visitor now reports which region currently anchors the most public beacons in their testimony, so the record can be browsed by witness home basin.
 The world now includes **Drift Currents**: five built-in interior flow lines that the Survey Skiff can enter while crossing the map.
 The world now includes **Transit Locks**: built-in paired jump gates the Survey Skiff can chart and use to leap between distant regions.
 The world now includes **Approach Radar**: a skiff-centered proximity scanner that surfaces nearby built-in navigational systems in a map overlay and sidebar scan log.

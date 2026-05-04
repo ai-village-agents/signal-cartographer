@@ -678,6 +678,7 @@ const el = {
   witnessCurrents: document.getElementById("witnessCurrents"),
   witnessFrontiers: document.getElementById("witnessFrontiers"),
   witnessHarbors: document.getElementById("witnessHarbors"),
+  witnessAnchorages: document.getElementById("witnessAnchorages"),
   recenterBtn: document.getElementById("recenterBtn"),
   toggleLandmarks: document.getElementById("toggleLandmarks"),
   toggleBeacons: document.getElementById("toggleBeacons"),
@@ -1272,6 +1273,7 @@ function setRegionDetail(regionName) {
   renderWitnessCurrents();
   renderWitnessFrontiers();
   renderWitnessHarbors();
+  renderWitnessAnchorages();
   renderWitnessRegister();
   renderWitnessBalance();
 }
@@ -11341,6 +11343,165 @@ function renderWitnessHarbors() {
   });
 }
 
+function renderWitnessAnchorages() {
+  if (!el.witnessAnchorages) return;
+
+  const validRegionLabels = Object.keys(REGION_COPY);
+  const validRegions = new Set(validRegionLabels);
+  const validRegionOrder = new Map(validRegionLabels.map((label, index) => [label, index]));
+  const unknownVisitorLabel = "Unknown visitor";
+  const unknownRegionLabel = "Unknown region";
+  const normalizeVisitorValue = (value) => String(value || "").trim() || unknownVisitorLabel;
+  const normalizeVisitorLabel = (value) => normalizeVisitorValue(value).toLowerCase();
+  const normalizeRegionLabel = (value) => {
+    const trimmed = String(value || "").trim();
+    return validRegions.has(trimmed) ? trimmed : unknownRegionLabel;
+  };
+  const beacons = (Array.isArray(state.beacons) ? state.beacons : []).map((beacon) => ({ ...beacon, type: "beacon" }));
+
+  if (beacons.length === 0) {
+    el.witnessAnchorages.innerHTML = '<p class="small">Witness anchorages are awaiting public beacons.</p>';
+    return;
+  }
+
+  const summariesByVisitor = new Map();
+  beacons.forEach((beacon) => {
+    const visitorLabel = normalizeVisitorValue(beacon && beacon.visitor);
+    if (!summariesByVisitor.has(visitorLabel)) {
+      summariesByVisitor.set(visitorLabel, {
+        visitorLabel,
+        normalizedVisitorLabel: normalizeVisitorLabel(visitorLabel),
+        beacons: [],
+        regionCounts: new Map()
+      });
+    }
+    const summary = summariesByVisitor.get(visitorLabel);
+    const regionLabel = normalizeRegionLabel(beacon && beacon.region);
+    summary.beacons.push(beacon);
+    summary.regionCounts.set(regionLabel, Number(summary.regionCounts.get(regionLabel) || 0) + 1);
+  });
+
+  const entries = Array.from(summariesByVisitor.values())
+    .map((summary) => {
+      const totalCount = summary.beacons.length;
+      const regionCount = summary.regionCounts.size;
+      let dominantRegionLabel = unknownRegionLabel;
+      let dominantRegionCount = 0;
+      if (regionCount > 0) {
+        Array.from(summary.regionCounts.entries())
+          .sort((a, b) => {
+            const countDiff = b[1] - a[1];
+            if (countDiff !== 0) return countDiff;
+            const aValid = validRegionOrder.has(a[0]);
+            const bValid = validRegionOrder.has(b[0]);
+            if (aValid && bValid) {
+              const orderDiff = Number(validRegionOrder.get(a[0])) - Number(validRegionOrder.get(b[0]));
+              if (orderDiff !== 0) return orderDiff;
+            } else if (aValid && !bValid) {
+              return -1;
+            } else if (!aValid && bValid) {
+              return 1;
+            }
+            if (a[0] === unknownRegionLabel && b[0] !== unknownRegionLabel) {
+              return 1;
+            }
+            if (a[0] !== unknownRegionLabel && b[0] === unknownRegionLabel) {
+              return -1;
+            }
+            return a[0].localeCompare(b[0]);
+          })
+          .some(([regionLabel, count]) => {
+            dominantRegionLabel = regionLabel;
+            dominantRegionCount = Number(count) || 0;
+            return true;
+          });
+      }
+      return {
+        visitorLabel: summary.visitorLabel,
+        normalizedVisitorLabel: summary.normalizedVisitorLabel,
+        totalCount,
+        regionCount,
+        dominantRegionLabel,
+        dominantRegionCount,
+        freshestBeacon: summary.beacons.slice().sort(compareBeaconLedger)[0] || null
+      };
+    })
+    .sort((a, b) => b.totalCount - a.totalCount || a.visitorLabel.localeCompare(b.visitorLabel));
+
+  const activeVisitorLabel = state.activeTrace && state.activeTrace.type === "beacon"
+    ? normalizeVisitorLabel(state.activeTrace && state.activeTrace.visitor)
+    : "";
+  const listHtml = entries
+    .map((entry) => {
+      const issueNumber = entry.freshestBeacon ? parseIssueNumber(entry.freshestBeacon.issueNumber) : null;
+      const freshestLabel = issueNumber !== null
+        ? `Issue #${issueNumber}`
+        : String((entry.freshestBeacon && entry.freshestBeacon.title) || "").trim() || "Unknown";
+      const summaryLine = `${entry.visitorLabel} has left ${entry.totalCount} beacon${entry.totalCount === 1 ? "" : "s"} across ${entry.regionCount} region${entry.regionCount === 1 ? "" : "s"}, with ${entry.dominantRegionLabel} as the dominant region (${entry.dominantRegionCount} of ${entry.totalCount}).`;
+      const disabledAttr = entry.totalCount === 0 ? " disabled" : "";
+      const activeClass = activeVisitorLabel && activeVisitorLabel === entry.normalizedVisitorLabel ? " is-active" : "";
+
+      return `
+        <li>
+          <div class="survey-item${activeClass}">
+            <span class="survey-header">${escapeHtml(entry.visitorLabel)}</span>
+            <span class="survey-copy">${escapeHtml(summaryLine)}</span>
+            <span class="survey-meta">
+              <span class="survey-pill">Total beacons: ${entry.totalCount}</span>
+              <span class="survey-pill">Regions: ${entry.regionCount}</span>
+              <span class="survey-pill">Dominant region: ${escapeHtml(entry.dominantRegionLabel)}</span>
+              <span class="survey-pill">Freshest beacon: ${escapeHtml(freshestLabel)}</span>
+            </span>
+          </div>
+          <div class="survey-actions">
+            <button type="button" class="survey-action" data-witness-anchorages-browse="${escapeHtml(entry.visitorLabel)}"${disabledAttr}>Browse anchored region</button>
+            <button type="button" class="survey-action" data-witness-anchorages-inspect="${escapeHtml(entry.visitorLabel)}"${disabledAttr}>Inspect freshest beacon</button>
+          </div>
+        </li>
+      `;
+    })
+    .join("");
+
+  el.witnessAnchorages.innerHTML = `<ul class="survey-list">${listHtml}</ul>`;
+
+  el.witnessAnchorages.querySelectorAll("[data-witness-anchorages-browse]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const visitorLabel = String(node.dataset.witnessAnchoragesBrowse || "");
+      const entry = entries.find((item) => item && item.visitorLabel === visitorLabel);
+      if (!entry) return;
+      const regionOptions = getSelectOptionValues(el.ledgerRegionFilter);
+      const postureOptions = getSelectOptionValues(el.ledgerPostureFilter);
+      if (el.ledgerRegionFilter) {
+        if (validRegions.has(entry.dominantRegionLabel) && regionOptions.has(entry.dominantRegionLabel)) {
+          el.ledgerRegionFilter.value = entry.dominantRegionLabel;
+        } else if (regionOptions.has("All regions")) {
+          el.ledgerRegionFilter.value = "All regions";
+        }
+      }
+      if (el.ledgerPostureFilter && postureOptions.has("All postures")) {
+        el.ledgerPostureFilter.value = "All postures";
+      }
+      if (el.ledgerSearchFilter) {
+        el.ledgerSearchFilter.value = entry.visitorLabel === unknownVisitorLabel ? "" : entry.visitorLabel;
+      }
+      handleLedgerFilterChange();
+    });
+  });
+
+  el.witnessAnchorages.querySelectorAll("[data-witness-anchorages-inspect]").forEach((node) => {
+    node.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const visitorLabel = String(node.dataset.witnessAnchoragesInspect || "");
+      const entry = entries.find((item) => item && item.visitorLabel === visitorLabel);
+      if (!entry || !entry.freshestBeacon) return;
+      activateMarker(entry.freshestBeacon, { focus: true, updateHash: true });
+    });
+  });
+}
+
 function setActiveTrace(marker) {
   state.activeTrace = marker
     ? {
@@ -11367,6 +11528,7 @@ function setActiveTrace(marker) {
   renderWitnessCurrents();
   renderWitnessFrontiers();
   renderWitnessHarbors();
+  renderWitnessAnchorages();
   renderWitnessRegister();
   renderWitnessBalance();
   renderBridgeAperturePanel();
@@ -14220,6 +14382,7 @@ async function fetchBeaconComments() {
     renderWitnessCurrents();
     renderWitnessFrontiers();
     renderWitnessHarbors();
+    renderWitnessAnchorages();
     renderWitnessRegister();
     renderWitnessBalance();
     return;
@@ -14253,6 +14416,7 @@ async function fetchBeaconComments() {
     renderWitnessCurrents();
     renderWitnessFrontiers();
     renderWitnessHarbors();
+    renderWitnessAnchorages();
     renderWitnessRegister();
     renderWitnessBalance();
     return;
@@ -14321,6 +14485,7 @@ async function fetchBeaconComments() {
   renderWitnessCurrents();
   renderWitnessFrontiers();
   renderWitnessHarbors();
+  renderWitnessAnchorages();
   renderWitnessRegister();
   renderWitnessBalance();
 }
@@ -16474,6 +16639,7 @@ async function initBeacons() {
     renderWitnessCurrents();
     renderWitnessFrontiers();
     renderWitnessHarbors();
+    renderWitnessAnchorages();
     renderWitnessRegister();
     renderWitnessBalance();
     const restoredFromHash = restoreHashSelection();
@@ -16565,6 +16731,7 @@ async function initBeacons() {
     renderWitnessCurrents();
     renderWitnessFrontiers();
     renderWitnessHarbors();
+    renderWitnessAnchorages();
     renderWitnessRegister();
     renderWitnessBalance();
     renderBeaconLedger();
